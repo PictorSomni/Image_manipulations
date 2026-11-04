@@ -8283,12 +8283,16 @@ def main(page: ft.Page):
          zipper_btn.on_click),
         ("Partager le lien", ft.Icons.LINK, BLUE,
          lambda e: _run_action(_share_link, list(selected))),
-        ("Envoyer à Claude", ft.Icons.SEND_OUTLINED, YELLOW,
-         lambda e: _send_to_claude()),
+        ("Envoyer par mail", ft.Icons.MAIL_OUTLINE, YELLOW,
+         lambda e: _run_action(_mail_selected, list(selected))),
         ("Ajouter à l'IA", ft.Icons.SMART_TOY_OUTLINED, VIOLET,
          ajouter_ia_btn.on_click),
         ("Supprimer", ft.Icons.DELETE_OUTLINE, RED,
          supprimer_btn.on_click),
+        None,
+        # Réservé à Charles : discret, en fin de rangée.
+        ("Envoyer à Claude", ft.Icons.TERMINAL, LIGHT_GREY,
+         lambda e: _send_to_claude()),
     ]
     # Pas d'entrée "Importer depuis téléphone" ici : le téléphone apparaît
     # dans le volet "Périphériques" du menu Ouvrir, au même endroit que les
@@ -8586,11 +8590,7 @@ def main(page: ft.Page):
             # Fichier garde la couleur propre à chaque action (Coller,
             # Renommer, rotations...), trop d'actions différentes pour
             # qu'un seul accent reste lisible (retour user).
-            body = ft.Column([
-                _action_row("Envoyer par mail", ft.Icons.MAIL_OUTLINE,
-                            YELLOW, lambda e: _run_action(
-                                _mail_selected, list(selected))),
-                _icon_row(tools)], spacing=8)
+            body = _icon_row(tools)
         else:
             body = ft.Column(
                 [_action_row(t[0], t[1], accent, t[3]) for t in tools],
