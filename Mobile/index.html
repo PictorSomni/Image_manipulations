@@ -709,8 +709,7 @@ function taskDetails(row) {
       h("span", {style: {marginLeft: "auto"}}), smsBtn(row), callBtn(row),
       row["E-mail"] || row["Téléphone"] ? h("button", {class: "btn",
         style: {background: C.yellow, color: "#222429"},
-        onclick: () => mailSheet({to: row["E-mail"] || "",
-          phone: row["Téléphone"]}), title: "Mail"},
+        onclick: () => notifyClient(row), title: "Mail"},
         ic("mail")) : null)]);
 }
 
