@@ -561,8 +561,13 @@ def build(ui):
          "Colorise cette photo noir et blanc de façon naturelle et "
          "réaliste, visages fidèles.", True, "Précisions éventuelles…"),
         ("Améliorer", ft.Icons.AUTO_AWESOME,
-         "Améliore cette photo : netteté, exposition et couleurs "
-         "naturelles, sans changer le contenu.", True,
+         "Remets cette photo dans son meilleur état : supprime tout flou "
+         "de bougé ou de mise au point, reconstruis des détails, textures "
+         "et contours nets, débruite, retire les artefacts de compression, "
+         "corrige exposition, ombres bouchées, hautes lumières cramées, "
+         "balance des blancs et couleurs. Résultat net, propre et naturel, "
+         "comme pris avec un bon appareil ; même sujet, même identité, "
+         "même cadrage.", True,
          "Précisions éventuelles…"),
     ]
     image_mode = {"i": None}
@@ -575,6 +580,10 @@ def build(ui):
         ai_input_field.disabled = ai_send_button.disabled = False
         ai_send_button.icon_color = BLUE
         page.update()
+        # Modes préréglés avec image cochée : un appui suffit (retour user).
+        if index >= 2 and ai_pending_images:
+            _image_submit()
+            return
         page.run_task(ai_input_field.focus)
 
     def _image_submit(event=None):
