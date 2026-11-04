@@ -2370,10 +2370,15 @@ def _volume_top(ms, top, lvl, r0, contrast, edge, rng):
     yy = np.arange(h, dtype=np.float32)[:, None]
     # Profil : rien au-dessus de top - 2 r0, plein à top + r0.
     dy = yy - top[None, :]
-    hp = np.clip((dy + 2.0 * r0) / (3.0 * r0), 0, 1)
+    # Profil en hauteur (Schneider) suivant le contraste : 0 stratus
+    # plat et fin, 1 cumulus haut et bombé.
+    k = float(np.clip(contrast, 0, 1))
+    up_, dn_ = r0 * (0.6 + 3.4 * k), r0 * (1.0 + 3.0 * k)
+    hp = np.clip((dy + up_) / (up_ + r0), 0, 1)
+    hp = hp * hp * (3 - 2 * hp) if k > 0.5 else hp
     # Seulement une bande de quelques volutes sous le dessus : sinon
     # un mur de nuages monte partout où la nappe est partielle.
-    hp = hp * np.exp(-np.maximum(dy - r0, 0) / (3.0 * r0))
+    hp = hp * np.exp(-np.maximum(dy - r0, 0) / dn_)
     # Nappe collée au haut du cadre : pas de rangée de nuages au bord.
     hp = hp * np.clip(top[None, :] / (4.0 * r0) - 0.5, 0, 1)
     base = 0.6 * _worley(h, w, 2.0 * r0, rng) \
@@ -2430,9 +2435,12 @@ def _volume_light(dens, r0, contrast):
         a, b, cc = 0.5 ** i, 0.5 ** i, 0.5 ** i
         ph = 0.5 * _hg(c, 0.8 * cc) + 0.5 * _hg(c, -0.3 * cc)
         lum = lum + a * np.exp(-tau * b) * np.clip(ph / p0, 0, 4)
-    powder = 1 - np.exp(-2 * cv2.GaussianBlur(dens, (0, 0),
-                                              max(1.0, r0 * 0.3)) * 3)
-    return np.clip(lum / 1.75 * (0.55 + 0.45 * powder), 0, 1.6)
+    # Beer-Powder (Schneider, Horizon Zero Dawn) : 2 e^-d (1 - e^-2d),
+    # bords fins sombres, cœur lumineux ; plus marqué dos au soleil.
+    d = cv2.GaussianBlur(dens, (0, 0), max(1.0, r0 * 0.3)) * 3
+    bp = np.clip(2 * (1 - np.exp(-2 * d)), 0, 1)
+    k = 0.3 + 0.4 * (1 - c) / 2
+    return np.clip(lum / 1.75 * ((1 - k) + k * bp), 0, 1.6)
 
 
 def _cloud_noise_cached(h, w, size, seed):
