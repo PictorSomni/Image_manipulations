@@ -2386,6 +2386,9 @@ def _volume_top(ms, top, lvl, r0, contrast, edge, rng):
     dens = np.clip((dens - ero) / max(1e-3, 1 - ero.min()), 0, 1)
     dens = cv2.GaussianBlur(dens, (0, 0), max(0.6, r0 * 0.04))
     dens = dens * lvl[None, :]
+    # Seulement sur une nappe dense : pas de rangée isolée dans le ciel.
+    lm = max(1e-3, float(lvl.max()))
+    dens = dens * np.clip((lvl - 0.55 * lm) / (0.25 * lm), 0, 1)[None, :]
     _VOL_LIGHT = (_volume_light(dens, r0, contrast), dens)
     return dens
 
@@ -2837,6 +2840,13 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
         occ = 1 - np.exp(-np.maximum(dy, 0) / (h * 0.06 * (1.1 - t)))
         col = col * up((1 - 0.5 * contrast * occ).astype(
             np.float32))[..., None]
+        if _VOLUME:
+            # Bancs éclairés comme le volume : soleil, phase, powder.
+            lt = _volume_light(np.clip(cov, 0, 1).astype(np.float32),
+                               max(2.0, h * 0.03 * (1.1 - t)), contrast)
+            lt = up(lt.astype(np.float32))[..., None]
+            col = shade + (color * 1.08 - shade) * np.clip(
+                0.25 + 0.8 * lt, 0, 1.4)
         al = np.clip(amount * thick * 0.85 * cov * vis * hw
                      * (1 - 0.5 * spread * t), 0, cap)
         al = up(al.astype(np.float32))
