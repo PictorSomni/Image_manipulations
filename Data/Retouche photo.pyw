@@ -190,7 +190,7 @@ def default_params():
                       "distort": C.BRUME_DISTORT,
                       "ground": C.BRUME_GROUND,
                       "ground_height": C.BRUME_GROUND_HEIGHT,
-                      "show_depth": False},
+                      "show_depth": False, "volume": 0},
             "rayons": {"enabled": C.RAYONS_ENABLED, "x": C.RAYONS_X,
                        "y": C.RAYONS_Y, "length": C.RAYONS_LENGTH,
                        "intensity": C.RAYONS_INTENSITY,
@@ -496,7 +496,7 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
             "cloud_size", "show_depth", "ground",
             "ground_height", "fond", "distort", "edge", "contrast",
             "seed", "visible", "grain",
-            "bumps")),
+            "bumps", "volume")),
           ("rayons", image_ops.add_sunrays,
            ("x", "y", "length", "intensity", "warmth", "threshold",
             "sun_size", "influence", "depth", "precise", "rays",
@@ -1823,6 +1823,18 @@ def main(page: ft.Page):
             reset_registry.setdefault("levels", []).append((lv, sub))
             rows.insert(0, ft.Row([lv], expand=True))
             lv.expand = True
+        if "volume" in sub:
+            vm = ft.CupertinoSlidingSegmentedButton(
+                selected_index=int(sub["volume"]), thumb_color=color,
+                expand=True,
+                controls=[ft.Text(t, size=12, color=WHITE)
+                          for t in ("Boules", "Mix", "Volume")])
+
+            def _mode(e, sub=sub):
+                sub["volume"] = e.control.selected_index
+                live_preview_tick()
+            vm.on_change = _mode
+            rows.insert(1, ft.Row([vm], expand=True))
         rows = [*head, *rows, *extra]
         return _make_section(label, color, icon, sub, rows)
 

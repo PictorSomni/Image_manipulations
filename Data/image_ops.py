@@ -2341,6 +2341,57 @@ _noise_cache = {}
 _SEED = 0
 _GRAIN = 0.0  # taille du sous-bruit 0..1, posée par add_haze
 _RES = 640.0  # résolution des volutes (grand côté), posée par add_haze
+_VOLUME = False  # volutes en champ de densité éclairé (Nubis/Hillaire)
+_VOL_LIGHT = None  # éclairage calculé par _volume_top
+
+
+def _worley(h, w, cell, rng):
+    """Bruit de Worley : 1 au centre de cellules aléatoires de taille
+    ~cell, 0 à leur bord (formes rondes de cumulus)."""
+    n = max(4, int(h * w / max(1.0, cell) ** 2))
+    pts = np.full((h, w), 255, np.uint8)
+    pts[rng.integers(0, h, n), rng.integers(0, w, n)] = 0
+    d = cv2.distanceTransform(pts, cv2.DIST_L2, 5)
+    return np.clip(1 - d / (0.75 * cell), 0, 1).astype(np.float32)
+
+
+def _volume_top(ms, top, lvl, r0, contrast, edge, rng):
+    """Dessus de la nappe en champ de densité (Schneider, Nubis) :
+    profil en hauteur sous la ligne, forme Perlin-Worley, bords rongés
+    par un Worley fin. Éclairage d'en haut (Hillaire 2016) :
+    Beer-Lambert multi-diffusion sum a^i exp(-b^i tau) et effet powder
+    1 - exp(-2 tau). Rangé dans _VOL_LIGHT."""
+    global _VOL_LIGHT
+    h, w = ms.shape
+    yy = np.arange(h, dtype=np.float32)[:, None]
+    # Profil : rien au-dessus de top - 2 r0, plein à top + r0.
+    hp = np.clip((yy - top[None, :] + 2.0 * r0) / (3.0 * r0), 0, 1)
+    base = 0.6 * _worley(h, w, 2.0 * r0, rng) \
+        + 0.4 * _worley(h, w, r0, rng)
+    pw = _grain(h, w, 53, max(1.0, r0)) * 0.15 + base
+    dens = np.clip((pw - (1 - hp)) / max(1e-3, hp.max()), 0, 1) * hp
+    # Érosion : Worley fin, plus fort près du bord (dens faible).
+    fine = _worley(h, w, r0 * (0.25 + 0.3 * _GRAIN), rng)
+    ero = (0.3 + 0.4 * edge) * (1 - fine) * (1 - dens)
+    dens = np.clip((dens - ero) / max(1e-3, 1 - ero.min()), 0, 1)
+    dens = cv2.GaussianBlur(dens, (0, 0), max(0.6, r0 * 0.04))
+    dens = dens * lvl[None, :]
+    _VOL_LIGHT = (_volume_light(dens, r0, contrast), dens)
+    return dens
+
+
+def _volume_light(dens, r0, contrast):
+    """Lumière zénithale à travers le champ de densité."""
+    h, w = dens.shape
+    # Épaisseur optique vers le haut (lumière zénithale) sur ~3 r0.
+    L = max(2, int(3 * r0))
+    cs = np.cumsum(dens, axis=0)
+    tau = cs - np.vstack([np.zeros((L, w), np.float32), cs[:-L]])
+    tau = tau * (4.0 / L) * (0.5 + contrast)
+    ms_ = sum(0.5 ** i * np.exp(-tau * 0.5 ** i) for i in range(3))
+    powder = 1 - np.exp(-2 * cv2.GaussianBlur(dens, (0, 0),
+                                              max(1.0, r0 * 0.3)) * 3)
+    return ms_ / 1.75 * (0.55 + 0.45 * powder)
 
 
 def _cloud_noise_cached(h, w, size, seed):
@@ -2357,13 +2408,15 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
              clouds=0.0, cloud_size=30.0, show_depth=False,
              ground=0.0, ground_height=0.3,
              bumps=1.0, fond=1.0, contrast=1.0, distort=0.5, edge=0.1, seed=0,
-             visible=0.0, grain=1.0):
+             visible=0.0, grain=1.0, volume=False):
     """Brume / voile atmosphérique : mélange vers une couleur laiteuse,
     dense au loin selon la carte de profondeur. depth : 0 uniforme,
     1 = seulement l'arrière-plan. warmth -1 froid .. 1 chaud.
     clouds 0-1 : nappes irrégulières plutôt qu'un voile uni, en
     perspective (plus fines au loin)."""
-    global _SEED, _GRAIN, _RES
+    global _SEED, _GRAIN, _RES, _VOLUME, _VOL_LIGHT
+    # volume : 0 boules, 1 boules éclairées en volume, 2 volume.
+    _VOLUME, _VOL_LIGHT = int(volume), None
     # Résolution des volutes suivant la qualité : rapide 640 px,
     # équilibré 1600 px, qualité 3000 px (pleine résolution : mémoire
     # saturée sur le Pi).
@@ -2473,6 +2526,12 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
         ao = sum(np.clip(cv2.GaussianBlur(hwf, (0, 0), h * sc) - hwf, 0, 1)
                  for sc in (0.01, 0.04))
         f = f * (1 - np.clip(ao * 4.0 * contrast, 0, 0.5))
+        if _VOL_LIGHT is not None:
+            # Volume : éclairage calculé dans le champ de densité.
+            lt, dn = (cv2.resize(x, (w, h), interpolation=cv2.INTER_LINEAR)
+                      for x in _VOL_LIGHT)
+            v = np.clip(dn * 2, 0, 1) * ground
+            f = f * (1 - v) + v * (0.45 + 0.75 * lt)
         fc = color * f[..., None]
     out = img * (1 - a * (1 - 0.6 * clouds)) \
         + fc * a * (1 - 0.6 * clouds)
@@ -2529,6 +2588,7 @@ def _bumpy_top(m, bumps, edge, far=None, amp=1.0, contrast=0.5,
     """Dessus de la brume au sol en boules (cumulus) : disques flous
     posés le long du bord supérieur de la nappe (là où m passe 0.5),
     plus petits vers le haut du cadre (plus loin) ; dessous plat."""
+    global _VOL_LIGHT
     H, W = m.shape
     s = min(1.0, _RES / max(H, W))
     h, w = max(1, int(H * s)), max(1, int(W * s))
@@ -2562,7 +2622,10 @@ def _bumpy_top(m, bumps, edge, far=None, amp=1.0, contrast=0.5,
     top = cv2.GaussianBlur((top * has)[None, :], (0, 0), k)[0] \
         / np.maximum(wgt, 1e-3)
     lvl = cv2.GaussianBlur(lvl[None, :], (0, 0), k)[0]
-    x = 0.0
+    x = w if _VOLUME == 2 else 0.0
+    if _VOLUME == 2:
+        balls = _volume_top(ms, top, lvl, r0, contrast, edge, rng) \
+            * (wgt[None, :] > 0.3)
     while x < w:
         i = int(x)
         if wgt[i] > 0.3:
@@ -2586,11 +2649,12 @@ def _bumpy_top(m, bumps, edge, far=None, amp=1.0, contrast=0.5,
     # des disques dessinés.
     # ponytail: bruit rond, pas le bruit à filaments (traînées façon
     # aurore boréale avec de petites volutes).
-    tx = _grain(h, w, 17, max(1.0, r0 * 0.25))
-    nz = 0.2 * (0.3 + 0.7 * edge)
-    balls = balls * np.clip(1 + nz * tx, 0, None)
-    balls = cv2.GaussianBlur(balls, (0, 0),
-                             max(0.6, r0 * (0.03 + 0.87 * edge)))
+    if _VOLUME != 2:
+        tx = _grain(h, w, 17, max(1.0, r0 * 0.25))
+        nz = 0.2 * (0.3 + 0.7 * edge)
+        balls = balls * np.clip(1 + nz * tx, 0, None)
+        balls = cv2.GaussianBlur(balls, (0, 0),
+                                 max(0.6, r0 * (0.03 + 0.87 * edge)))
     # Sous-volutes floutées à leur échelle : sinon le flou des grosses
     # les efface.
     qs = 0.04 + 0.1 * _GRAIN
@@ -2611,6 +2675,9 @@ def _bumpy_top(m, bumps, edge, far=None, amp=1.0, contrast=0.5,
     # bruit de volutes : celui-ci créait des formes étrangères.
     d = 0.08 * contrast
     balls = balls * np.clip(1 + d * _grain(h, w, 23), 0, None)
+    if _VOLUME == 1:
+        # Mix : formes des boules, lumière du volume (peu coûteux).
+        _VOL_LIGHT = (_volume_light(balls, r0, contrast), balls)
     if far is not None:
         # Les boules restent derrière ce qui est plus proche que la
         # nappe (arbres du premier plan) : profondeur au pied de la ligne.
