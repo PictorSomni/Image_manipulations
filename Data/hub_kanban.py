@@ -677,7 +677,7 @@ def build(ui):
         rows.append(ft.Row([
             ft.Row(badges, spacing=4, wrap=True, expand=True),
             *([ft.IconButton(
-                ft.Icons.CLOSE, icon_color=LIGHT_GREY, icon_size=12,
+                ft.Icons.DELETE_OUTLINE, icon_color=RED, icon_size=16,
                 tooltip="Corbeille", style=ft.ButtonStyle(padding=2),
                 on_click=lambda e, r=row: _kanban_trash_row(r))]
               if row["etat"] in ("Commandé", "Terminé") else []),

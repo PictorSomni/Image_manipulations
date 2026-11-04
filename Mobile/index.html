@@ -377,9 +377,9 @@ function taskCard(row, withEtat) {
     info.length ? h("div", {class: "muted"}, info.join("  ·  ")) : null,
     h("div", {class: "badges"}, badges, ["Commandé", "Terminé"]
       .includes(etat) ? h("span", {class: "ms", title: "Corbeille",
-        style: {marginLeft: "auto", fontSize: "18px", opacity: .6},
+        style: {marginLeft: "auto", fontSize: "20px", color: C.red},
         onclick: e => { e.stopPropagation(); deleteTask(row); }},
-      "close") : null));
+      "delete") : null));
 }
 
 function viewTasks() {
