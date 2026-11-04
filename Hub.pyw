@@ -5394,9 +5394,10 @@ def main(page: ft.Page):
             if merged != rows:
                 # Ajouts d'un autre appareil intégrés : copie locale à jour.
                 CONSTANTS.save_json(path, merged)
-                if _liste_file["path"] == path:
-                    _liste_load(pull=False)
-                    _liste_render()
+                with _liste_lock:
+                    if _liste_file["path"] == path:
+                        _liste_load(pull=False)
+                        _liste_render()
         except Exception as exc:
             _sync_dirty(name, True)
             _log_to_terminal(f"[Synchro] {name} pas envoyée au Pi : {exc}",
@@ -5428,14 +5429,24 @@ def main(page: ft.Page):
         _backup_file(path)
         with open(path, "w", encoding="utf-8") as f:
             json.dump(rows, f, ensure_ascii=False, indent=2)
-        if _liste_file["path"] == path:
-            _liste_load(pull=False)
-            _liste_render()
+        with _liste_lock:
+            if _liste_file["path"] == path:
+                _liste_load(pull=False)
+                _liste_render()
+
+    # Synchro en arrière-plan et clics se croisaient : deux chargements
+    # ou deux rendus entrelacés laissaient des lignes de l'ancienne liste
+    # (retour user). Un seul à la fois.
+    _liste_lock = threading.RLock()
 
     def _liste_load(pull=True):
         if pull and _sync_name(_liste_file["path"]):
             threading.Thread(target=_sync_pull, daemon=True,
                              args=(_liste_file["path"],)).start()
+        with _liste_lock:
+            _liste_load_locked()
+
+    def _liste_load_locked():
         # Erreur explicite plutôt qu'un "Liste vide" muet en cas de JSON
         # invalide ou de mauvais format (retour user : un fichier .json
         # cliqué dans Fichiers pouvait sembler vide sans qu'on sache si
@@ -6002,6 +6013,10 @@ def main(page: ft.Page):
         expand=True, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
     def _liste_render():
+        with _liste_lock:
+            _liste_render_locked()
+
+    def _liste_render_locked():
         _liste_quick_build()
         liste_header_row.content = _liste_header()
         liste_header_row.visible = bool(liste_entries)
