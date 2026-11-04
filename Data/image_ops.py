@@ -2387,6 +2387,12 @@ def _volume_top(ms, top, lvl, r0, contrast, edge, rng):
     dens = np.clip((pw - (1 - hp)) / max(1e-3, hp.max()), 0, 1) * hp
     # Érosion : Worley fin, plus fort près du bord (dens faible).
     fine = _worley(h, w, r0 * (0.25 + 0.3 * _GRAIN), rng)
+    # Octaves plus fines tant qu'elles font au moins 2 px : c'est ce
+    # que la résolution Qualité ajoute (finesse des bords).
+    cell, wt = r0 * (0.25 + 0.3 * _GRAIN) * 0.4, 0.5
+    while cell >= 2.0 and wt > 0.1:
+        fine = (fine + wt * _worley(h, w, cell, rng)) / (1 + wt)
+        cell, wt = cell * 0.4, wt * 0.6
     ero = (0.3 + 0.4 * edge) * (1 - fine) * (1 - dens)
     dens = np.clip((dens - ero) / max(1e-3, 1 - ero.min()), 0, 1)
     dens = cv2.GaussianBlur(dens, (0, 0), max(0.6, r0 * 0.04))
@@ -2736,6 +2742,10 @@ def _bumpy_top(m, bumps, edge, far=None, amp=1.0, contrast=0.5,
         yi = np.clip(top.astype(int) + 2, 0, h - 1)
         ft = cv2.GaussianBlur(fs[yi, np.arange(w)][None, :], (0, 0), k)[0]
         balls = balls * np.clip((fs - ft[None, :] + 0.06) / 0.06, 0, 1)
+        # Pas de volutes dans le ciel : une nappe plus haute que l'œil
+        # ne peut pas avoir son dessus au-dessus de l'horizon (sinon mur
+        # de nuages debout face à l'appareil) ; là, brume unie.
+        balls = balls * np.clip((0.97 - fs) / 0.04, 0, 1)
     out = ms + (1 - ms) * balls * amp * (1 - 0.1 * edge)
     return cv2.resize(out, (W, H), interpolation=cv2.INTER_LINEAR)
 

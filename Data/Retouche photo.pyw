@@ -1837,6 +1837,8 @@ def main(page: ft.Page):
             def _mode(e, sub=sub):
                 sub["volume"] = e.control.selected_index
                 live_preview_tick()
+                threading.Timer(0.3, _veil_if_slow,
+                                (state["live_req"],)).start()
             vm.on_change = _mode
             rows.insert(1, ft.Row([vm], expand=True))
         rows = [*head, *rows, *extra]
