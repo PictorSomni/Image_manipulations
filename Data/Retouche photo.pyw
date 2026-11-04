@@ -1821,7 +1821,8 @@ def main(page: ft.Page):
                                 (state["live_req"],)).start()
             lv.on_change = _level
             reset_registry.setdefault("levels", []).append((lv, sub))
-            rows.insert(0, lv)
+            rows.insert(0, ft.Row([lv], expand=True))
+            lv.expand = True
         rows = [*head, *rows, *extra]
         return _make_section(label, color, icon, sub, rows)
 

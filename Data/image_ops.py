@@ -2540,7 +2540,9 @@ def _bumpy_top(m, bumps, edge, far=None, amp=1.0, contrast=0.5,
     thr = 0.5 * float(np.percentile(ms, 99.5))
     # ponytail: curseur remappé sur l'ancienne plage 0,5-1 (en dessous,
     # boules trop espacées, retour user).
-    r0 = h * (0.03 + 0.05 * bumps)
+    # Minimum très petit (Qualité) ; l'espacement suit r, donc plus
+    # de volutes quand elles rapetissent.
+    r0 = h * (0.012 + 0.068 * bumps)
     if thr <= 0.02:
         return m
     # Ligne du dessus lissée sur la largeur : les boules suivent la
