@@ -98,6 +98,30 @@ def build(ui):
          KANBAN_PREVENU_COLORS),
     ]
 
+    def _kanban_trash_row(row):
+        kanban_state["rows"].remove(row)
+        _kanban_rebuild_columns()
+        _save_json(_KANBAN_CACHE_FILE, kanban_state["rows"])
+        page.update()
+
+        def _work():
+            _kanban_to_trash([row])
+            result = _notion_call("mcp__notion__notion-trash-page",
+                                  {"page_id": row["page_id"]})
+
+            async def _apply():
+                if result.startswith("Erreur"):
+                    kanban_state["rows"].append(row)
+                    _kanban_rebuild_columns()
+                    _save_json(_KANBAN_CACHE_FILE, kanban_state["rows"])
+                    kanban_status.value = (
+                        f"Échec de la suppression : {result}")
+                    page.update()
+
+            _run_task(_apply)
+
+        threading.Thread(target=_work, daemon=True).start()
+
     def _kanban_change_property(row, notion_prop, state_key, new_value):
         old_value = row.get(state_key, "")
         if old_value == new_value:
@@ -417,28 +441,7 @@ def build(ui):
             # Corbeille Notion (récupérable 30 jours) : pas de
             # confirmation. Retrait local immédiat, remis si échec.
             dlg.open = False
-            kanban_state["rows"].remove(row)
-            _kanban_rebuild_columns()
-            _save_json(_KANBAN_CACHE_FILE, kanban_state["rows"])
-            page.update()
-
-            def _work():
-                _kanban_to_trash([row])
-                result = _notion_call("mcp__notion__notion-trash-page",
-                                      {"page_id": row["page_id"]})
-
-                async def _apply():
-                    if result.startswith("Erreur"):
-                        kanban_state["rows"].append(row)
-                        _kanban_rebuild_columns()
-                        _save_json(_KANBAN_CACHE_FILE, kanban_state["rows"])
-                        kanban_status.value = (
-                            f"Échec de la suppression : {result}")
-                        page.update()
-
-                _run_task(_apply)
-
-            threading.Thread(target=_work, daemon=True).start()
+            _kanban_trash_row(row)
 
         def _confirm(event):
             props = {}
@@ -631,14 +634,6 @@ def build(ui):
                         overflow=ft.TextOverflow.ELLIPSIS, expand=True),
                 *([ft.Icon(ft.Icons.ATTACH_FILE, color=LIGHT_GREY,
                            size=14)] if row.get("files") else []),
-                *([ft.IconButton(
-                    ft.Icons.CLOSE, icon_color=DARK, icon_size=14,
-                    tooltip="Terminé",
-                    style=ft.ButtonStyle(bgcolor=KANBAN_ETAT_COLORS.get(
-                        "Terminé", GREY), padding=4),
-                    on_click=(lambda e, r=row: _kanban_change_property(
-                        r, "Etat", "etat", "Terminé")))]
-                  if row["etat"] != "Terminé" else []),
                 ft.IconButton(
                     ft.Icons.OPEN_IN_FULL, icon_color=DARK, icon_size=14,
                     tooltip="Détails / modifier",
@@ -679,7 +674,14 @@ def build(ui):
                                     options, colors)
                  for notion_prop, state_key, options, colors
                  in KANBAN_EDITABLE_PROPS[1:]]
-        rows.append(ft.Row(badges, spacing=4, wrap=True))
+        rows.append(ft.Row([
+            ft.Row(badges, spacing=4, wrap=True, expand=True),
+            *([ft.IconButton(
+                ft.Icons.CLOSE, icon_color=LIGHT_GREY, icon_size=12,
+                tooltip="Corbeille", style=ft.ButtonStyle(padding=2),
+                on_click=lambda e, r=row: _kanban_trash_row(r))]
+              if row["etat"] in ("Commandé", "Terminé") else []),
+        ], vertical_alignment=ft.CrossAxisAlignment.END))
         # Fond de la tuile teinté selon l'Etat (retour user) — en plus de
         # la couleur de colonne, pour repérer le statut même une fois les
         # colonnes défilées hors champ horizontalement.
