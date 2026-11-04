@@ -460,12 +460,15 @@ function mailFiles(id) {
   return box;
 }
 
+async function dropMail(m) {
+  S.briefing.mails = S.briefing.mails.filter(x => x !== m);
+  closeSheet(); render();
+  await api("/api/mail", {action: "done", id: m.message_id});
+}
+
 function replyMail(m) {
-  const ignore = h("button", {class: "btn out", onclick: async () => {
-    S.briefing.mails = S.briefing.mails.filter(x => x !== m);
-    closeSheet(); render();
-    await api("/api/mail", {action: "done", id: m.message_id});
-  }}, ic("done"), " Ignorer");
+  const ignore = h("button", {class: "btn out", onclick: () => dropMail(m)},
+    ic("done"), " OK");
   mailSheet({reply: m, extra: [ignore], onSent: () => {
     S.briefing.mails = S.briefing.mails.filter(x => x !== m); }});
 }
@@ -1221,7 +1224,9 @@ function viewHome() {
       h("i", {class: "bar2", style: {background: C.blue}}),
       h("div", {class: "tx"}, m.name || m.from,
         m.files_id ? [" ", ic("attach_file")] : null,
-        h("div", {class: "muted"}, m.summary || m.subject))))));
+        h("div", {class: "muted"}, m.summary || m.subject)),
+      h("span", {class: "ms", style: {padding: "4px", cursor: "pointer"},
+        onclick: e => { e.stopPropagation(); dropMail(m); }}, "close")))));
   // Terminées mais client pas encore prévenu : SMS / appel / mail.
   const waiting = (S.tasks || []).filter(r => r.Etat === "Terminé" &&
     !["Prévenu", "Viendra d'office"].includes(r["Prévenir ?"]));
