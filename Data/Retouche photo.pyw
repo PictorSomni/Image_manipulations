@@ -1557,6 +1557,15 @@ def main(page: ft.Page):
             # pendant le glissement le ferait sauter sous le doigt.
             _write(e.control.value, move_slider=False)
             live_preview_tick()
+            # Fin de glisser parfois non signalée (Windows) : 0,5 s sans
+            # mouvement vaut un relâché, le voile peut alors s'afficher.
+            stamp = state["slide_stamp"] = time.monotonic()
+
+            def _idle():
+                if state.get("slide_stamp") == stamp:
+                    state["dragging"] = False
+                    _veil_if_slow(state["live_req"])
+            threading.Timer(0.5, _idle).start()
 
         def _drag_start(e):
             state["dragging"] = True
@@ -1797,6 +1806,22 @@ def main(page: ft.Page):
             reset_registry.setdefault("toggles", []).append(
                 (sw, sub, key))
             rows.append(sw)
+        if "precise" in sub:
+            # Qualité : réglages rapides en basse résolution, puis
+            # passage en Qualité une fois le cadrage des nuages trouvé.
+            lv = ft.CupertinoSlidingSegmentedButton(
+                selected_index=int(sub["precise"]), thumb_color=color,
+                controls=[ft.Text(t, size=12, color=WHITE)
+                          for t in ("Rapide", "Équilibré", "Qualité")])
+
+            def _level(e, sub=sub):
+                sub["precise"] = e.control.selected_index
+                live_preview_tick()
+                threading.Timer(0.3, _veil_if_slow,
+                                (state["live_req"],)).start()
+            lv.on_change = _level
+            reset_registry.setdefault("levels", []).append((lv, sub))
+            rows.insert(0, lv)
         rows = [*head, *rows, *extra]
         return _make_section(label, color, icon, sub, rows)
 
