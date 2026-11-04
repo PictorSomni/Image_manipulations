@@ -2343,6 +2343,7 @@ _GRAIN = 0.0  # taille du sous-bruit 0..1, posée par add_haze
 _RES = 640.0  # résolution des volutes (grand côté), posée par add_haze
 _VOLUME = False  # volutes en champ de densité éclairé (Nubis/Hillaire)
 _VOL_LIGHT = None  # éclairage calculé par _volume_top
+_SUN = None  # position du soleil des Rayons (% du cadre), sinon zénith
 
 
 def _worley(h, w, cell, rng):
@@ -2389,20 +2390,46 @@ def _volume_top(ms, top, lvl, r0, contrast, edge, rng):
     return dens
 
 
+def _hg(c, g):
+    """Phase de Henyey-Greenstein."""
+    return (1 - g * g) / (4 * np.pi * (1 + g * g - 2 * g * c) ** 1.5)
+
+
 def _volume_light(dens, r0, contrast):
-    """Lumière zénithale à travers le champ de densité."""
+    """Lumière du soleil (_SUN, en % du cadre ; zénith sinon) à travers
+    le champ de densité (Hillaire 2016/2020) : épaisseur optique vers le
+    soleil, multi-diffusion sum a^i exp(-b^i tau) p(g c^i), phase à
+    deux lobes (liseré argenté en contre-jour), effet powder."""
     h, w = dens.shape
-    # Épaisseur optique vers le haut (lumière zénithale) sur ~3 r0.
-    L = max(2, int(3 * r0))
-    cs = np.cumsum(dens, axis=0)
-    tau = cs - np.vstack([np.zeros((L, w), np.float32), cs[:-L]])
-    tau = tau * (4.0 / L) * (0.5 + contrast)
-    # Lissé en largeur : pas de coulures verticales.
-    tau = cv2.GaussianBlur(tau, (0, 0), max(1.0, r0 * 0.5))
-    ms_ = sum(0.5 ** i * np.exp(-tau * 0.5 ** i) for i in range(3))
+    sx, sy = (50.0, -200.0) if _SUN is None else _SUN
+    sx, sy = sx / 100.0 * w, sy / 100.0 * h
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    vx, vy = sx - xx, sy - yy
+    dist = np.sqrt(vx * vx + vy * vy) + 1e-3
+    # Direction moyenne vers le soleil pour la marche (champ lisse).
+    dx, dy = float(np.mean(vx / dist)), float(np.mean(vy / dist))
+    n = 8
+    L = 3.0 * r0
+    tau = np.zeros_like(dens)
+    for k in range(1, n + 1):
+        t = L * k / n
+        M = np.float32([[1, 0, -dx * t], [0, 1, -dy * t]])
+        tau += cv2.warpAffine(dens, M, (w, h),
+                              borderMode=cv2.BORDER_CONSTANT)
+    tau = tau * (4.0 / n) * (0.5 + contrast)
+    tau = cv2.GaussianBlur(tau, (0, 0), max(1.0, r0 * 0.3))
+    # Angle de vue : pixel proche du soleil = contre-jour (cos -> 1).
+    diag = float(np.hypot(h, w))
+    c = np.clip(1.6 * np.exp(-dist / (0.35 * diag)) - 0.6, -1, 1)
+    p0 = 0.5 * _hg(0.0, 0.8) + 0.5 * _hg(0.0, -0.3)
+    lum = 0.0
+    for i in range(3):
+        a, b, cc = 0.5 ** i, 0.5 ** i, 0.5 ** i
+        ph = 0.5 * _hg(c, 0.8 * cc) + 0.5 * _hg(c, -0.3 * cc)
+        lum = lum + a * np.exp(-tau * b) * np.clip(ph / p0, 0, 4)
     powder = 1 - np.exp(-2 * cv2.GaussianBlur(dens, (0, 0),
                                               max(1.0, r0 * 0.3)) * 3)
-    return ms_ / 1.75 * (0.55 + 0.45 * powder)
+    return np.clip(lum / 1.75 * (0.55 + 0.45 * powder), 0, 1.6)
 
 
 def _cloud_noise_cached(h, w, size, seed):
@@ -2419,13 +2446,14 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
              clouds=0.0, cloud_size=30.0, show_depth=False,
              ground=0.0, ground_height=0.3,
              bumps=1.0, fond=1.0, contrast=1.0, distort=0.5, edge=0.1, seed=0,
-             visible=0.0, grain=1.0, volume=False):
+             visible=0.0, grain=1.0, volume=False, sun=None):
     """Brume / voile atmosphérique : mélange vers une couleur laiteuse,
     dense au loin selon la carte de profondeur. depth : 0 uniforme,
     1 = seulement l'arrière-plan. warmth -1 froid .. 1 chaud.
     clouds 0-1 : nappes irrégulières plutôt qu'un voile uni, en
     perspective (plus fines au loin)."""
-    global _SEED, _GRAIN, _RES, _VOLUME, _VOL_LIGHT
+    global _SEED, _GRAIN, _RES, _VOLUME, _VOL_LIGHT, _SUN
+    _SUN = sun
     # volume : 0 boules, 1 boules éclairées en volume, 2 volume.
     _VOLUME, _VOL_LIGHT = int(volume), None
     # Résolution des volutes suivant la qualité : rapide 640 px,

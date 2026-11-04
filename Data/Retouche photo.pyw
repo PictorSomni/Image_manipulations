@@ -511,7 +511,11 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
     for name, func, keys in fx:
         a = g.get(name)
         if a and a.get("enabled"):
-            result = func(result, **{k: a[k] for k in keys if k in a})
+            kw = {k: a[k] for k in keys if k in a}
+            if name == "brume" and g["rayons"].get("enabled"):
+                # Volume éclairé depuis le soleil des Rayons.
+                kw["sun"] = (g["rayons"]["x"], g["rayons"]["y"])
+            result = func(result, **kw)
     if g["grain1"]["enabled"]:
         a = g["grain1"]
         result = image_ops.add_film_grain(
