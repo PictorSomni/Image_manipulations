@@ -5759,13 +5759,13 @@ def main(page: ft.Page):
         CONSTANTS.COLOR_PINK, CONSTANTS.COLOR_BLUE_DARK]
 
 
-    def _liste_group_title(category, entry):
+    def _liste_group_title(category, entry, first):
         def _pick(e):
             # Clic sur un titre : la prochaine tâche ira dans ce groupe.
             liste_quick_cat_field.data = category
             liste_quick_cat_field.value = category
             page.update()
-        return ft.Container(
+        title = ft.Container(
             ft.Text(category.upper(),
                     size=CONSTANTS.TEXT_SM + 5, color=WHITE,
                     weight=ft.FontWeight.W_600,
@@ -5774,6 +5774,10 @@ def main(page: ft.Page):
             bgcolor=_liste_row_color(entry), border_radius=6, ink=True,
             on_click=_pick if _liste_is_todo_shaped() else None,
             padding=ft.Padding(10, 8, 10, 8), margin=ft.Margin(0, 10, 0, 2))
+        # Glisser un titre déplace tout le groupe (retour user).
+        return _liste_drop_target(ft.Column([ft.Container(), ft.Draggable(
+            group="liste_row", data=("groupe", category), content=title)],
+            spacing=2, tight=True), first)
 
     def _liste_row_color(entry):
         # Couleur par ordre d'apparition de la catégorie : distinctes
@@ -5894,8 +5898,26 @@ def main(page: ft.Page):
 
     def _liste_move(src, before):
         """Déplace l'entrée `src` juste avant l'indice `before` (None = fin)."""
+        if isinstance(src, (tuple, list)):
+            cat = src[1]
+
+            def _in(e):
+                return str(e.get(_LISTE_GROUP_COLUMN, "")).strip() == cat
+            block = [e for e in liste_entries if _in(e)]
+            rest = [e for e in liste_entries if not _in(e)]
+            end = len(liste_entries) if before is None else before
+            at = sum(1 for e in liste_entries[:end] if not _in(e))
+            liste_entries[:] = rest[:at] + block + rest[at:]
+            _liste_save()
+            _liste_render()
+            return
         if not 0 <= src < len(liste_entries) or src == before:
             return
+        # Posée dans un autre groupe : la ligne en prend la catégorie.
+        if (before is not None and 0 <= before < len(liste_entries)
+                and _LISTE_GROUP_COLUMN in liste_entries[src]):
+            liste_entries[src][_LISTE_GROUP_COLUMN] = (
+                liste_entries[before].get(_LISTE_GROUP_COLUMN, ""))
         entry = liste_entries.pop(src)
         if before is None:
             liste_entries.append(entry)
@@ -6025,7 +6047,7 @@ def main(page: ft.Page):
                 group = str(e.get(_LISTE_GROUP_COLUMN, "")).strip()
                 if group and group != last_group:
                     liste_list_view.controls.append(
-                        _liste_group_title(group, e))
+                        _liste_group_title(group, e, i))
                 last_group = group
                 liste_list_view.controls.append(_liste_row(i, e))
             liste_list_view.controls.append(_liste_drop_target(
