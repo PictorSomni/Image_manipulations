@@ -2352,7 +2352,10 @@ def _worley(h, w, cell, rng):
     pts = np.full((h, w), 255, np.uint8)
     pts[rng.integers(0, h, n), rng.integers(0, w, n)] = 0
     d = cv2.distanceTransform(pts, cv2.DIST_L2, 5)
-    return np.clip(1 - d / (0.75 * cell), 0, 1).astype(np.float32)
+    v = np.clip(1 - d / (0.75 * cell), 0, 1)
+    # Bords de cellules adoucis : pas de découpe nette.
+    return cv2.GaussianBlur(v * v * (3 - 2 * v), (0, 0),
+                            max(0.6, cell * 0.08)).astype(np.float32)
 
 
 def _volume_top(ms, top, lvl, r0, contrast, edge, rng):
@@ -2365,7 +2368,13 @@ def _volume_top(ms, top, lvl, r0, contrast, edge, rng):
     h, w = ms.shape
     yy = np.arange(h, dtype=np.float32)[:, None]
     # Profil : rien au-dessus de top - 2 r0, plein à top + r0.
-    hp = np.clip((yy - top[None, :] + 2.0 * r0) / (3.0 * r0), 0, 1)
+    dy = yy - top[None, :]
+    hp = np.clip((dy + 2.0 * r0) / (3.0 * r0), 0, 1)
+    # Seulement une bande de quelques volutes sous le dessus : sinon
+    # un mur de nuages monte partout où la nappe est partielle.
+    hp = hp * np.exp(-np.maximum(dy - r0, 0) / (3.0 * r0))
+    # Nappe collée au haut du cadre : pas de rangée de nuages au bord.
+    hp = hp * np.clip(top[None, :] / (4.0 * r0) - 0.5, 0, 1)
     base = 0.6 * _worley(h, w, 2.0 * r0, rng) \
         + 0.4 * _worley(h, w, r0, rng)
     pw = _grain(h, w, 53, max(1.0, r0)) * 0.15 + base
@@ -2388,6 +2397,8 @@ def _volume_light(dens, r0, contrast):
     cs = np.cumsum(dens, axis=0)
     tau = cs - np.vstack([np.zeros((L, w), np.float32), cs[:-L]])
     tau = tau * (4.0 / L) * (0.5 + contrast)
+    # Lissé en largeur : pas de coulures verticales.
+    tau = cv2.GaussianBlur(tau, (0, 0), max(1.0, r0 * 0.5))
     ms_ = sum(0.5 ** i * np.exp(-tau * 0.5 ** i) for i in range(3))
     powder = 1 - np.exp(-2 * cv2.GaussianBlur(dens, (0, 0),
                                               max(1.0, r0 * 0.3)) * 3)
