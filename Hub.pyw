@@ -8572,6 +8572,11 @@ def main(page: ft.Page):
         "Maintenance": BLUE_DARK,
     }
 
+    def _mail_selected(paths):
+        files = [p for p in paths if os.path.isfile(p)]
+        if files:
+            _mails["new_mail"](files=files)
+
     def _action_category(label, tools):
         # GREY sur le fond DARK de l'overlay est quasi illisible, deux
         # gris trop proches en luminance — cf. retour user.
@@ -8581,7 +8586,11 @@ def main(page: ft.Page):
             # Fichier garde la couleur propre à chaque action (Coller,
             # Renommer, rotations...), trop d'actions différentes pour
             # qu'un seul accent reste lisible (retour user).
-            body = _icon_row(tools)
+            body = ft.Column([
+                _action_row("Envoyer par mail", ft.Icons.MAIL_OUTLINE,
+                            YELLOW, lambda e: _run_action(
+                                _mail_selected, list(selected))),
+                _icon_row(tools)], spacing=8)
         else:
             body = ft.Column(
                 [_action_row(t[0], t[1], accent, t[3]) for t in tools],

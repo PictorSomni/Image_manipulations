@@ -22,7 +22,7 @@ def build(ui, bg, show, close, seg, field):
     WHITE, LIGHT_GREY, GREY = ui.WHITE, ui.LIGHT_GREY, ui.GREY
 
     def open_mail(to="", subject="", text=None, text_tu=None, reply=None,
-                  header=None, extra_actions=(), on_sent=None):
+                  header=None, extra_actions=(), on_sent=None, files=()):
         """reply : mail auquel on répond (adresse et objet imposés).
         text_tu : variante tutoyée du texte, appliquée au choix « Tu »
         tant que le texte n'a pas été retouché.
@@ -40,8 +40,9 @@ def build(ui, bg, show, close, seg, field):
                      max_lines=16, value=text,
                      on_change=lambda e: o.update(touched=True))
         status = ft.Text("", size=13, color=WHITE)
-        names = ft.Text("", size=13, color=LIGHT_GREY)
-        joined = []
+        joined = list(files)
+        names = ft.Text(", ".join(os.path.basename(p) for p in joined),
+                        size=13, color=LIGHT_GREY)
 
         def _tu(v):
             o["tu"] = v

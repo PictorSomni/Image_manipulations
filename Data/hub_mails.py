@@ -596,8 +596,8 @@ def build(ui):
                   text=READY.format(prix=prix),
                   text_tu=READY_TU.format(prix=prix), on_sent=on_sent)
 
-    def new_mail(to_addr=""):
-        open_mail(to=to_addr)
+    def new_mail(to_addr="", files=()):
+        open_mail(to=to_addr, files=files)
 
     hooks.update({"notify_client": notify_client,
                   "new_mail": new_mail,
