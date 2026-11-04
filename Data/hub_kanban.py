@@ -631,6 +631,14 @@ def build(ui):
                         overflow=ft.TextOverflow.ELLIPSIS, expand=True),
                 *([ft.Icon(ft.Icons.ATTACH_FILE, color=LIGHT_GREY,
                            size=14)] if row.get("files") else []),
+                *([ft.IconButton(
+                    ft.Icons.CLOSE, icon_color=DARK, icon_size=14,
+                    tooltip="Terminé",
+                    style=ft.ButtonStyle(bgcolor=KANBAN_ETAT_COLORS.get(
+                        "Terminé", GREY), padding=4),
+                    on_click=(lambda e, r=row: _kanban_change_property(
+                        r, "Etat", "etat", "Terminé")))]
+                  if row["etat"] != "Terminé" else []),
                 ft.IconButton(
                     ft.Icons.OPEN_IN_FULL, icon_color=DARK, icon_size=14,
                     tooltip="Détails / modifier",
