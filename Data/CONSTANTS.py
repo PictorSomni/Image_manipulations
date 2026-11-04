@@ -1302,22 +1302,26 @@ save_error_hook = {"fn": None}
 # (retour user : fini de fouiller la racine et Data/). Les anciens
 # fichiers y sont déplacés au premier accès.
 _REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-LOGS_DIR = os.path.join(_REPO_DIR, "Logs")
+LOGS_DIR = os.path.join(_REPO_DIR, "Réglages")
+_OLD_LOGS_DIR = os.path.join(_REPO_DIR, "Logs")
+
 
 
 def state_file(name):
-    """Chemin de ``name`` dans Logs/ (migré depuis la racine ou Data/)."""
+    """Chemin de ``name`` dans Réglages/, sans point devant pour rester
+    visible (migré depuis Logs/, la racine ou Data/)."""
     os.makedirs(LOGS_DIR, exist_ok=True)
-    new = os.path.join(LOGS_DIR, name)
+    new = os.path.join(LOGS_DIR, name.lstrip("."))
     if not os.path.exists(new):
-        for old_dir in (_REPO_DIR, os.path.dirname(os.path.abspath(__file__))):
+        for old_dir in (_OLD_LOGS_DIR, _REPO_DIR,
+                        os.path.dirname(os.path.abspath(__file__))):
             old = os.path.join(old_dir, name)
             if os.path.isfile(old):
                 try:
                     os.replace(old, new)
                 except OSError:
                     # Fichier verrouillé (Windows, autre instance ouverte) :
-                    # copie, et Logs/ sert quand même de nouvel emplacement.
+                    # copie, et Réglages/ sert quand même de nouvel emplacement.
                     try:
                         shutil.copy2(old, new)
                     except OSError:

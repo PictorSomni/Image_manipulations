@@ -88,4 +88,5 @@ ai_conversations_debug.md
 .kanban_order.json
 .kanban_trash.json
 Logs/
+Réglages/
 .venv/
