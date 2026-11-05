@@ -2504,6 +2504,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
             img, far, layer=ground_height, size=0.6 * bumps,
             billow=contrast, detail=grain, soft=edge, density=ground,
             warmth=warmth, sun=sun, res=_RES * 0.5, seed=seed,
+            recul=depth,
             strength=min(1.0, amount / 0.6) ** 1.5
             * (0.1 + 1.6 * ((distort - 0.15) / 0.49) ** 2))
         if sea is not None:

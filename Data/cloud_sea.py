@@ -117,7 +117,8 @@ def sky_mask(far):
 
 def render(img, far, layer=0.4, size=0.5, billow=0.6, detail=1.0,
            soft=0.2, density=1.0, warmth=0.0, sun=None, res=800.0,
-           seed=0, fov=60.0, waves=1.0, follow=1.0, strength=1.0):
+           seed=0, fov=60.0, waves=1.0, follow=1.0, strength=1.0,
+           recul=1.0):
     """img float RGB 0..1, far 0..1 (carte d'éloignement). layer :
     hauteur du dessus de la nappe, 0 au sol .. 1 au niveau de l'œil.
     Retourne l'image composée, ou None si la nappe est au-dessus de
@@ -191,6 +192,10 @@ def render(img, far, layer=0.4, size=0.5, billow=0.6, detail=1.0,
     rows = np.arange(rh, dtype=np.float32)[:, None]
     soft_px = 0.8 + 3.0 * soft
     ratio = zs[1] / zs[0]
+    # Recul 0 : l'œil est dans le nuage, les volutes passent au-dessus
+    # de lui (et de l'horizon) ; en reculant il en sort.
+    rc = float(np.clip(recul, 0, 1))
+    ceil = 0.92 + 2.0 * (1 - rc)
     kpen = 6.0 * max(density * strength, 0.02)
     sig = (0.3 + 2.0 * density ** 2) / R
     wmu = float(levels[-1].mean())
@@ -266,7 +271,7 @@ def render(img, far, layer=0.4, size=0.5, billow=0.6, detail=1.0,
             - 0.6 * th * en
             + 0.5 * th * np.clip(ew * 1.6 - en, 0, 1))
         top_w = np.minimum(top_w, coef[0] * Xw + coef[1] * z
-                           + coef[2] + 0.92 * cam)
+                           + coef[2] + ceil * cam)
         ytop = rh / 2 - foc * top_w / z
         y0 = int(max(0, math.floor(ytop.min() - 3 * foc * dh / z)))
         if y0 >= rh:
@@ -343,7 +348,7 @@ def render(img, far, layer=0.4, size=0.5, billow=0.6, detail=1.0,
     thin = 0.45 + 0.55 * np.clip(att["edge"] * 1.5, 0, 1) ** 0.7
     # Près de l'œil on est dans le voile : diffus, jamais un mur
     # opaque ; il s'épaissit avec la distance.
-    near = 1 - np.exp(-att["z"] / (6 * dh))
+    near = 1 - np.exp(-att["z"] / (6 * dh * rc + 1e-3))
     alpha = np.clip(acc * occ * thin * near, 0, 0.92).astype(np.float32)
     alpha = cv2.GaussianBlur(alpha, (0, 0), 0.6)
     up = (lambda a: cv2.resize(a, (W, H), interpolation=cv2.INTER_LINEAR))
