@@ -107,7 +107,7 @@ def _shadow_tex(hl, ldir, amp, steps=24):
 
 def render(img, far, layer=0.4, size=0.5, billow=0.6, detail=1.0,
            soft=0.2, density=1.0, warmth=0.0, sun=None, res=800.0,
-           seed=0, fov=60.0):
+           seed=0, fov=60.0, waves=1.0, follow=1.0):
     """img float RGB 0..1, far 0..1 (carte d'éloignement). layer :
     hauteur du dessus de la nappe, 0 au sol .. 1 au niveau de l'œil.
     Retourne l'image composée, ou None si la nappe est au-dessus de
@@ -176,14 +176,33 @@ def render(img, far, layer=0.4, size=0.5, billow=0.6, detail=1.0,
     rows = np.arange(rh, dtype=np.float32)[:, None]
     soft_px = 0.8 + 3.0 * soft
     ratio = zs[1] / zs[0]
+    sig = (0.3 + 2.0 * density ** 2) / R
+    wmu = float(levels[-1].mean())
+    wsd = float(levels[-1].std()) + 1e-4
     sig = density * 6.0 / R
-    for z in zs:
+    # Relief de la scène vu de dessus (tranche x colonne) : hauteur des
+    # objets au-dessus du plan du sol. La nappe monte contre les arbres
+    # et les murets, se creuse dans les vallées.
+    hp = Y - (coef[0] * X + coef[1] * zsc + coef[2])
+    idx = np.clip(np.searchsorted(zs, zsc), 0, len(zs) - 1)
+    ok = (f < 0.97)
+    G = np.full((len(zs), rw), -1e9, np.float32)
+    np.maximum.at(G, (idx[ok], np.broadcast_to(cols, (rh, rw))[ok]
+                      .astype(int)), hp[ok].astype(np.float32))
+    Wt = (G > -1e8).astype(np.float32)
+    G = np.where(Wt > 0, np.clip(G, -cam, 3 * cam), 0).astype(np.float32)
+    sgx = max(2.0, rw / 30)
+    num = cv2.GaussianBlur(G * Wt, (0, 0), sgx, sigmaY=8)
+    den = cv2.GaussianBlur(Wt, (0, 0), sgx, sigmaY=8)
+    G = num / np.maximum(den, 1e-3) * np.clip(den * 4, 0, 1)
+    for i, z in enumerate(zs):
         Xw = (cols - rw / 2) / foc * z
         # Mip : taille d'un pixel écran en pixels de texture.
         fp = max(z / foc, 0.35 * z * (ratio - 1)) / tw * n
         lvl = int(np.clip(math.log2(max(fp, 1e-6)) + 1, 0, len(levels) - 1))
-        u = (Xw / tw * n) % n
-        v = np.full_like(u, (z / tw * n + 0.5 * n) % n)
+        uu = Xw / tw * n
+        vv = np.full_like(uu, z / tw * n + 0.5 * n)
+        u, v = uu % n, vv % n
         mx, my = u[None, :].astype(np.float32), v[None, :].astype(np.float32)
 
         def samp(t):
@@ -195,13 +214,31 @@ def render(img, far, layer=0.4, size=0.5, billow=0.6, detail=1.0,
         if fd < 4:
             ld = int(np.clip(math.log2(max(fd, 1e-6)) + 1, 0,
                              len(levels) - 1))
-            dmx, dmy = (mx * 7.3) % n, (my * 7.3) % n
+            dmx, dmy = (uu[None] * 7.3) % n, (vv[None] * 7.3) % n
             det = cv2.remap(levels[ld], dmx.astype(np.float32),
                             dmy.astype(np.float32), cv2.INTER_LINEAR,
                             borderMode=cv2.BORDER_WRAP)[0]
             hgt = hgt + 0.12 * (det - 0.4) * min(1.0, (4 - fd) / 2) \
                 * np.clip(hgt * 3, 0, 1)
-        top_w = coef[1] * z + base + amp * (hgt - 0.15)
+        # Houle à grande échelle (deux octaves bien plus larges que les
+        # volutes) : bancs hauts aux grosses tours, creux plus bas et
+        # plus calmes ; la nappe n'est plus un plan.
+        wv = 0.0
+        for k, wt in ((5.3, 0.65), (2.1, 0.35)):
+            wm = cv2.remap(levels[-1],
+                           ((uu[None] / k) % n).astype(np.float32),
+                           ((vv[None] / k + 97 * k) % n).astype(np.float32),
+                           cv2.INTER_LINEAR, borderMode=cv2.BORDER_WRAP)[0]
+            wv = wv + wt * (wm - wmu) / wsd
+        wv = np.clip(wv, -2.5, 2.5)
+        loc = amp * np.clip(1 + 0.7 * waves * wv, 0.2, 2.6)
+        # Plan du sol complet : pente avant-arrière et latérale (roulis).
+        top_w = coef[0] * Xw + coef[1] * z + base + loc * (hgt - 0.15) \
+            + waves * 1.4 * amp * wv
+        # Suit le relief, sans dépasser le haut des obstacles.
+        top_w = top_w + follow * np.clip(G[i], -2 * R, 2.5 * R) * 0.8
+        top_w = np.minimum(top_w, coef[0] * Xw + coef[1] * z
+                           + coef[2] + 0.92 * cam)
         ytop = rh / 2 - foc * top_w / z
         y0 = int(max(0, math.floor(ytop.min() - 3 * foc * dh / z)))
         if y0 >= rh:
@@ -209,7 +246,10 @@ def render(img, far, layer=0.4, size=0.5, billow=0.6, detail=1.0,
         sl = slice(y0, rh)
         sp = max(soft_px, 1.5 * foc * dh / z * (1 - 1 / ratio))
         a = np.clip((rows[sl] - ytop[None, :]) / sp + 0.5, 0, 1)
-        a = a * density
+        # Translucidité : chaque tranche ne bouche qu'une partie de la
+        # vue (Beer-Lambert sur son épaisseur), le fond transparaît
+        # à travers les sommets minces.
+        a = a * (1 - math.exp(-sig * z * (ratio - 1)))
         free = (1 - acc[sl]) * a
         if not free.any():
             continue
@@ -225,6 +265,14 @@ def render(img, far, layer=0.4, size=0.5, billow=0.6, detail=1.0,
     m = np.maximum(acc, 1e-4)
     for k in att:
         att[k] = att[k] / m
+    # Flancs des volutes (sous le sommet) : sans ça chaque colonne
+    # recopie la normale du sommet en traînée verticale ; on les lisse
+    # et on les tourne vers l'œil.
+    e = att["edge"]
+    for k in ("gx", "gz", "h", "sh"):
+        sm = cv2.GaussianBlur(att[k], (0, 0), 6, sigmaY=2)
+        att[k] = att[k] + (sm - att[k]) * e * e
+    att["gz"] = att["gz"] + 0.15 * e * e
     # Couleurs : ciel de la photo pour l'ambiant, soleil chaud.
     sky = img[: max(1, H // 4)].reshape(-1, 3).mean(0)
     sky = np.clip(sky / max(1e-3, sky.max()), 0.3, 1.0)
@@ -259,7 +307,12 @@ def render(img, far, layer=0.4, size=0.5, billow=0.6, detail=1.0,
     col = col * (1 - fog[..., None] * 0.8) + hz * fog[..., None] * 0.8
     # Le nuage ne passe que devant ce qui est plus loin que lui.
     occ = np.clip((zsc - att["z"]) / (0.1 * att["z"] + 1e-3) + 0.5, 0, 1)
-    alpha = np.clip(acc * occ, 0, 1).astype(np.float32)
+    # Sommets minces translucides : la scène transparaît sous le voile.
+    thin = 0.45 + 0.55 * np.clip(att["edge"] * 1.5, 0, 1) ** 0.7
+    # Près de l'œil on est dans le voile : diffus, jamais un mur
+    # opaque ; il s'épaissit avec la distance.
+    near = 1 - np.exp(-att["z"] / (6 * dh))
+    alpha = np.clip(acc * occ * thin * near, 0, 0.92).astype(np.float32)
     alpha = cv2.GaussianBlur(alpha, (0, 0), 0.6)
     up = (lambda a: cv2.resize(a, (W, H), interpolation=cv2.INTER_LINEAR))
     col = up(col.astype(np.float32))
