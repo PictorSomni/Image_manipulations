@@ -191,6 +191,7 @@ def render(img, far, layer=0.4, size=0.5, billow=0.6, detail=1.0,
     rows = np.arange(rh, dtype=np.float32)[:, None]
     soft_px = 0.8 + 3.0 * soft
     ratio = zs[1] / zs[0]
+    kpen = 6.0 * max(density * strength, 0.02)
     sig = (0.3 + 2.0 * density ** 2) / R
     wmu = float(levels[-1].mean())
     wsd = float(levels[-1].std()) + 1e-4
@@ -270,6 +271,10 @@ def render(img, far, layer=0.4, size=0.5, billow=0.6, detail=1.0,
         # vue (Beer-Lambert sur son épaisseur), le fond transparaît
         # à travers les sommets minces.
         a = a * (1 - math.exp(-sig * z * (ratio - 1)))
+        # Épaisseur : le rayon qui frôle le sommet ne traverse que peu
+        # de nuage, il ne s'opacifie qu'en s'enfonçant sous la crête.
+        pen = np.maximum(rows[sl] - ytop[None, :], 0) * (z / foc / amp)
+        a = a * (1 - np.exp(-kpen * pen))
         free = (1 - acc[sl]) * a
         if not free.any():
             continue
@@ -334,10 +339,6 @@ def render(img, far, layer=0.4, size=0.5, billow=0.6, detail=1.0,
     near = 1 - np.exp(-att["z"] / (6 * dh))
     alpha = np.clip(acc * occ * thin * near, 0, 0.92).astype(np.float32)
     alpha = cv2.GaussianBlur(alpha, (0, 0), 0.6)
-    # Faible intensité : on dose l'épaisseur optique, pas l'opacité ;
-    # bords minces presque invisibles, cœurs épais encore présents.
-    tau = -np.log1p(-np.minimum(alpha, 0.995)) * 1.6 * max(density * strength, 0.02)
-    alpha = np.minimum(1 - np.exp(-tau), alpha).astype(np.float32)
     up = (lambda a: cv2.resize(a, (W, H), interpolation=cv2.INTER_LINEAR))
     col = up(col.astype(np.float32))
     alpha = up(alpha)
@@ -349,5 +350,9 @@ def render(img, far, layer=0.4, size=0.5, billow=0.6, detail=1.0,
     under = np.clip((tu - hp) / (0.3 * tu + 1e-6), 0, 1)
     under = np.where(skym, 0, under * under * (3 - 2 * under))
     under = cv2.GaussianBlur(under.astype(np.float32), (0, 0), 1.5)
-    return (img * (1 - alpha[..., None]) + col * alpha[..., None],
+    # Derrière un voile mince la scène reste visible, mais diffuse.
+    back = cv2.GaussianBlur(img, (0, 0), max(1.0, W / 400))
+    k = np.clip(alpha * 2.5, 0, 1)[..., None]
+    back = img + (back - img) * k
+    return (back * (1 - alpha[..., None]) + col * alpha[..., None],
             up(under))
