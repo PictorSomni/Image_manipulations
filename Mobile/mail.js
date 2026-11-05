@@ -63,7 +63,10 @@ function mailSheet(opts = {}) {
     if (opts.onSent) opts.onSent(); }}, ic("sms"), " SMS") : null;
   openSheet([
     h("b", {}, m ? (m.subject || "(sans sujet)") : "Mail"),
-    ...(m ? [h("div", {class: "muted"}, m.from), md(m.body || ""),
+    ...(m ? [h("div", {class: "muted"}, m.from),
+             (m.points || []).length ? md(m.points.map(x => "- **" + x +
+               "**").join("\n")) : null,
+             md(m.body || ""),
              m.files_id ? mailFiles(m.files_id) : null]
           : [to, subj]),
     h("div", {class: "label"}, "Adresse"),

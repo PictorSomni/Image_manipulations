@@ -36,7 +36,10 @@ RULE = (
     "Tu tries les mails reçus par le Studio C, magasin photo à Leuze "
     "(studio, tirages, cadres, reportages, impressions). Réponds "
     "UNIQUEMENT par un objet JSON : {\"action\": true/false, \"urgent\": "
-    "true/false, \"summary\": \"une ligne en français\"}. action = "
+    "true/false, \"summary\": \"une ligne en français\", \"points\": "
+    "[\"…\"]}. points = chaque chose demandée ou à noter (question, "
+    "quantité, format, date, délai, fichier joint, adresse), une "
+    "par élément, courte, sans en oublier aucune ; [] si rien. action = "
     "vraie personne qui écrit au magasin : demande, question, devis, "
     "réponse à un échange en cours (validation, confirmation, "
     "modification de fichier ou de commande), fichiers envoyés ; "
@@ -215,6 +218,8 @@ def run():
         pending.append({"message_id": mid, "from": addr,
                         "name": name or addr, "subject": subject,
                         "summary": summary, "body": body[:4000],
+                        "points": [str(x) for x in
+                                   verdict.get("points") or []][:15],
                         "files_id": _save_files(msg, mid)})
         known.add(mid)
         title = ("URGENT : " if verdict.get("urgent") else "Mail : ") \

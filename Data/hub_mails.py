@@ -197,7 +197,12 @@ def build(ui):
 
         box["dlg"] = open_mail(
             reply=m,
-            header=[ft.Text(m.get("body", ""), color=WHITE,
+            header=[*([ft.Container(ft.Column([
+                ft.Text(f"• {x}", color=WHITE, selectable=True)
+                for x in m["points"]], spacing=2), bgcolor=ft.Colors
+                .with_opacity(0.18, BLUE), border_radius=8, padding=10)]
+                if m.get("points") else []),
+                    ft.Text(m.get("body", ""), color=WHITE,
                             selectable=True),
                     *([_mail_files(m)] if m.get("files_id") else [])],
             extra_actions=[_dlg_btn("Tâche", color=ui.ORANGE,
