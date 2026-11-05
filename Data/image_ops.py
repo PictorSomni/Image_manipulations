@@ -2503,7 +2503,8 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
         sea = cloud_sea.render(
             img, far, layer=ground_height, size=0.6 * bumps,
             billow=contrast, detail=grain, soft=edge, density=ground,
-            warmth=warmth, sun=sun, res=_RES * 0.5, seed=seed)
+            warmth=warmth, sun=sun, res=_RES * 0.5, seed=seed,
+            strength=min(1.0, amount / 0.6) ** 1.5)
         if sea is not None:
             img = np.clip(sea, 0, 1).astype(np.float32)
             ground = 0.0

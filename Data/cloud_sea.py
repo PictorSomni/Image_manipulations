@@ -117,7 +117,7 @@ def sky_mask(far):
 
 def render(img, far, layer=0.4, size=0.5, billow=0.6, detail=1.0,
            soft=0.2, density=1.0, warmth=0.0, sun=None, res=800.0,
-           seed=0, fov=60.0, waves=1.0, follow=1.0):
+           seed=0, fov=60.0, waves=1.0, follow=1.0, strength=1.0):
     """img float RGB 0..1, far 0..1 (carte d'éloignement). layer :
     hauteur du dessus de la nappe, 0 au sol .. 1 au niveau de l'œil.
     Retourne l'image composée, ou None si la nappe est au-dessus de
@@ -326,6 +326,10 @@ def render(img, far, layer=0.4, size=0.5, billow=0.6, detail=1.0,
     near = 1 - np.exp(-att["z"] / (6 * dh))
     alpha = np.clip(acc * occ * thin * near, 0, 0.92).astype(np.float32)
     alpha = cv2.GaussianBlur(alpha, (0, 0), 0.6)
+    # Faible intensité : on dose l'épaisseur optique, pas l'opacité ;
+    # bords minces presque invisibles, cœurs épais encore présents.
+    tau = -np.log1p(-np.minimum(alpha, 0.995)) * 1.6 * max(density * strength, 0.02)
+    alpha = np.minimum(1 - np.exp(-tau), alpha).astype(np.float32)
     up = (lambda a: cv2.resize(a, (W, H), interpolation=cv2.INTER_LINEAR))
     col = up(col.astype(np.float32))
     alpha = up(alpha)
