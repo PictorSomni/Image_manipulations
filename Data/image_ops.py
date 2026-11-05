@@ -2507,12 +2507,9 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
             strength=min(1.0, amount / 0.6) ** 1.5
             * (0.3 + 1.4 * (distort - 0.15) / 0.49))
         if sea is not None:
+            sea, sky_cut = sea
             img = np.clip(sea, 0, 1).astype(np.float32)
             ground = 0.0
-            # Le ciel n'est pas un fond lointain à voiler : seule la
-            # mer de nuages passe devant.
-            sky_cut = cv2.GaussianBlur(
-                (~cloud_sea.sky_mask(far)).astype(np.float32), (0, 0), 3)
     # Brume au sol : dense près de l'eau / des fonds, s'efface en montant.
     hw = 1.0
     if ground > 0:
@@ -2535,7 +2532,11 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
         hw = (1 - ground) + ground * np.clip(ray, 0, 1)
     if show_depth:
         return _depth_view(far if ground <= 0 else 1 - hw)
-    m = _depth_weight(far, depth) * hw * sky_cut
+    m = _depth_weight(far, depth) * hw
+    if np.ndim(sky_cut):
+        # Volume : la brume monte du sol ; sous sa hauteur même le
+        # proche est voilé, au-dessus rien.
+        m = sky_cut * (0.9 + 0.6 * m)
     expo = 1.3 + max(0.0, depth - 1.0) * 3.0
     d = min(1.0, depth)
     h, w = img.shape[:2]

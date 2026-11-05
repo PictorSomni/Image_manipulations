@@ -152,6 +152,7 @@ def render(img, far, layer=0.4, size=0.5, billow=0.6, detail=1.0,
     # Dessus de la nappe : layer 0 = sol, 1 = œil.
     base = coef[2] + cam * float(np.clip(layer, 0, 0.97))
     dh = -base  # œil au-dessus de la nappe
+    th = cam * float(np.clip(layer, 0, 0.97))  # nappe au-dessus du sol
     levels, r0, n = _texture(int(seed), float(detail))
     # Taille des volutes (rayon de la plus grosse) en unités monde.
     R = cam * (0.05 + 0.7 * size ** 1.5)
@@ -248,7 +249,12 @@ def render(img, far, layer=0.4, size=0.5, billow=0.6, detail=1.0,
         top_w = coef[0] * Xw + coef[1] * z + base + loc * (hgt - 0.15) \
             + waves * 1.4 * amp * wv
         # Suit le relief, sans dépasser le haut des obstacles.
-        top_w = top_w + follow * np.clip(G[i], -2 * R, 2.5 * R) * 0.8
+        # Obstacle plus bas que la nappe : elle passe dessus en suivant
+        # vaguement sa forme ; plus haut : elle le contourne, monte à
+        # peine contre lui.
+        gp = np.maximum(G[i], 0)
+        top_w = top_w + follow * (0.8 * np.clip(G[i], -2 * R, 0)
+                                  + 0.35 * np.minimum(gp, th))
         top_w = np.minimum(top_w, coef[0] * Xw + coef[1] * z
                            + coef[2] + 0.92 * cam)
         ytop = rh / 2 - foc * top_w / z
@@ -333,4 +339,13 @@ def render(img, far, layer=0.4, size=0.5, billow=0.6, detail=1.0,
     up = (lambda a: cv2.resize(a, (W, H), interpolation=cv2.INTER_LINEAR))
     col = up(col.astype(np.float32))
     alpha = up(alpha)
-    return img * (1 - alpha[..., None]) + col * alpha[..., None]
+    # Ce qui dépasse la nappe en sort : le voile de profondeur ne
+    # s'y pose pas non plus (pas de brume autour du drapeau).
+    # Hauteur de brume jusqu'à 3x l'œil : au-delà de l'œil la nappe
+    # n'est plus vue de dessus, seul le voile recouvre l'obstacle.
+    tu = cam * 3.0 * float(np.clip(layer, 0, 1))
+    under = np.clip((tu - hp) / (0.3 * tu + 1e-6), 0, 1)
+    under = np.where(skym, 0, under * under * (3 - 2 * under))
+    under = cv2.GaussianBlur(under.astype(np.float32), (0, 0), 1.5)
+    return (img * (1 - alpha[..., None]) + col * alpha[..., None],
+            up(under))
