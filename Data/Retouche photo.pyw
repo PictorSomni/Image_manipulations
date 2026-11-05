@@ -96,6 +96,12 @@ def _default_virage():
     }
 
 
+def _seg_ink(seg):
+    """Texte noir sur le segment choisi, blanc ailleurs."""
+    for i, c in enumerate(seg.controls):
+        c.color = "#000000" if i == seg.selected_index else WHITE
+
+
 def _update_in_place(dst, src):
     """Recopie récursivement `src` dans `dst` en conservant l'identité des
     dicts imbriqués (jamais `dst[k] = src[k]` sur un sous-dict) — les
@@ -1814,16 +1820,20 @@ def main(page: ft.Page):
             # Qualité : réglages rapides en basse résolution, puis
             # passage en Qualité une fois le cadrage des nuages trouvé.
             lv = ft.CupertinoSlidingSegmentedButton(
-                selected_index=min(1, int(sub["precise"])), thumb_color=color,
+                selected_index=min(1, int(sub["precise"])),
+                thumb_color=color,
                 controls=[ft.Text(t, size=12, color=WHITE)
                           for t in ("Rapide", "Qualité")])
 
             def _level(e, sub=sub):
                 sub["precise"] = 2 * e.control.selected_index
+                _seg_ink(e.control)
+                e.control.update()
                 live_preview_tick()
                 threading.Timer(0.3, _veil_if_slow,
                                 (state["live_req"],)).start()
             lv.on_change = _level
+            _seg_ink(lv)
             reset_registry.setdefault("levels", []).append((lv, sub))
             rows.insert(0, ft.Row([lv], expand=True))
             lv.expand = True
@@ -1836,10 +1846,13 @@ def main(page: ft.Page):
 
             def _mode(e, sub=sub):
                 sub["volume"] = e.control.selected_index + 1
+                _seg_ink(e.control)
+                e.control.update()
                 live_preview_tick()
                 threading.Timer(0.3, _veil_if_slow,
                                 (state["live_req"],)).start()
             vm.on_change = _mode
+            _seg_ink(vm)
             rows.insert(1, ft.Row([vm], expand=True))
         rows = [*head, *rows, *extra]
         return _make_section(label, color, icon, sub, rows)
@@ -2215,6 +2228,7 @@ def main(page: ft.Page):
         partagé par Réinitialiser et Charger des réglages."""
         for lv, dct in reset_registry.get("levels", []):
             lv.selected_index = min(1, int(dct["precise"]))
+            _seg_ink(lv)
             lv.update()
         for sw, dct, key in reset_registry.get("toggles", []):
             sw.value = dct[key]
