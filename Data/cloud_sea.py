@@ -149,6 +149,8 @@ def render(img, far, layer=0.4, size=0.5, billow=0.6, detail=1.0,
     cam = -coef[2]  # hauteur de l'œil au-dessus du sol (plan)
     if cam <= 1e-3:
         return None
+    # Hauteur progressive : le bas du slider garde la brume au sol.
+    layer = float(np.clip(layer, 0, 1)) ** 3
     # Dessus de la nappe : layer 0 = sol, 1 = œil.
     base = coef[2] + cam * float(np.clip(layer, 0, 0.97))
     dh = -base  # œil au-dessus de la nappe
