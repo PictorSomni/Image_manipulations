@@ -105,6 +105,16 @@ def _shadow_tex(hl, ldir, amp, steps=24):
     return np.exp(-tau * 0.6).astype(np.float32)
 
 
+def sky_mask(far):
+    """Ciel : plateau plat de la carte d'éloignement relié au haut du
+    cadre (sa valeur varie d'une photo à l'autre)."""
+    top = far[: max(1, far.shape[0] // 20)]
+    v = float(np.median(top))
+    if v < 0.5 or float(top.std()) > 0.03:
+        return far >= 0.97
+    return far >= v - 0.02
+
+
 def render(img, far, layer=0.4, size=0.5, billow=0.6, detail=1.0,
            soft=0.2, density=1.0, warmth=0.0, sun=None, res=800.0,
            seed=0, fov=60.0, waves=1.0, follow=1.0):
@@ -118,11 +128,13 @@ def render(img, far, layer=0.4, size=0.5, billow=0.6, detail=1.0,
     f = cv2.resize(far.astype(np.float32), (rw, rh),
                    interpolation=cv2.INTER_AREA)
     zsc = np.exp(f * math.log(80.0))
+    skym = sky_mask(f)
+    zsc = np.where(skym, 1e4, zsc)
     foc = 0.5 * rw / math.tan(math.radians(fov) / 2)
     yy, xx = np.mgrid[0:rh, 0:rw].astype(np.float32)
     X = (xx - rw / 2) / foc * zsc
     Y = -(yy - rh / 2) / foc * zsc
-    land = f < 0.97
+    land = ~skym
     if land.sum() < 50:
         return None
     A = np.stack([X[land], zsc[land], np.ones(int(land.sum()))], 1)
@@ -171,7 +183,7 @@ def render(img, far, layer=0.4, size=0.5, billow=0.6, detail=1.0,
            for k in ("z", "h", "gx", "gz", "sh", "edge")}
     y_hz = rh / 2 - coef[1] * foc
     zmin = max(0.05, dh * foc / max(1.0, rh - y_hz + amp / dh * foc) * 0.5)
-    zs = np.geomspace(zmin, 80.0, 360)
+    zs = np.geomspace(zmin, 600.0, 420)
     cols = np.arange(rw, dtype=np.float32)
     rows = np.arange(rh, dtype=np.float32)[:, None]
     soft_px = 0.8 + 3.0 * soft
@@ -185,7 +197,7 @@ def render(img, far, layer=0.4, size=0.5, billow=0.6, detail=1.0,
     # et les murets, se creuse dans les vallées.
     hp = Y - (coef[0] * X + coef[1] * zsc + coef[2])
     idx = np.clip(np.searchsorted(zs, zsc), 0, len(zs) - 1)
-    ok = (f < 0.97)
+    ok = ~skym
     G = np.full((len(zs), rw), -1e9, np.float32)
     np.maximum.at(G, (idx[ok], np.broadcast_to(cols, (rh, rw))[ok]
                       .astype(int)), hp[ok].astype(np.float32))

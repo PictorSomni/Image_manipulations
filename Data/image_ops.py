@@ -2496,6 +2496,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     far = depth_map(img, precise)
     # Fond : tout ce qui est plus loin que ce seuil compte comme le fond.
     far = np.clip(far / max(0.05, fond), 0, 1)
+    sky_cut = 1.0
     if ground > 0 and _VOLUME == 2 and not show_depth:
         # Volume : vraie mer de nuages en perspective autour du sujet.
         import cloud_sea
@@ -2506,6 +2507,10 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
         if sea is not None:
             img = np.clip(sea, 0, 1).astype(np.float32)
             ground = 0.0
+            # Le ciel n'est pas un fond lointain à voiler : seule la
+            # mer de nuages passe devant.
+            sky_cut = cv2.GaussianBlur(
+                (~cloud_sea.sky_mask(far)).astype(np.float32), (0, 0), 3)
     # Brume au sol : dense près de l'eau / des fonds, s'efface en montant.
     hw = 1.0
     if ground > 0:
@@ -2528,7 +2533,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
         hw = (1 - ground) + ground * np.clip(ray, 0, 1)
     if show_depth:
         return _depth_view(far if ground <= 0 else 1 - hw)
-    m = _depth_weight(far, depth) * hw
+    m = _depth_weight(far, depth) * hw * sky_cut
     expo = 1.3 + max(0.0, depth - 1.0) * 3.0
     d = min(1.0, depth)
     h, w = img.shape[:2]
@@ -2617,11 +2622,12 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
                 11 + i)
             n = np.clip((n - 0.35) * 1.8, 0, 1) ** 1.6
             col = shade + (color * 1.06 - shade) * n[..., None]
-            al = np.clip(amount * clouds * 0.32 * n * vis * hw, 0, 0.9)
+            al = np.clip(amount * clouds * 0.32 * n * vis * hw * sky_cut,
+                         0, 0.9)
             al = al[..., None]
             out = out * (1 - al) + col * al
     # ponytail: épaisseur, fondu et volutes figés au max (retour user).
-    out = _fog_banks(out, far, hw, amount, 1.0, color, shade, 1.0, 1.0,
+    out = _fog_banks(out, far, hw * sky_cut, amount, 1.0, color, shade, 1.0, 1.0,
                      distort, n=14, bumps=bumps, contrast=contrast,
                      cap=cap)
     if swell is not None:
