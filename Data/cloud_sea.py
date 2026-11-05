@@ -251,13 +251,20 @@ def render(img, far, layer=0.4, size=0.5, billow=0.6, detail=1.0,
         # Plan du sol complet : pente avant-arrière et latérale (roulis).
         top_w = coef[0] * Xw + coef[1] * z + base + loc * (hgt - 0.15) \
             + waves * 1.4 * amp * wv
-        # Suit le relief, sans dépasser le haut des obstacles.
-        # Obstacle plus bas que la nappe : elle passe dessus en suivant
-        # vaguement sa forme ; plus haut : elle le contourne, monte à
-        # peine contre lui.
+        # Comme une rivière : obstacle plus bas que la nappe, elle passe
+        # dessus en bombant ; trop haut, elle s'en écarte (creux autour)
+        # et s'accumule sur les côtés.
         gp = np.maximum(G[i], 0)
-        top_w = top_w + follow * (0.8 * np.clip(G[i], -2 * R, 0)
-                                  + 0.35 * np.minimum(gp, th))
+        em = np.clip((gp - 0.8 * th) / (0.4 * th + 1e-6), 0, 1)
+        em = em * em * (3 - 2 * em)
+        en = cv2.GaussianBlur(em[None], (0, 0), max(1.5, rw / 60))[0]
+        ew = cv2.GaussianBlur(em[None], (0, 0), max(3.0, rw / 18))[0]
+        en = np.clip(en * 1.6, 0, 1)
+        top_w = top_w + follow * (
+            0.8 * np.clip(G[i], -2 * R, 0)
+            + 0.6 * np.minimum(gp, th) * (1 - en)
+            - 0.6 * th * en
+            + 0.5 * th * np.clip(ew * 1.6 - en, 0, 1))
         top_w = np.minimum(top_w, coef[0] * Xw + coef[1] * z
                            + coef[2] + 0.92 * cam)
         ytop = rh / 2 - foc * top_w / z
