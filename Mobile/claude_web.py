@@ -346,7 +346,16 @@ class Handler(BaseHTTPRequestHandler):
             if q.get("f") != os.path.basename(jl) or "pos" not in q:
                 # Premier appel (ou nouvelle conversation) : les derniers
                 # échanges (ligne coupée au début : ignorée par _events).
-                ev, pos = _events(jl, max(0, os.path.getsize(jl) - 400_000))
+                # Les images lues pèsent lourd dans le journal : on remonte
+                # jusqu'à avoir assez de messages (plafond 64 Mo).
+                size, back = os.path.getsize(jl), 400_000
+                while True:
+                    ev, pos = _events(jl, max(0, size - back))
+                    if back >= size or back >= 64_000_000 or sum(
+                            e["k"] in ("text", "user", "img")
+                            for e in ev) >= 40:
+                        break
+                    back *= 4
                 ctx = [e for e in ev if e["k"] == "ctx"][-1:]
                 return self._send(200, {"f": os.path.basename(jl),
                                         "pos": pos, "max": _ctx_max(),
