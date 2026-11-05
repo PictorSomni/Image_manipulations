@@ -157,7 +157,7 @@ def render(img, far, layer=0.4, size=0.5, billow=0.6, detail=1.0,
     # Taille des volutes (rayon de la plus grosse) en unités monde.
     R = cam * (0.05 + 0.7 * size ** 1.5)
     # Hauteur des tours, jamais au-dessus de l'œil.
-    amp = min(R * (0.3 + 0.9 * billow), 0.7 * dh)
+    amp = min(R * 1.2, 0.7 * dh) * (0.25 + 0.75 * billow)
     tw = R * n / r0  # taille monde de la texture
     # Soleil : position des Rayons (% du cadre) sinon haut à gauche,
     # derrière les nuages.

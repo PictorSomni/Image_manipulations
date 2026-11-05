@@ -2471,12 +2471,12 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     perspective (plus fines au loin)."""
     global _SEED, _GRAIN, _RES, _VOLUME, _VOL_LIGHT, _SUN
     _SUN = sun
-    # volume : 0 boules, 1 boules éclairées en volume, 2 volume.
-    _VOLUME, _VOL_LIGHT = int(volume), None
-    # Résolution des volutes suivant la qualité : rapide 640 px,
-    # équilibré 1600 px, qualité 3000 px (pleine résolution : mémoire
-    # saturée sur le Pi).
-    _RES = (640.0, 1600.0, 3000.0)[int(np.clip(precise, 0, 2))]
+    # volume : 1 rapide (boules éclairées en volume), 2 volume.
+    _VOLUME, _VOL_LIGHT = max(1, int(volume)), None
+    # Résolution des volutes : rapide 960 px, qualité la moitié de
+    # l'image (3000 px max : mémoire saturée sur le Pi).
+    _RES = 960.0 if precise < 1 else float(
+        np.clip(max(pil_img.size) / 2, 960, 3000))
     _SEED = int(seed)
     # Détail : 1 = petites sous-volutes nombreuses, 0 = grosses.
     _GRAIN = 1.0 - float(grain)
@@ -2505,7 +2505,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
             billow=contrast, detail=grain, soft=edge, density=ground,
             warmth=warmth, sun=sun, res=_RES * 0.5, seed=seed,
             strength=min(1.0, amount / 0.6) ** 1.5
-            * (0.3 + 1.4 * (distort - 0.15) / 0.49))
+            * (0.1 + 1.6 * ((distort - 0.15) / 0.49) ** 2))
         if sea is not None:
             sea, sky_cut = sea
             img = np.clip(sea, 0, 1).astype(np.float32)

@@ -190,7 +190,7 @@ def default_params():
                       "distort": C.BRUME_DISTORT,
                       "ground": C.BRUME_GROUND,
                       "ground_height": C.BRUME_GROUND_HEIGHT,
-                      "show_depth": False, "volume": 0},
+                      "show_depth": False, "volume": 1},
             "rayons": {"enabled": C.RAYONS_ENABLED, "x": C.RAYONS_X,
                        "y": C.RAYONS_Y, "length": C.RAYONS_LENGTH,
                        "intensity": C.RAYONS_INTENSITY,
@@ -1814,12 +1814,12 @@ def main(page: ft.Page):
             # Qualité : réglages rapides en basse résolution, puis
             # passage en Qualité une fois le cadrage des nuages trouvé.
             lv = ft.CupertinoSlidingSegmentedButton(
-                selected_index=int(sub["precise"]), thumb_color=color,
+                selected_index=min(1, int(sub["precise"])), thumb_color=color,
                 controls=[ft.Text(t, size=12, color=WHITE)
-                          for t in ("Rapide", "Équilibré", "Qualité")])
+                          for t in ("Rapide", "Qualité")])
 
             def _level(e, sub=sub):
-                sub["precise"] = e.control.selected_index
+                sub["precise"] = 2 * e.control.selected_index
                 live_preview_tick()
                 threading.Timer(0.3, _veil_if_slow,
                                 (state["live_req"],)).start()
@@ -1829,13 +1829,13 @@ def main(page: ft.Page):
             lv.expand = True
         if "volume" in sub:
             vm = ft.CupertinoSlidingSegmentedButton(
-                selected_index=int(sub["volume"]), thumb_color=color,
-                expand=True,
+                selected_index=max(0, int(sub["volume"]) - 1),
+                thumb_color=color, expand=True,
                 controls=[ft.Text(t, size=12, color=WHITE)
-                          for t in ("Boules", "Mix", "Volume")])
+                          for t in ("Rapide", "Volume")])
 
             def _mode(e, sub=sub):
-                sub["volume"] = e.control.selected_index
+                sub["volume"] = e.control.selected_index + 1
                 live_preview_tick()
                 threading.Timer(0.3, _veil_if_slow,
                                 (state["live_req"],)).start()
@@ -2214,7 +2214,7 @@ def main(page: ft.Page):
         """Reflète state["params"] (déjà à jour) sur tous les contrôles —
         partagé par Réinitialiser et Charger des réglages."""
         for lv, dct in reset_registry.get("levels", []):
-            lv.selected_index = int(dct["precise"])
+            lv.selected_index = min(1, int(dct["precise"]))
             lv.update()
         for sw, dct, key in reset_registry.get("toggles", []):
             sw.value = dct[key]
