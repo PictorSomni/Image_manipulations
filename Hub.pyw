@@ -8962,11 +8962,7 @@ def main(page: ft.Page):
         _append_terminal_log(message)
 
         async def _do():
-            if clear and shell_term["term"] is not None:
-                # Hub compilé : on garde l'historique, simple séparateur.
-                if terminal_output.controls:
-                    terminal_output.controls.append(ft.Divider(height=8))
-            elif clear:
+            if clear:
                 # Chaque nouvelle action repart d'un terminal vide (retour
                 # user) : l'historique complet reste de toute façon dans
                 # _terminal_log_path ci-dessus, pas besoin de le garder
