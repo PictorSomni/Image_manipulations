@@ -8490,6 +8490,8 @@ def main(page: ft.Page):
              lambda e: _launch_tool("Renommer pages Affinity.py")),
             ("Nettoyer noms Topaz", ft.Icons.DRIVE_FILE_RENAME_OUTLINE,
              BLUE, lambda e: _launch_tool("Nettoyer noms Topaz.py")),
+            ("Retirer _OK", ft.Icons.LABEL_OFF_OUTLINED, BLUE,
+             lambda e: _launch_tool("Retirer OK.py")),
         ]),
         # Ces quatre-là sont des copies vers un dossier : BLEU comme les
         # autres copies. Le JAUNE qu'elles portaient sert partout ailleurs
