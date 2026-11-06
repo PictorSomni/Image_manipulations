@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 Remplace le suffixe ajouté par Topaz cloud par « _OK » :
-« IMG_0550-cloud-wonder 3.5-1x.jpg » → « IMG_0550_OK.jpg ».
+« IMG_0550-cloud-wonder 3.5-1x.jpg » → « IMG_0550_OK.jpg »,
+« DSC_0012-wonder-4.jpeg » → « DSC_0012_OK.jpeg ».
 
 N'écrase jamais un fichier existant (le fichier est alors laissé tel quel).
 
@@ -15,7 +16,7 @@ import os
 import re
 from pathlib import Path
 
-SUFFIX = re.compile(r"-cloud-.*$")
+SUFFIX = re.compile(r"-(cloud|wonder)\b.*$", re.IGNORECASE)
 
 
 def clean_name(name):
@@ -25,6 +26,8 @@ def clean_name(name):
 
 
 assert clean_name("IMG_0550-cloud-wonder 3.5-1x.jpg") == "IMG_0550_OK.jpg"
+assert clean_name("DSC_0012-wonder-4.jpeg") == "DSC_0012_OK.jpeg"
+assert clean_name("DSC_0012-wonder.jpg") == "DSC_0012_OK.jpg"
 assert clean_name("IMG_0550.jpg") == "IMG_0550.jpg"
 
 if __name__ == "__main__":
