@@ -225,7 +225,7 @@ def main(page: ft.Page):
     page.run_task(page.window.to_front)
 
     # ── Widgets images ────────────────────────────────────────────────────
-    _BLANK = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="
+    _BLANK = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGBgAAAABQABpfZFQAAAAABJRU5ErkJggg=="
 
     image_left  = ft.Image(src=_BLANK, fit=ft.BoxFit.CONTAIN, expand=True, gapless_playback=True)
     image_right = ft.Image(src=_BLANK, fit=ft.BoxFit.CONTAIN, expand=True, gapless_playback=True)

@@ -3500,7 +3500,7 @@ def main(page: ft.Page):
     page_image_controls = {}  # index -> ft.Image, seulement en mode PageView
     pages_loaded = set()
 
-    _BLANK_GIF = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="
+    _BLANK_GIF = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGBgAAAABQABpfZFQAAAAABJRU5ErkJggg=="
     viewer_img = ft.Image(src=_BLANK_GIF, fit=ft.BoxFit.CONTAIN, expand=True,
                           gapless_playback=True)
     viewer_filename = ft.Text("", size=CONSTANTS.TEXT_SM, color=WHITE,

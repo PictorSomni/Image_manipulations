@@ -506,7 +506,7 @@ async def main(page: ft.Page) -> None:
     _refresh_prompt_aids()
 
     preview_img = ft.Image(
-        src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=",
+        src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGBgAAAABQABpfZFQAAAAABJRU5ErkJggg==",
         fit=ft.BoxFit.CONTAIN,
         gapless_playback=True,
         visible=False,

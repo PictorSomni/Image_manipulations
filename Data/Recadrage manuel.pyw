@@ -623,7 +623,7 @@ class PhotoCropper:
 
         # Image principale
         self.image_display = ft.Image(
-            src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=", #1x1 pixel transparent GIF, plus léger que les placeholders de PIL
+            src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGBgAAAABQABpfZFQAAAAABJRU5ErkJggg==", #1x1 pixel transparent GIF, plus léger que les placeholders de PIL
             fit=ft.BoxFit.COVER,
             gapless_playback=True,
         )
@@ -955,7 +955,7 @@ class PhotoCropper:
         # Histogramme miniature
         self.show_histogram = CONSTANTS.RECADRAGE_SHOW_HISTOGRAM
         self.histogram_image = ft.Image(
-            src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=",
+            src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGBgAAAABQABpfZFQAAAAABJRU5ErkJggg==",
             width=RIGHT_COL_WIDTH,
             height=HISTOGRAM_HEIGHT,
             fit=ft.BoxFit.FILL,

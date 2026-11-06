@@ -227,7 +227,7 @@ def main(page: ft.Page) -> None:
 
     def on_show_preview(filename: str) -> None:
         """Affiche la prévisualisation plein écran avec PageView pour swiper entre les images."""
-        _blank_gif = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="
+        _blank_gif = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGBgAAAABQABpfZFQAAAAABJRU5ErkJggg=="
 
         initial_index = images_list.index(filename) if filename in images_list else 0
         state = {"index": initial_index}
