@@ -6,6 +6,7 @@ Rien ne part sans validation dans Hub ou la webapp. Tourne sur le Pi
 (mot de passe via `pass`) ; Hub y accède par hub-sync (POST /mail).
 """
 import base64
+import email.utils
 import datetime
 import html
 import imaplib
