@@ -264,6 +264,10 @@ def send(to, subject, text, reply_to=None, files=()):
     msg["From"] = f"Studio C <{ADDRESS}>"
     msg["To"] = to
     msg["Subject"] = subject
+    # Sans Date ni Message-ID, les autres logiciels classaient la copie
+    # des « Éléments envoyés » n'importe où (retour user).
+    msg["Date"] = email.utils.formatdate(localtime=True)
+    msg["Message-ID"] = email.utils.make_msgid(domain="studiocleuze.be")
     if reply_to:
         msg["In-Reply-To"] = msg["References"] = reply_to
     body = text.rstrip() + FOOTER

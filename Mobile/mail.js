@@ -69,6 +69,7 @@ function mailSheet(opts = {}) {
              md(m.body || ""),
              m.files_id ? mailFiles(m.files_id) : null]
           : [to, subj]),
+    ...(opts.info || []),
     h("div", {class: "label"}, "Adresse"),
     choice("tu", [[false, "Vous"], [true, "Tu"]], v => {
       if (opts.textTu && !touched) t.value = v ? opts.textTu : opts.text;

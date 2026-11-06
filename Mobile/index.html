@@ -552,16 +552,38 @@ function smsBtn(row) {
     ic("sms")) : null;
 }
 
+// GSM belge (04…) ou numéro étranger : SMS possible ; sinon fixe.
+const isGsm = p => /^(\+|00)(?!32)|^(\+32|0032|0)?4\d{8}$/.test(tel(p));
+
 function notifyClient(row) {
   const phone = row["Téléphone"], mail = row["E-mail"];
-  if (!phone && !mail) return;
+  const gsm = phone && isGsm(phone);
+  const line = (icon, txt, color) => h("div", {class: "row",
+    style: {color, alignItems: "center", gap: "6px"}}, ic(icon), txt);
+  const info = [h("div", {class: "label"}, "Contact"),
+    line("mail", mail || "Pas de mail", mail ? C.blue : C.red),
+    line(gsm ? "smartphone" : "call",
+         phone ? (gsm ? "GSM " : "Fixe ") + phone : "Pas de téléphone",
+         gsm ? C.green : phone ? C.orange : C.red)];
+  const call = phone && !gsm ? h("a", {class: "btn out",
+    href: "tel:" + tel(phone)}, ic("call"), " Appeler") : null;
+  const done = h("button", {class: "btn out", onclick: () => {
+    closeSheet(); setProps(row, {"Prévenir ?": "Prévenu"}); }},
+    ic("done"), " Prévenu");
+  if (!mail && !gsm) {
+    openSheet([h("b", {}, row.Demande || "Commande prête"), ...info,
+      h("div", {class: "row"}, call, done)], true);
+    return;
+  }
   const prix = Number(row.Prix) ? "\nCela fera " + Number(row.Prix)
     .toLocaleString("fr-BE", {maximumFractionDigits: 2}) + " €." : "";
   const text = tu => (tu ? "Bonjour,\n\nTa commande est prête, tu peux " +
     "venir la chercher au magasin." : "Bonjour,\n\nVotre commande est " +
     "prête, vous pouvez venir la chercher au magasin.") + prix +
     "\n\nA bientôt,\nStudio C";
-  mailSheet({to: mail, phone, subject: "Votre commande est prête",
+  mailSheet({to: mail, phone: gsm ? phone : "", info,
+    extra: [call, done].filter(Boolean),
+    subject: "Votre commande est prête",
     text: text(false), textTu: text(true),
     onSent: () => setProps(row, {"Prévenir ?": "Prévenu"})});
 }
