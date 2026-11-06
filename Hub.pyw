@@ -3703,6 +3703,24 @@ def main(page: ft.Page):
 
         threading.Thread(target=_work, daemon=True).start()
 
+    def _viewer_reload(idx):
+        """« Could not decompress image » (lecture SD partielle, JPEG
+        exotique) : relecture via PIL, envoyée en JPEG propre."""
+        ctrl = page_image_controls.get(idx)
+        paths = viewer_state["paths"]
+        if ctrl is None or not 0 <= idx < len(paths):
+            return
+        try:
+            with PILImage.open(paths[idx]) as im:
+                im = PILImageOps.exif_transpose(im).convert("RGB")
+                buf = io.BytesIO()
+                im.save(buf, "JPEG", quality=92)
+            ctrl.src = buf.getvalue()
+        except Exception as exc:
+            _log_to_terminal(f"[Visionneuse] Illisible : {exc}", RED)
+            return
+        page.update()
+
     def _load_image_for_index(idx):
         # Ne recharge jamais une page déjà chargée : la rotation en mémoire
         # (viewer_rotated_bytes) invalide explicitement l'index via
@@ -4011,8 +4029,12 @@ def main(page: ft.Page):
         win_h = page.window.height or 860
         containers = []
         for global_idx in range(start, end):
-            img_ctrl = ft.Image(src=_BLANK_GIF, fit=ft.BoxFit.CONTAIN,
-                                expand=True, gapless_playback=True)
+            img_ctrl = ft.Image(
+                src=_BLANK_GIF, fit=ft.BoxFit.CONTAIN, expand=True,
+                gapless_playback=True,
+                error_content=_dlg_btn(
+                    "Recharger", color=RED,
+                    on_click=lambda e, i=global_idx: _viewer_reload(i)))
             page_image_controls[global_idx] = img_ctrl
             containers.append(ft.Container(
                 content=_build_viewer_page(img_ctrl, win_w, win_h),
@@ -4205,7 +4227,10 @@ def main(page: ft.Page):
         if viewer_overlay in page.overlay:
             page.overlay.remove(viewer_overlay)
         page.overlay.append(viewer_overlay)
-        _prev_keyboard["fn"] = page.on_keyboard_event
+        # Rouverte par-dessus elle-même (double clic) : ne pas mémoriser
+        # son propre handler, sinon Échap ne rendait plus la main à Hub.
+        if page.on_keyboard_event is not _viewer_on_key:
+            _prev_keyboard["fn"] = page.on_keyboard_event
         page.on_keyboard_event = _viewer_on_key
         page.update()
 
