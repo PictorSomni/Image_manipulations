@@ -284,12 +284,40 @@ class H(http.server.BaseHTTPRequestHandler):
                 if have is not None and have != want:
                     self.send_error(412)
                     return
+            if os.path.basename(path) == "liste.json":
+                _liste_trash(path, json.loads(body))
             tmp = path + ".tmp"
             with open(tmp, "wb") as f:
                 f.write(body)
             os.replace(tmp, path)
         self.send_response(204)
         self.end_headers()
+
+
+def _liste_trash(path, new):
+    """Éléments retirés de liste.json → liste_corbeille.json (365 j),
+    quel que soit l'appareil qui les a effacés."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            old = json.load(f)
+    except (OSError, ValueError):
+        return
+    key = (lambda r: (r.get("catégorie"), r.get("tâche")))
+    keep = {key(r) for r in new if isinstance(r, dict)}
+    gone = [r for r in old if isinstance(r, dict) and key(r) not in keep]
+    tpath = os.path.join(os.path.dirname(path), "liste_corbeille.json")
+    try:
+        with open(tpath, encoding="utf-8") as f:
+            trash = json.load(f)
+    except (OSError, ValueError):
+        trash = []
+    now = time.time()
+    trash = [{"deleted_at": now, "row": r} for r in gone] + [
+        t for t in trash if now - t["deleted_at"] < 365 * 86400
+        and key(t["row"]) not in keep]
+    with open(tpath + ".tmp", "w", encoding="utf-8") as f:
+        json.dump(trash, f, ensure_ascii=False)
+    os.replace(tpath + ".tmp", tpath)
 
 
 os.makedirs(ROOT, exist_ok=True)

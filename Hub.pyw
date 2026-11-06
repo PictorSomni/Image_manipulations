@@ -6023,6 +6023,8 @@ def main(page: ft.Page):
         # Autre .json ouvert : ni todo ni tarifs → bouton retour.
         other = _liste_file["path"] not in (_LISTE_TODO_PATH, _PRIX_PATH)
         liste_back_to_todo_btn.visible = other
+        liste_trash_btn.visible = (
+            _liste_file["path"] == _LISTE_TODO_PATH)
         liste_mode_seg.selected_index = (
             1 if _liste_file["path"] == _PRIX_PATH else 0)
         for i, t in enumerate(liste_mode_texts):
@@ -6156,6 +6158,57 @@ def main(page: ft.Page):
                              liste_mode_seg.selected_index == 1
                              else _liste_back_to_todo()))
 
+    def _liste_show_trash(e=None):
+        try:
+            trash = hub_sync.get("liste_corbeille", timeout=5) or []
+        except Exception as exc:
+            _log_to_terminal(f"[Liste] Corbeille injoignable : {exc}", ORANGE)
+            return
+        trash.sort(key=lambda t: -t["deleted_at"])
+        items = ft.ListView(spacing=4, height=460, width=560)
+        dlg = None
+
+        def _restore(t):
+            _liste_group_insert(dict(t["row"]))
+            _liste_save()
+            _liste_render()
+            trash.remove(t)
+            _fill()
+            items.update()
+
+        def _fill():
+            items.controls = [
+                ft.Container(ft.Row([
+                    ft.Column([
+                        ft.Text(f"{t['row'].get('catégorie', '')} · "
+                                f"{t['row'].get('tâche', '')}",
+                                color=WHITE, size=CONSTANTS.TEXT_SM,
+                                no_wrap=False),
+                        ft.Text(datetime.datetime.fromtimestamp(
+                            t["deleted_at"]).strftime("%d/%m/%Y %H:%M"),
+                            size=11, color=LIGHT_GREY),
+                    ], spacing=2, expand=True),
+                    _dlg_btn("Restaurer", color=SURFACE_ACCENT["liste"],
+                             on_click=lambda e, t=t: _restore(t)),
+                ]), padding=8, border_radius=8, bgcolor=BACKGROUND)
+                for t in trash]
+
+        _fill()
+        dlg = _dialog(
+            title=ft.Text("Corbeille de la liste", size=CONSTANTS.TEXT_SM,
+                          color=WHITE),
+            content=items,
+            actions=[_dlg_btn("Fermer", "cancel",
+                              on_click=lambda e: (setattr(dlg, "open", False),
+                                                  page.update()))])
+        page.overlay.append(dlg)
+        dlg.open = True
+        page.update()
+
+    liste_trash_btn = ft.IconButton(
+        ft.Icons.DELETE_OUTLINE, **SQUARE_BTN,
+        icon_color=SURFACE_ACCENT["liste"], icon_size=CONSTANTS.ICON_SM,
+        tooltip="Corbeille", on_click=_liste_show_trash)
     liste_back_to_todo_btn = ft.IconButton(
         ft.Icons.CHECKLIST, icon_color=GREEN, icon_size=CONSTANTS.ICON_SM,
         **SQUARE_BTN,
@@ -6231,6 +6284,7 @@ def main(page: ft.Page):
                              icon_color=SURFACE_ACCENT["liste"],
                              icon_size=CONSTANTS.ICON_SM, tooltip="Nouveau fichier .json",
                              on_click=_liste_new_file),
+                liste_trash_btn,
                 ft.IconButton(ft.Icons.REFRESH, **SQUARE_BTN,
                              icon_color=SURFACE_ACCENT["liste"],
                              icon_size=CONSTANTS.ICON_SM,
