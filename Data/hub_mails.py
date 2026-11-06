@@ -136,6 +136,11 @@ def build(ui):
             status.value = f"Enregistré dans {out}"
             if out == ui.state["folder"]:
                 ui._refresh_folder()
+            elif "open_folder" in hooks:
+                # Autre dossier : on l'ouvre dans Fichiers (retour user).
+                open_btn.data = out
+                _open_in_hub(None)
+                return
             open_btn.data = out
             open_btn.visible = "open_folder" in hooks
 
@@ -146,10 +151,10 @@ def build(ui):
             hooks["open_folder"](open_btn.data)
 
         async def _save(e):
-            # Dossier de l'onglet ouvert dans Hub (retour user).
-            folder = ui.state["folder"] or await ft.FilePicker(
-            ).get_directory_path(
-                dialog_title="Enregistrer les pièces jointes dans")
+            # Sélecteur ouvert sur le dossier de l'onglet (retour user).
+            folder = await ft.FilePicker().get_directory_path(
+                dialog_title="Enregistrer les pièces jointes dans",
+                initial_directory=ui.state["folder"] or None)
             if folder:
                 status.value = "Téléchargement…"
                 page.update()
