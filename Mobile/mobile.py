@@ -945,6 +945,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/task":
             _set_props(data["id"], data["props"])
             return self._json({"ok": True})
+        if path == "/api/setnotes":
+            _tasks("notion-update-page", {
+                "page_id": data["id"], "command": "replace_content",
+                "new_str": data["text"].strip()})
+            return self._json({"ok": True})
         if path == "/api/newtask":
             props = {"Demande": data["demande"].strip(), "Etat": "À faire"}
             for key, prop in (("email", "E-mail"),

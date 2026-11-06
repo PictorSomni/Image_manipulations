@@ -635,16 +635,33 @@ async function setProps(row, props) {
 function notesBox(row, always) {
   const box = h("div", {class: "box"}, h("div", {class: "label",
     style: {marginTop: 0}}, "Notes"));
-  const body = md(row._notes ?? "Chargement des notes…");
+  let body = md(row._notes ?? "Chargement des notes…");
   box.append(body);
+  // Toucher les notes : édition sur place.
+  box.onclick = () => {
+    if (row._notes === undefined || box.querySelector("textarea")) return;
+    const t = h("textarea", {rows: 8}, row._notes || "");
+    const save = h("button", {class: "btn", onclick: async ev => {
+      ev.stopPropagation(); save.disabled = true;
+      try {
+        await api("/api/setnotes", {id: pageId(row), text: t.value});
+        row._notes = t.value.trim();
+        const fresh = notesBox(row, true); box.replaceWith(fresh);
+      } catch (e) { save.disabled = false;
+        save.textContent = "Erreur : " + e.message; }
+    }}, ic("save"), " Enregistrer");
+    body.replaceWith(t); body = t; box.append(save); t.focus();
+  };
   if (row._notes === "" && !always) box.style.display = "none";
   if (row._notes === undefined) {
     api("/api/notes?id=" + pageId(row)).then(d => {
       row._notes = d.text;
-      body.replaceWith(md(d.text || "_Pas de notes_"));
+      const n = md(d.text || "_Pas de notes_"); body.replaceWith(n); body = n;
       if (!d.text && !always) box.style.display = "none";
     }).catch(() => {});
-  } else if (!row._notes) body.replaceWith(md("_Pas de notes_"));
+  } else if (!row._notes) {
+    const n = md("_Pas de notes_"); body.replaceWith(n); body = n;
+  }
   return box;
 }
 
@@ -717,7 +734,7 @@ function taskDetails(row) {
     seg(opts.map(([v, c]) => [v, v, c]), row[prop] || opts[0][0],
       v => { setProps(row, {[prop]: v}); taskDetails(row); }, true)]);
   openSheet([title, ...info,
-    ...flags, filesBox(row), notesBox(row),
+    ...flags, filesBox(row), notesBox(row, true),
     h("div", {class: "label"}, "État"),
     seg(ETATS.map(([e, c]) => [e, e, c]), row.Etat || "À faire", e => {
       closeSheet(); S.open = e;
