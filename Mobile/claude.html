@@ -72,7 +72,8 @@ pre { font: 12px ui-monospace, monospace; white-space: pre-wrap;
 @keyframes slide { from { margin-left: -30%; } to { margin-left: 100%; } }
 /* Téléphone : boutons rangés dans un tiroir, ouvert par « Outils ». */
 #drawer { display: none; }
-@media (max-width: 700px) {
+/* Paysage (voiture) : même tiroir, plus de place pour le texte. */
+@media (max-width: 700px), (orientation: landscape) and (max-height: 500px) {
   #drawer { display: inline-block; }
   header:not(.open) > button { display: none; }
 }
