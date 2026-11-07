@@ -35,7 +35,7 @@ def build(ui, bg, show, close, seg, field):
         hint = field(hint_text="Consignes", multiline=True, min_lines=1,
                      max_lines=3)
         if text is None:
-            text = "" if reply else "Bonjour,\n\n"
+            text = (reply.get("draft") or "") if reply else "Bonjour,\n\n"
         body = field(label="Message", multiline=True, min_lines=10,
                      max_lines=16, value=text,
                      on_change=lambda e: o.update(touched=True))

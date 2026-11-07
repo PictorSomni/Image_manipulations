@@ -16,7 +16,7 @@ function mailSheet(opts = {}) {
   if (m) to.readOnly = true;
   const subj = h("input", {placeholder: "Objet", value: opts.subject || ""});
   const t = h("textarea", {rows: 11},
-    opts.text ?? (m ? "" : "Bonjour,\n\n"));
+    opts.text ?? (m ? m.draft || "" : "Bonjour,\n\n"));
   let touched = false;
   t.oninput = () => { touched = true; };
   const hint = h("textarea", {rows: 2, placeholder: "Consignes"});
