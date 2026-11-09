@@ -1126,6 +1126,8 @@ def main(page: ft.Page):
 
     def _on_check(name, value):
         (state["checked"].add if value else state["checked"].discard)(name)
+        if value:
+            state["anchor"] = file_names.index(name)
         apply_sel_btn.disabled = not state["checked"]
         apply_sel_btn.update()
 
@@ -1169,6 +1171,8 @@ def main(page: ft.Page):
     # Remplace les flèches ‹ › : un clic choisit la photo de l'aperçu.
     # Pastille = photo avec ses propres réglages.
     thumb_cells = []
+    thumb_checks = []
+    thumb_wraps = []
     for _i, _name in enumerate(file_names):
         _img = ft.Image(src=_BLANK_SRC, fit=ft.BoxFit.COVER,
                         width=_FILMSTRIP_H - 12, height=_FILMSTRIP_H - 12,
@@ -1188,12 +1192,27 @@ def main(page: ft.Page):
             border=ft.Border.all(2, ft.Colors.TRANSPARENT),
             tooltip=_name,
             on_click=lambda e, i=_i: _on_thumb(i))
+        thumb_checks.append(_check)
         thumb_cells.append((_cell, _img, _badge))
-    filmstrip = ft.Row([c for c, _im, _b in thumb_cells],
+        thumb_wraps.append(ft.GestureDetector(
+            _cell, on_secondary_tap_up=lambda e, i=_i: _check_range(i)))
+    filmstrip = ft.Row(thumb_wraps,
                        scroll=ft.ScrollMode.AUTO, spacing=CONSTANTS.SPACE_SM,
                        height=_FILMSTRIP_H)
 
+    def _check_range(i):
+        """Clic droit (comme Hub) : coche toute la série depuis la
+        dernière photo cliquée ou cochée."""
+        a = state.get("anchor", state["index"])
+        for j in range(min(a, i), max(a, i) + 1):
+            thumb_checks[j].value = True
+            state["checked"].add(file_names[j])
+        state["anchor"] = i
+        apply_sel_btn.disabled = False
+        page.update()
+
     def _on_thumb(i):
+        state["anchor"] = i
         if state.get("tab") in ("ia", "redresser", "recadrage"):
             _stage_ia()
             # Onglets IA/Redresser : la miniature y charge la photo,
