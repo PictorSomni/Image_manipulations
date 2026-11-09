@@ -1120,6 +1120,11 @@ def main(page: ft.Page):
 
     def _apply_to_checked(e):
         _apply_to(state["checked"])
+        state["checked"].clear()
+        for c in thumb_checks:
+            c.value = False
+        apply_sel_btn.disabled = True
+        page.update()
 
     def _apply_to_all(e):
         _apply_to(file_names)
