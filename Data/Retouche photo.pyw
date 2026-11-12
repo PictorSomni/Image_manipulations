@@ -139,6 +139,8 @@ def default_params():
             "highlights": C.RETOUCHE_LOT_COULEUR_HIGHLIGHTS,
             "whites": C.RETOUCHE_LOT_COULEUR_WHITES,
             "blacks": C.RETOUCHE_LOT_COULEUR_BLACKS,
+            "hsl": {b: {"h": 0, "s": 0, "l": 0}
+                    for b in list(image_ops.HSL_BANDS) + ["autres"]},
         },
         "virage": _default_virage(),
         "lut": {
@@ -329,6 +331,8 @@ def _apply_light_color(result, c):
         saturation=c["saturation"], hue=c["hue"],
         white_balance=c["white_balance"],
         vibrance=c.get("vibrance", 0))
+    if c.get("hsl"):
+        result = image_ops.hsl_mixer(result, c["hsl"])
     # Une seule courbe pour les 4 réglages de tons (un passage au lieu
     # de quatre) ; hautes lumières / ombres en local si activé.
     local = CONSTANTS.RETOUCHE_LOT_LOCAL_TONE
@@ -811,6 +815,8 @@ def main(page: ft.Page):
         sel_rect.visible = False
         sel_rect.update()
         pick["start"] = None
+        if pick["mode"] == "hsl":
+            return
         _apply_wb(image_ops.auto_white_balance(
             state["proxy"], pick["mode"], (x0, y0, x1, y1)))
 
@@ -823,6 +829,12 @@ def main(page: ft.Page):
         if not _armed():
             return
         fx, fy = _to_image_frac(e.local_position.x, e.local_position.y)
+        if pick["mode"] == "hsl":
+            proxy = state["proxy"].convert("RGB")
+            x = min(proxy.width - 1, int(fx * proxy.width))
+            y = min(proxy.height - 1, int(fy * proxy.height))
+            _select_band(image_ops.nearest_hsl_band(proxy.getpixel((x, y))))
+            return
         r = 0.015
         _apply_wb(image_ops.auto_white_balance(
             state["proxy"], pick["mode"], (fx - r, fy - r, fx + r, fy + r)))
@@ -1698,6 +1710,89 @@ def main(page: ft.Page):
         return ft.Text(text.upper(), size=CONSTANTS.TEXT_SM - 2,
                        color=LIGHT_GREY, weight=ft.FontWeight.W_600)
 
+    # ── Mélangeur de couleurs : pastilles + 3 curseurs de la bande
+    # choisie (vue sur co["hsl"][bande]).
+    mix = {"band": "orange"}
+    MIX_COLORS = {"rouge": "#E0453A", "orange": "#F08A24",
+                  "jaune": "#F2D22E", "vert": "#3AC06A",
+                  "cyan": "#2EC8D8", "bleu": "#3A6CE0",
+                  "violet": "#8A4FE0", "magenta": "#D83AB0",
+                  "autres": "#9A9A9A"}
+
+    class _BandView(dict):
+        def __getitem__(self, k):
+            if k == "enabled":
+                return co["enabled"]
+            return co["hsl"][mix["band"]][k]
+
+        def __setitem__(self, k, v):
+            if k == "enabled":
+                co["enabled"] = v
+                return
+            co["hsl"][mix["band"]][k] = v
+            _paint_chips()
+
+    band_view = _BandView()
+    _dct_to_section[id(band_view)] = "Lumière et couleur"
+    chips = {}
+
+    def _paint_chips():
+        for b, chip in chips.items():
+            touched = any(co["hsl"][b].values())
+            chip.border = ft.Border.all(
+                3 if b == mix["band"] else 1,
+                WHITE if b == mix["band"] else GREY)
+            chip.content.visible = touched
+            try:
+                chip.update()
+            except Exception:
+                pass  # pas encore affichée
+
+    def _select_band(b):
+        mix["band"] = b
+        _paint_chips()
+        for row in band_rows:
+            row.data()
+
+    def _chip(b):
+        dot = ft.Container(width=8, height=8, border_radius=4,
+                           bgcolor="#10141A", visible=False)
+        chips[b] = ft.Container(
+            content=dot, width=28, height=28, border_radius=14,
+            bgcolor=MIX_COLORS[b], alignment=ft.Alignment.CENTER,
+            tooltip=b.capitalize(), on_click=lambda e: _select_band(b))
+        return chips[b]
+
+    def _on_mix_pick(e):
+        if state["proxy"] is None:
+            return
+        pick["mode"] = None if pick["mode"] == "hsl" else "hsl"
+        pipette_btn.icon_color = BLUE if pick["mode"] == "hsl" else WHITE
+        preview_tap.mouse_cursor = (ft.MouseCursor.PRECISE
+                                    if pick["mode"] else None)
+        preview_viewer.pan_enabled = pick["mode"] is None
+        pipette_btn.update()
+        preview_tap.update()
+        preview_viewer.update()
+
+    pipette_btn = ft.IconButton(ft.Icons.COLORIZE, icon_color=WHITE,
+                                tooltip="Pipette", on_click=_on_mix_pick)
+    band_rows = [
+        _slider_row("Teinte", band_view, "h", -100, 100,
+                   gradient=CONSTANTS.RETOUCHE_LOT_GRADIENT_HUE),
+        _slider_row("Saturation", band_view, "s", -100, 100,
+                   gradient=CONSTANTS.RETOUCHE_LOT_GRADIENT_SAT),
+        _slider_row("Luminosité", band_view, "l", -100, 100,
+                   gradient=["#202020", "#F0F0F0"]),
+    ]
+    mixer_col = ft.Column([
+        ft.Row([_chip(b) for b in MIX_COLORS] + [pipette_btn],
+               spacing=6, wrap=True),
+    ] + band_rows, spacing=CONSTANTS.SPACE_XS)
+    mixer_col.data = _paint_chips
+    reset_registry["sliders"].append((mixer_col, "mix", co, "hsl"))
+    _paint_chips()
+
     # Un seul tiroir (retour user : réglages liés, ouverts ensemble).
     section_couleur = _make_section(
         "Lumière et couleur", ORANGE, ft.Icons.TUNE, co, [
@@ -1719,6 +1814,8 @@ def main(page: ft.Page):
                    gradient=CONSTANTS.RETOUCHE_LOT_GRADIENT_WB),
         _slider_row("Teinte", co, "hue", -100, 100,
                    gradient=CONSTANTS.RETOUCHE_LOT_GRADIENT_HUE),
+        _subtitle("Mélangeur"),
+        mixer_col,
     ])
 
     # ── Virage ──────────────────────────────────────────────────────

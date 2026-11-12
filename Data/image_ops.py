@@ -3338,3 +3338,71 @@ def mask_array(m, w, h):
                          + (ys - m["y0"]) * h * vy) / n2, 0, 1)
     t = t * t * (3 - 2 * t)  # smoothstep : transition douce
     return 1 - t if m.get("invert") else t
+
+
+# Mélangeur de couleurs : centres de teinte (degrés) des 8 pastilles.
+HSL_BANDS = {"rouge": 0, "orange": 30, "jaune": 60, "vert": 120,
+             "cyan": 180, "bleu": 220, "violet": 270, "magenta": 310}
+
+
+def _hsl_weights(hue):
+    """Poids (somme = 1) de chaque bande pour des teintes en degrés —
+    fondu gaussien circulaire entre bandes voisines."""
+    raw = {}
+    for name, centre in HSL_BANDS.items():
+        d = np.abs((hue - centre + 180) % 360 - 180)
+        raw[name] = np.exp(-0.5 * (d / 22.0) ** 2)
+    total = sum(raw.values()) + 1e-6
+    return {k: v / total for k, v in raw.items()}
+
+
+def nearest_hsl_band(rgb):
+    """Pastille la plus proche d'une couleur (r, g, b) 0..255 — pipette.
+    Couleur presque grise : « autres »."""
+    px = np.uint8([[list(rgb)]])
+    h, s, _ = cv2.cvtColor(px, cv2.COLOR_RGB2HSV_FULL)[0, 0]
+    if s < 25:
+        return "autres"
+    w = _hsl_weights(np.float32(h) * 360 / 256)
+    return max(w, key=lambda k: float(w[k]))
+
+
+def hsl_mixer(image, bands):
+    """Teinte / saturation / luminosité par couleur. `bands` :
+    {nom: {"h", "s", "l"}} en -100..100, « autres » couvrant tout ce
+    qu'aucune bande touchée ne couvre. Gris protégés (faible
+    saturation d'origine), tons chair protégés de « autres »."""
+    touched = {k: v for k, v in bands.items()
+               if any(v.get(c, 0) for c in "hsl")}
+    if not touched:
+        return image
+    rgb = np.asarray(image.convert("RGB"), np.float32) / 255
+    hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
+    h, s, v = hsv[..., 0], hsv[..., 1], hsv[..., 2]
+    weights = _hsl_weights(h)
+    other = 1 - sum(w for k, w in weights.items() if k in touched)
+    # Chair : teinte ~10-45°, saturation moyenne.
+    skin = (np.exp(-0.5 * (((h - 25 + 180) % 360 - 180) / 14) ** 2)
+            * np.clip((s - 0.1) / 0.15, 0, 1) * np.clip((0.75 - s) / 0.2,
+                                                       0, 1))
+    other = other * (1 - 0.8 * skin)
+    weights["autres"] = other
+    dh = np.zeros_like(h)
+    ds = np.zeros_like(h)
+    dl = np.zeros_like(h)
+    for k, adj in touched.items():
+        w = weights.get(k)
+        if w is None:
+            continue
+        dh += w * adj.get("h", 0)
+        ds += w * adj.get("s", 0)
+        dl += w * adj.get("l", 0)
+    guard = np.clip((s - 0.04) / 0.16, 0, 1)
+    dh, ds, dl = dh * guard / 100, ds * guard / 100, dl * guard / 100
+    h = (h + dh * 30) % 360
+    s = np.where(ds > 0, s + (1 - s) * s * ds, s * (1 + ds))
+    v = v * np.exp2(dl * 0.8)
+    hsv = np.dstack([h, np.clip(s, 0, 1), np.clip(v, 0, 1)])
+    out = cv2.cvtColor(hsv.astype(np.float32), cv2.COLOR_HSV2RGB)
+    return Image.fromarray((np.clip(out, 0, 1) * 255 + 0.5
+                            ).astype(np.uint8))
