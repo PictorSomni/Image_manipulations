@@ -77,7 +77,10 @@ pre { font: 12px ui-monospace, monospace; white-space: pre-wrap;
   #drawer { display: inline-block; }
   header:not(.open) > button { display: none; }
 }
-.ask { margin: 6px 0; }
+.ask { margin: 6px 0; color: var(--text); }
+.tool .ask button { background: var(--blue); color: #10141a; border: none;
+  font-weight: 600; }
+.tool .ask button:disabled { opacity: .5; }
 .ask b { display: block; margin-bottom: 4px; }
 .ask button, .tool > button { margin: 3px 4px 3px 0; padding: 6px 10px;
   border-radius: 8px; border: 1px solid #555; background: #2a2a2a;
