@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Convertit un lot de fichiers images (HEIC, WEBP, AVIF, PNG, TIFF, PDF…) en
+Convertit un lot de fichiers images (HEIC, WEBP, AVIF, PNG, TIFF, PDF, RAW…) en
 JPEG ou PNG (PNG conserve la transparence).
 
 Utilise ImageMagick via ``wand`` pour les formats bitmap et PyMuPDF (``fitz``)
@@ -54,6 +54,9 @@ selected_files_set = set(selected_files_string.split("|")) if selected_files_str
 # normaliser cette variante) ; on retire aussi le format cible lui-même
 # quand il vaut png, pour ne pas reconvertir des PNG déjà en PNG.
 convertible_extensions = (".avif", ".heic", ".webp", ".png", ".tiff", ".jpeg", ".bmp", ".gif", ".psd", ".svg", ".ico", ".jfif", ".jpe", ".jif", ".jfi", ".pdf")
+RAW_EXTENSIONS = (".dng", ".cr2", ".cr3", ".nef", ".arw", ".raf", ".orf",
+                  ".rw2", ".pef", ".srw")
+convertible_extensions += RAW_EXTENSIONS
 if TARGET_FORMAT == "png":
     convertible_extensions = tuple(ext for ext in convertible_extensions if ext != ".png")
 all_files = [file for file in sorted(folder_path.iterdir()) if file.is_file() and file.suffix.lower() in convertible_extensions]
@@ -92,6 +95,18 @@ else:
                     out_path = folder_path / f"{file_name}_{page_index + 1:03}.{TARGET_FORMAT}"
                     pixmap_image.save(str(out_path))
                 pdf_document.close()
+            elif file_extension in RAW_EXTENSIONS:
+                # RAW développé avec rawpy (balance des blancs boîtier).
+                import rawpy
+                from PIL import Image as PILImage
+                with rawpy.imread(str(file)) as raw:
+                    rgb = raw.postprocess(use_camera_wb=True, output_bps=8)
+                out_path = folder_path / f"{file_name}.{TARGET_FORMAT}"
+                if TARGET_FORMAT == "jpg":
+                    PILImage.fromarray(rgb).save(out_path, "JPEG",
+                                                 quality=95)
+                else:
+                    PILImage.fromarray(rgb).save(out_path, "PNG")
             else:
                 with Image(filename=str(file)) as actual_file:
                     actual_file.format = WAND_FORMAT
