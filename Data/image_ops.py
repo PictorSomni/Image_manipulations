@@ -2234,8 +2234,10 @@ def height_map(far, fov=60.0):
     hs = np.maximum(hs, 0).astype(np.float32)
     ht[~sky] = hs[~sky]
     # Bords flous de la carte (profondeur intermédiaire) : pas plus haut
-    # que le ciel du même pixel, sinon liseré sans brume.
-    ht = np.minimum(ht, hs)
+    # que le ciel du même pixel, sinon liseré sans brume. Sous
+    # l'horizon (hs nul, vue plongeante de drone) : hauteur réelle, sinon
+    # tout passe pour du sol et la brume couvre l'image entière.
+    ht = np.where(hs > 0, np.minimum(ht, hs), ht)
     ht = cv2.GaussianBlur(ht, (0, 0), 1.0)
     cam = float(np.clip((-coef[2] - lo) / max(1e-6, hi - lo), 0, 1))
     return cv2.resize(ht, (w, h), interpolation=cv2.INTER_LINEAR), cam
@@ -2532,7 +2534,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
                          contrast=contrast)
         hw = (1 - ground) + ground * np.clip(ray, 0, 1)
     if show_depth:
-        return _depth_view(far if ground <= 0 else 1 - hw)
+        return _depth_view(far)
     m = _depth_weight(far, depth) * hw
     if np.ndim(sky_cut):
         # Volume : la brume monte du sol ; sous sa hauteur même le
