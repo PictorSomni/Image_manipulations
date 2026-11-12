@@ -353,6 +353,17 @@ def render(img, far, layer=0.4, size=0.5, billow=0.6, detail=1.0,
     alpha = cv2.GaussianBlur(alpha, (0, 0), 0.6)
     up = (lambda a: cv2.resize(a, (W, H), interpolation=cv2.INTER_LINEAR))
     col = up(col.astype(np.float32))
+    # Teinte et lumière locales de la photo, comme le mode Diffus :
+    # la nappe prend les couleurs de la scène au lieu d'un bloc blanc.
+    sm = cv2.resize(img, (max(1, W // 16), max(1, H // 16)),
+                    interpolation=cv2.INTER_AREA)
+    sm = cv2.GaussianBlur(sm, (0, 0), max(sm.shape[:2]) / 8)
+    loc = cv2.resize(sm, (W, H), interpolation=cv2.INTER_LINEAR)
+    lum = loc.mean(axis=2, keepdims=True)
+    tint = np.clip(loc / (lum + 1e-3), 0.3, 2.0)
+    col = col * (0.4 + 0.6 * tint)
+    # Lumière : moitié éclairage du nuage, moitié scène éclaircie.
+    col = 0.45 * col + 0.55 * np.clip(loc * 1.6 + 0.08, 0, 1)
     alpha = up(alpha)
     # Ce qui dépasse la nappe en sort : le voile de profondeur ne
     # s'y pose pas non plus (pas de brume autour du drapeau).

@@ -1866,7 +1866,7 @@ def main(page: ft.Page):
                 selected_index=max(0, int(sub["volume"]) - 1),
                 thumb_color=color, expand=True,
                 controls=[ft.Text(t, size=12, color=WHITE)
-                          for t in ("Rapide", "Volume")])
+                          for t in ("Diffus", "Volume")])
 
             def _mode(e, sub=sub):
                 sub["volume"] = e.control.selected_index + 1

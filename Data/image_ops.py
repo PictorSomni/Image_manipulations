@@ -2471,7 +2471,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     perspective (plus fines au loin)."""
     global _SEED, _GRAIN, _RES, _VOLUME, _VOL_LIGHT, _SUN
     _SUN = sun
-    # volume : 1 rapide (boules éclairées en volume), 2 volume.
+    # volume : 1 diffus (boules éclairées en volume), 2 volume.
     _VOLUME, _VOL_LIGHT = max(1, int(volume)), None
     # Résolution des volutes : rapide 960 px, qualité la moitié de
     # l'image (3000 px max : mémoire saturée sur le Pi).
