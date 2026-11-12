@@ -2813,6 +2813,20 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
     # Ce qui est derrière une volute épaisse se floute, même au proche.
     blur = _blur_pct(out, 100 * max(H, W) / 70.0 / min(H, W),
                      5.0)
+    # Mélange accumulé en basse résolution, agrandi une seule fois :
+    # résultat = out·A + blur·B + C (14 bancs en pleine résolution
+    # coûtaient ~10 s sur le Pi).
+    A = np.ones((h, w), np.float32)
+    B = np.zeros((h, w), np.float32)
+    C = np.zeros((h, w, 3), np.float32)
+    up_ = up
+    up = (lambda a: a)  # tout reste en basse résolution dans la boucle
+    if s < 1:
+        # Couleur de brume par pixel (teinte de la scène) : à la même
+        # basse résolution.
+        color, shade = (cv2.resize(np.asarray(c, np.float32), (w, h),
+                                   interpolation=cv2.INTER_AREA)
+                        if np.ndim(c) == 3 else c for c in (color, shade))
     for i in reversed(range(n)):
         # Du premier plan (0.05) au fond.
         t = 0.05 + 0.9 * (i + 0.5) / n
@@ -2903,11 +2917,16 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
                 0.25 + 0.8 * lt, 0, 1.4)
         al = np.clip(amount * thick * 0.85 * cov * vis * hw
                      * (1 - 0.5 * spread * t), 0, cap)
-        al = up(al.astype(np.float32))
-        k = np.clip(al * 4.0 * distort, 0, 1)[..., None]
-        out = out + (blur - out) * k
-        out = out * (1 - al[..., None]) + col * al[..., None]
-    return out
+        al = al.astype(np.float32)
+        k = np.clip(al * 4.0 * distort, 0, 1)
+        keep = (1 - k) * (1 - al)
+        A = A * keep
+        B = (B * (1 - k) + k) * (1 - al)
+        C = C * keep[..., None] + col * al[..., None]
+    if s >= 1:
+        return out * A[..., None] + blur * B[..., None] + C
+    return (out * up_(A)[..., None] + blur * up_(B)[..., None]
+            + up_(C.astype(np.float32)))
 
 
 def _sun_shadow(far, sx, sy, fov=60.0):
