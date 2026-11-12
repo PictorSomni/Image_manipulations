@@ -1078,9 +1078,11 @@ def main(page: ft.Page):
                     image_display.src = src
                     image_display.update()
                     state["rendered_req"] = req
-                    # Image à jour sous les yeux : le voile tombe même si
-                    # un rendu plus récent est encore en file.
-                    if load_veil.opacity and not state.get("batch"):
+                    # Le voile ne tombe qu'avec le rendu des derniers
+                    # réglages : un rendu intermédiaire (ancienne valeur)
+                    # le faisait tomber alors que le calcul continuait.
+                    if (load_veil.opacity and not state.get("batch")
+                            and req >= state["live_req"]):
                         ui_helpers.set_busy_veil(load_veil, False)
                         load_veil.update()
                     _refresh_filmstrip()
