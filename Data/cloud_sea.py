@@ -369,18 +369,30 @@ def render(img, far, layer=0.4, size=0.5, billow=0.6, detail=1.0,
     alpha = np.clip(acc * occ * thin * near, 0, 0.92).astype(np.float32)
     alpha = cv2.GaussianBlur(alpha, (0, 0), 0.6)
     up = (lambda a: cv2.resize(a, (W, H), interpolation=cv2.INTER_LINEAR))
-    col = up(col.astype(np.float32))
-    # Teinte et lumière locales de la photo, comme le mode Diffus :
-    # la nappe prend les couleurs de la scène au lieu d'un bloc blanc.
+    # Lissé : la marche par couches laisse des stries fines dans
+    # l'éclairage, qu'on ne veut pas voir en ombre colorée.
+    lt = np.clip((shade - 0.2) / 0.95, 0, 1).astype(np.float32)
+    lt = up(cv2.GaussianBlur(lt, (0, 0), 2.5, sigmaY=4))
+    aoc = up((0.75 + 0.25 * ao).astype(np.float32))
+    fogu = up(fog.astype(np.float32))[..., None]
+    # Lumière tirée de la photo (planche de Charles) : côté éclairé =
+    # tons les plus clairs de l'image (le soleil de la scène), ombre =
+    # couleur locale assombrie et refroidie vers le ciel, base plus
+    # sombre (occlusion). Pas de blanc pur posé dessus.
     sm = cv2.resize(img, (max(1, W // 16), max(1, H // 16)),
                     interpolation=cv2.INTER_AREA)
     sm = cv2.GaussianBlur(sm, (0, 0), max(sm.shape[:2]) / 8)
     loc = cv2.resize(sm, (W, H), interpolation=cv2.INTER_LINEAR)
-    lum = loc.mean(axis=2, keepdims=True)
-    tint = np.clip(loc / (lum + 1e-3), 0.3, 2.0)
-    col = col * (0.4 + 0.6 * tint)
-    # Lumière : moitié éclairage du nuage, moitié scène éclaircie.
-    col = 0.45 * col + 0.55 * np.clip(loc * 1.6 + 0.08, 0, 1)
+    lum_all = img.mean(axis=2)
+    hi = img[lum_all >= np.percentile(lum_all, 97)].mean(0)
+    hi = np.clip(hi * sun_c / max(1e-3, hi.max()), 0, 1) * 0.97
+    cool = np.array([0.92, 0.97, 1.08], np.float32) * (0.6 + 0.4 * sky)
+    shd = np.clip(loc * 0.55 + 0.25 * loc.mean() * cool, 0, 1)
+    shd = shd * aoc[..., None]
+    t = lt[..., None]
+    col = shd + (hi[None, None, :] - shd) * (t * t * (3 - 2 * t))
+    # Le lointain reste fondu dans l'horizon.
+    col = col * (1 - fogu * 0.8) + hz * fogu * 0.8
     alpha = up(alpha)
     # Ce qui dépasse la nappe en sort : le voile de profondeur ne
     # s'y pose pas non plus (pas de brume autour du drapeau).

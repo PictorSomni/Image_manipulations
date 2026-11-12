@@ -2768,9 +2768,6 @@ def _bumpy_top(m, bumps, edge, far=None, amp=1.0, contrast=0.5,
     # bruit de volutes : celui-ci créait des formes étrangères.
     d = 0.08 * contrast
     balls = balls * np.clip(1 + d * _grain(h, w, 23), 0, None)
-    if _VOLUME == 1:
-        # Mix : formes des boules, lumière du volume (peu coûteux).
-        _VOL_LIGHT = (_volume_light(balls, r0, contrast), balls)
     if far is not None:
         # Les boules restent derrière ce qui est plus proche que la
         # nappe (arbres du premier plan) : profondeur au pied de la ligne.
@@ -2783,8 +2780,37 @@ def _bumpy_top(m, bumps, edge, far=None, amp=1.0, contrast=0.5,
         # ne peut pas avoir son dessus au-dessus de l'horizon (sinon mur
         # de nuages debout face à l'appareil) ; là, brume unie.
         balls = balls * np.clip((0.97 - fs) / 0.04, 0, 1)
-    out = ms + (1 - ms) * balls * amp * (1 - 0.1 * edge)
-    return cv2.resize(out, (W, H), interpolation=cv2.INTER_LINEAR)
+        # Au loin (mer de brume plate), pas de rangée de volutes : elle
+        # formait une ligne seule à travers le cadre.
+        # Profondeur de la ligne elle-même (par colonne) : toute la
+        # rangée s'efface, pas seulement ses pixels lointains.
+        balls = balls * np.clip((0.45 - ft) / 0.12, 0, 1)[None, :]
+    if _VOLUME == 1:
+        # Mix : formes des boules (déjà masquées : pas de ligne au
+        # loin), lumière du volume.
+        _VOL_LIGHT = (_volume_light(balls, r0, contrast), balls)
+    # Ajout seul remis à l'échelle : la nappe garde son bord net (sinon
+    # le bord ré-échantillonné dessinait une ligne au loin).
+    add = (1 - ms) * balls * amp * (1 - 0.1 * edge)
+    add = cv2.resize(add, (W, H), interpolation=cv2.INTER_LINEAR)
+    return m + add
+
+
+def _dome_relief(h, w, r0, i, cv, dy, sf):
+    """Modulation 0.45..1.25 d'un banc par la texture fractale de dômes
+    (cloud_sea), décalée par banc ; plus marquée près du bord."""
+    import cloud_sea
+    levels, tr0, n = cloud_sea._texture(0, 1.0)
+    tex = levels[0]
+    sc = tr0 / max(1.0, r0 * 0.7)
+    xs = (np.arange(w, dtype=np.float32) * sc + 173 * i) % n
+    ys = (np.arange(h, dtype=np.float32) * sc * 1.6 + 311 * i) % n
+    mx, my = np.meshgrid(xs, ys)
+    t = cv2.remap(tex, mx, my, cv2.INTER_LINEAR,
+                  borderMode=cv2.BORDER_WRAP)
+    near = np.exp(-np.maximum(dy, 0) / (sf * 6 + r0 * 4))
+    return np.clip(1 + (np.clip(t, 0, 1.2) - 0.6) * 2.4 * cv
+                   * (0.4 + 0.6 * near), 0.2, 1.6)
 
 
 def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
@@ -2835,7 +2861,19 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
         band = np.abs(far - t) < 0.06
         if band.sum() < w:
             continue
+        # Bord qui suit le relief : par colonne, la ligne où la
+        # profondeur vaut t (pas une ligne seule à hauteur fixe qui
+        # traverse tout le cadre).
         y0 = float(np.median(rows[band]))
+        cnt = band.sum(axis=0).astype(np.float32)
+        ym = (rows * band).sum(axis=0) / np.maximum(cnt, 1)
+        kk = max(2.0, w * 0.025)
+        wgt = cv2.GaussianBlur((cnt > 0).astype(np.float32)[None, :],
+                               (0, 0), kk)[0]
+        ycol = cv2.GaussianBlur((ym * (cnt > 0)).astype(np.float32)[
+            None, :], (0, 0), kk)[0] / np.maximum(wgt, 1e-3)
+        ycol = np.where(wgt > 1e-3, ycol, y0)[None, :]
+        present = np.clip(wgt * 2.5, 0, 1)[None, :]
         # Bord ondulé : grandes ondes + petites crêtes, plus fines au loin.
         k = max(3, int(6 + 10 * t))
         wave = cv2.resize(rng.random((1, k)).astype(np.float32), (w, 1),
@@ -2850,7 +2888,7 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
         # rideaux verticaux (aurore boréale) sous le bord.
         tx = 0.5 + 0.25 * _grain(h, w, 91 + i,
                                  max(1.0, h * 0.05 * (1.05 - t)))
-        edge = y0 - amp * (0.3 + wave + 0.5 * curl * rip) \
+        edge = ycol - amp * (0.3 + wave + 0.5 * curl * rip) \
             - amp * (0.2 + 0.8 * curl) * tx \
             + rng.uniform(-0.03, 0.03) * h
         # Dessus en boules (cumulus) : demi-cercles posés sur le bord,
@@ -2890,18 +2928,27 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
             edge = edge - cv * bump[None, :]
         dy = yy - edge
         # Au loin, bords fondus et bancs plus légers (spread).
-        sf = soft * (1 + 1.5 * spread + 3 * spread * t ** 2)
+        sf = soft * (1 + 1.5 * spread + 3 * spread * t ** 2) \
+            * (1 + 6 * max(0.0, t - 0.5))
         cov = np.clip(dy / sf, 0, 1)
         cov = cov * np.exp(-np.maximum(dy, 0) / (h * (0.25 + 0.3 * t)))
         tex = 0.5 + 0.12 * _grain(h, w, 71 + i,
                                   max(1.0, h * 0.06 * (1.05 - t)))
         # Densité : volute épaisse opaque, creux fin qui laisse voir.
         dens = np.clip(0.55 + (tex - 0.5) * 9 * contrast, 0.0, 1)
-        cov = cov * dens * (1 + 0.5 * contrast)
+        cov = cov * dens * (1 + 0.5 * contrast) * present
+        # Sous-volutes à l'intérieur du banc : texture fractale de
+        # dômes (même que la mer de nuages), à l'échelle des volutes du
+        # banc ; creux et bosses lisibles, surtout à l'avant.
+        if r0 >= 1.5 and cv > 0:
+            cov = cov * _dome_relief(h, w, r0, i, cv, dy, sf)
         vis = np.clip((far - t) * 20 / (1 + 5 * spread) + 0.5, 0, 1)
         vis = vis * vis * (3 - 2 * vis)
         rim = np.exp(-(dy / (sf * 1.5 + 2)) ** 2) * (dy > -sf)
-        rim = up((rim * (1 - spread * t) * cv).astype(np.float32))
+        # Au fond, pas de liseré clair ni de bord net : sinon une ligne
+        # seule traverse la mer de brume.
+        fade = float(np.clip((0.7 - t) / 0.3, 0, 1))
+        rim = up((rim * (1 - spread * t) * cv * fade).astype(np.float32))
         # Contraste : dessus éclairé, corps plus sombre, pour lire la
         # forme des bancs même sur une photo claire.
         lo = 0.7 - 0.45 * contrast
