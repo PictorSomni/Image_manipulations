@@ -44,6 +44,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import CONSTANTS
+import colorsys
 import image_ops
 import ui_helpers
 import flet as ft
@@ -1748,9 +1749,36 @@ def main(page: ft.Page):
             except Exception:
                 pass  # pas encore affichée
 
+    def _hex_hsv(h, sat=0.85, val=0.9):
+        r, g, b_ = colorsys.hsv_to_rgb((h % 360) / 360, sat, val)
+        return "#%02X%02X%02X" % (int(r * 255), int(g * 255), int(b_ * 255))
+
+    def _band_gradients(b):
+        """Rails des 3 curseurs à la couleur de la bande : teinte de
+        −30° à +30° autour d'elle, saturation gris → couleur,
+        luminosité sombre → claire."""
+        if b == "autres":
+            return [CONSTANTS.RETOUCHE_LOT_GRADIENT_HUE,
+                    CONSTANTS.RETOUCHE_LOT_GRADIENT_SAT,
+                    ["#202020", "#F0F0F0"]]
+        c = image_ops.HSL_BANDS[b]
+        return [[_hex_hsv(c - 30), _hex_hsv(c), _hex_hsv(c + 30)],
+                ["#808080", _hex_hsv(c)],
+                [_hex_hsv(c, 0.9, 0.25), _hex_hsv(c, 0.35, 1.0)]]
+
+    def _paint_rails():
+        for row, grad in zip(band_rows, _band_gradients(mix["band"])):
+            rail = row.controls[1].content.controls[0]
+            rail.gradient = ft.LinearGradient(colors=grad)
+            try:
+                rail.update()
+            except Exception:
+                pass  # pas encore affichée
+
     def _select_band(b):
         mix["band"] = b
         _paint_chips()
+        _paint_rails()
         for row in band_rows:
             row.data()
 
@@ -1790,6 +1818,7 @@ def main(page: ft.Page):
                spacing=6, wrap=True),
     ] + band_rows, spacing=CONSTANTS.SPACE_XS)
     mixer_col.data = _paint_chips
+    _paint_rails()
     reset_registry["sliders"].append((mixer_col, "mix", co, "hsl"))
     _paint_chips()
 
