@@ -3379,11 +3379,18 @@ def hsl_mixer(image, bands):
     rgb = np.asarray(image.convert("RGB"), np.float32) / 255
     hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
     h, s, v = hsv[..., 0], hsv[..., 1], hsv[..., 2]
-    weights = _hsl_weights(h)
+    # Poids calculés sur une version lissée : dans les zones presque
+    # grises (brume, ciel) la teinte pixel par pixel n'est que du bruit
+    # et ferait basculer chaque pixel d'une bande à l'autre (grain).
+    sigma = max(1.5, min(rgb.shape[:2]) / 400)
+    soft = cv2.cvtColor(cv2.GaussianBlur(rgb, (0, 0), sigma),
+                        cv2.COLOR_RGB2HSV)
+    hb, sb = soft[..., 0], soft[..., 1]
+    weights = _hsl_weights(hb)
     other = 1 - sum(w for k, w in weights.items() if k in touched)
     # Chair : teinte ~10-45°, saturation moyenne.
-    skin = (np.exp(-0.5 * (((h - 25 + 180) % 360 - 180) / 14) ** 2)
-            * np.clip((s - 0.1) / 0.15, 0, 1) * np.clip((0.75 - s) / 0.2,
+    skin = (np.exp(-0.5 * (((hb - 25 + 180) % 360 - 180) / 14) ** 2)
+            * np.clip((sb - 0.1) / 0.15, 0, 1) * np.clip((0.75 - sb) / 0.2,
                                                        0, 1))
     other = other * (1 - 0.8 * skin)
     weights["autres"] = other
@@ -3397,7 +3404,8 @@ def hsl_mixer(image, bands):
         dh += w * adj.get("h", 0)
         ds += w * adj.get("s", 0)
         dl += w * adj.get("l", 0)
-    guard = np.clip((s - 0.04) / 0.16, 0, 1)
+    guard = np.clip((sb - 0.04) / 0.16, 0, 1)
+    dh, ds, dl = (cv2.GaussianBlur(m, (0, 0), sigma) for m in (dh, ds, dl))
     dh, ds, dl = dh * guard / 100, ds * guard / 100, dl * guard / 100
     h = (h + dh * 30) % 360
     s = np.where(ds > 0, s + (1 - s) * s * ds, s * (1 + ds))
