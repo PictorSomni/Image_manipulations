@@ -2724,8 +2724,8 @@ def _bumpy_top(m, bumps, edge, far=None, amp=1.0, contrast=0.5,
             y = top[i]
             # Tailles très variées (log-normale) : grosses et petites
             # volutes mêlées, pas une rangée régulière.
-            r = r0 * (0.4 + 0.6 * y / h) * float(np.clip(
-                rng.lognormal(0.0, 0.5), 0.35, 2.6))
+            r = 0.6 * r0 * (0.4 + 0.6 * y / h) * float(np.clip(
+                rng.lognormal(0.0, 0.5), 0.3, 2.6))
             # Les boules émergent de la nappe avec le contraste :
             # enfoncées (bord plat) à 0, sorties à 1 ; forme, pas opacité.
             cy = int(y + r * (1.0 - 0.65 * contrast))
@@ -2734,7 +2734,8 @@ def _bumpy_top(m, bumps, edge, far=None, amp=1.0, contrast=0.5,
             # Fractal : sur chaque volute, des volutes plus petites
             # posées sur son arrondi, et encore plus petites dessus.
             _sub_balls(sub, i, cy, r, float(lvl[i]), rng, 3)
-            x += r * rng.uniform(0.9, 1.5)
+            # Serrées : une seule masse bosselée, pas des ronds.
+            x += r * rng.uniform(0.45, 0.8)
         else:
             x += 4
     # Fondu + bord bousculé par du bruit : des rondeurs de brume, pas
@@ -2855,7 +2856,7 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
         # plus petits au loin ; dessous plat.
         # Écart fond/avant adouci (x2,6 au lieu de x5,5) et plancher plus
         # haut : la dernière couche ne fait plus une bande de miettes.
-        r0 = h * 0.06 * (0.35 + 0.75 * (1 - t)) * (0.6 + 1.9 * bumps)
+        r0 = h * 0.036 * (0.35 + 0.75 * (1 - t)) * (0.6 + 1.9 * bumps)
         if r0 >= 1.5:
             # Profil dessiné en 2D pour y poser les sous-volutes
             # (fractal, comme la brume au sol), puis lu colonne par
@@ -2865,15 +2866,17 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
             can = np.zeros((hc, w + 2 * pad), np.uint8)
             c = -r0
             while c < w + r0:
-                r = r0 * rng.uniform(0.6, 1.4)
+                # Tailles mêlées : petites et grosses côte à côte.
+                r = r0 * float(np.clip(rng.lognormal(0.0, 0.45),
+                                       0.3, 2.5))
                 cx = int(c) + pad
                 cv2.circle(can, (cx, hc - 1), max(1, int(r)), 255, -1,
                            cv2.LINE_AA)
                 if cv > 0:
                     # Premier plan : deux niveaux de plus.
                     _sub_balls(can, cx, hc - 1, r, 255, rng,
-                               4 if t < 0.35 else 3)
-                c += r * rng.uniform(1.0, 1.6)
+                               3 if t < 0.35 else 2)
+                c += r * rng.uniform(0.45, 0.8)
             can = can[:, pad:pad + w] > 127
             bump = np.where(can.any(axis=0),
                             hc - 1 - can.argmax(axis=0), 0)
