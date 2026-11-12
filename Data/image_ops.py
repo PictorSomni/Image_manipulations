@@ -2611,7 +2611,16 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
                       for x in _VOL_LIGHT)
             v = np.clip(dn * 2, 0, 1) * ground
             f = f * (1 - v) + v * (0.45 + 0.75 * lt)
-        fc = color * f[..., None]
+        # Lumière tirée de la photo : bosses éclairées vers les tons
+        # les plus clairs de l'image, creux vers une ombre froide.
+        la = img.mean(axis=2)
+        hi = img[la >= np.percentile(la, 97)].mean(0)
+        hi = (hi / max(1e-3, hi.mean())).astype(np.float32)
+        cool = np.array([0.94, 0.98, 1.08], np.float32)
+        tn = np.clip((f - 1) / 0.25, -1, 1)[..., None]
+        tint = 1 + np.maximum(tn, 0) * (hi - 1) * 0.7 \
+            + np.maximum(-tn, 0) * (cool - 1)
+        fc = color * f[..., None] * tint
     out = img * (1 - a * (1 - 0.6 * clouds)) \
         + fc * a * (1 - 0.6 * clouds)
     shade = np.array([0.84, 0.87, 0.93], np.float32) * color
@@ -2668,11 +2677,40 @@ def _sub_balls(img, cx, cy, r, v, rng, depth, top=True):
         q, nb = 0.35, 5
     for _ in range(nb):
         t = rng.uniform(np.pi * 1.1, np.pi * 1.9)
-        rr = r * q * rng.uniform(0.8, 1.2)
+        # Tailles aléatoires : casse la forme trop régulière.
+        rr = r * q * float(np.clip(rng.lognormal(0.0, 0.35), 0.5, 1.8))
         x = int(cx + r * 0.7 * np.cos(t))
         y = int(cy + r * 0.7 * np.sin(t))
         cv2.circle(img, (x, y), max(1, int(rr)), v, -1, cv2.LINE_AA)
         _sub_balls(img, x, y, rr, v, rng, depth - 1, False)
+
+
+def _cumulus(img, cx, cy, r, v, rng, tall, depth):
+    """Un nuage construit comme au dessin : grosses sphères pour la
+    forme (empilées en tour si tall est haut, aplaties en
+    stratocumulus si bas), puis sous-sphères de plus en plus petites
+    sur leurs bords (_sub_balls) qui cassent la forme parfaite.
+    tall 0 stratocumulus, 0,5 cumulus, 1 cumulus bourgeonnant."""
+    asp = 0.5 + 0.5 * min(1.0, 2.0 * tall)
+    masses = [(cx, cy, r, asp)]
+    # Épaules : deux sphères plus petites de part et d'autre.
+    for sd in (-1, 1):
+        rr = r * rng.uniform(0.5, 0.75)
+        masses.append((cx + sd * r * rng.uniform(0.6, 0.95),
+                       cy + r * 0.15, rr, asp))
+    # Tour : sphères empilées, chacune un peu plus petite.
+    y, rr = cy, r
+    for _ in range(int(round(3 * tall))):
+        y -= rr * asp * rng.uniform(0.7, 0.95)
+        rr *= rng.uniform(0.68, 0.85)
+        masses.append((cx + rng.uniform(-0.3, 0.3) * rr, y, rr, asp))
+    for x, yy, rr, a in masses:
+        cv2.ellipse(img, (int(x), int(yy)),
+                    (max(1, int(rr)), max(1, int(rr * a))), 0, 0, 360,
+                    v, -1, cv2.LINE_AA)
+    for x, yy, rr, a in masses:
+        _sub_balls(img, int(x), int(yy), rr * (0.6 + 0.4 * a), v, rng,
+                   depth)
 
 
 def _bumpy_top(m, bumps, edge, far=None, amp=1.0, contrast=0.5,
@@ -2729,11 +2767,9 @@ def _bumpy_top(m, bumps, edge, far=None, amp=1.0, contrast=0.5,
             # Les boules émergent de la nappe avec le contraste :
             # enfoncées (bord plat) à 0, sorties à 1 ; forme, pas opacité.
             cy = int(y + r * (1.0 - 0.65 * contrast))
-            cv2.circle(balls, (i, cy), max(1, int(r)),
-                       float(lvl[i]), -1, cv2.LINE_AA)
-            # Fractal : sur chaque volute, des volutes plus petites
-            # posées sur son arrondi, et encore plus petites dessus.
-            _sub_balls(sub, i, cy, r, float(lvl[i]), rng, 3)
+            # Forme en sphères (balls), détail fractal sur sub.
+            _cumulus(balls, i, cy, r, float(lvl[i]), rng, bumps, 0)
+            _cumulus(sub, i, cy, r, float(lvl[i]), rng, bumps, 4)
             # Serrées : une seule masse bosselée, pas des ronds.
             x += r * rng.uniform(0.45, 0.8)
         else:
@@ -2900,7 +2936,7 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
             # Profil dessiné en 2D pour y poser les sous-volutes
             # (fractal, comme la brume au sol), puis lu colonne par
             # colonne : hauteur du dessus.
-            hc = int(r0 * 4) + 4
+            hc = int(r0 * (4 + 6 * bumps)) + 4
             pad = int(r0 * 3)
             can = np.zeros((hc, w + 2 * pad), np.uint8)
             c = -r0
@@ -2909,12 +2945,9 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
                 r = r0 * float(np.clip(rng.lognormal(0.0, 0.45),
                                        0.3, 2.5))
                 cx = int(c) + pad
-                cv2.circle(can, (cx, hc - 1), max(1, int(r)), 255, -1,
-                           cv2.LINE_AA)
-                if cv > 0:
-                    # Premier plan : deux niveaux de plus.
-                    _sub_balls(can, cx, hc - 1, r, 255, rng,
-                               3 if t < 0.35 else 2)
+                # Sphères puis sous-sphères (premier plan : 4 niveaux).
+                _cumulus(can, cx, hc - 1, r, 255, rng, bumps,
+                         (4 if t < 0.35 else 2) if cv > 0 else 0)
                 c += r * rng.uniform(0.45, 0.8)
             can = can[:, pad:pad + w] > 127
             bump = np.where(can.any(axis=0),
@@ -2924,7 +2957,9 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
                 bump.astype(np.float32)[None, :], (0, 0),
                 max(0.6, r0 * (0.03 + 0.25 * _GRAIN)))[0]
             # Hauteur bornée en douceur : pas de tours en zigzag.
-            bump = 1.6 * r0 * np.tanh(bump / (1.6 * r0))
+            # Plus haut en cumulus bourgeonnant (curseur Volutes).
+            hb = 1.6 * r0 * (1 + 2.5 * bumps)
+            bump = hb * np.tanh(bump / hb)
             edge = edge - cv * bump[None, :]
         dy = yy - edge
         # Au loin, bords fondus et bancs plus légers (spread).
