@@ -695,6 +695,31 @@ def main(page: ft.Page):
                                 fit=ft.BoxFit.CONTAIN, visible=False,
                                 width=state["preview_w"],
                                 height=state["preview_h"])
+    # Carte de profondeur posée par-dessus, comme l'original : la carte
+    # est en cache, rien n'est re-rendu à l'affichage ni au retour.
+    depth_display = ft.Image(src=_BLANK_SRC, gapless_playback=True,
+                             fit=ft.BoxFit.CONTAIN, visible=False,
+                             width=state["preview_w"],
+                             height=state["preview_h"])
+
+    def _show_depth(on):
+        if not on or state["proxy"] is None:
+            depth_display.visible = False
+            depth_display.update()
+            return
+
+        def work():
+            src = np.asarray(state["proxy"].convert("RGB"),
+                             np.float32) / 255
+            far = image_ops.depth_map(src)
+            buf = io.BytesIO()
+            Image.fromarray((np.clip(far, 0, 1) * 255).astype(np.uint8)
+                            ).save(buf, format="JPEG", quality=90)
+            depth_display.src = ("data:image/jpeg;base64,"
+                                 + base64.b64encode(buf.getvalue()).decode())
+            depth_display.visible = True
+            depth_display.update()
+        threading.Thread(target=work, daemon=True).start()
 
     # Pipette (Blanc / Peau) : un tap sur l'aperçu prend la zone cliquée
     # comme référence. Coordonnées locales = espace non zoomé de l'image.
@@ -841,7 +866,7 @@ def main(page: ft.Page):
             state["proxy"], pick["mode"], (fx - r, fy - r, fx + r, fy + r)))
 
     preview_tap = ft.GestureDetector(
-        content=ft.Stack([image_display, original_display, sel_rect,
+        content=ft.Stack([image_display, original_display, depth_display, sel_rect,
                           mask_canvas, sun_marker]),
         on_tap_up=_on_preview_tap, on_pan_down=_on_preview_pan_down,
         on_pan_update=_on_preview_pan_update,
@@ -939,7 +964,8 @@ def main(page: ft.Page):
         if proxy is not None:
             k = min(w / proxy.width, h / proxy.height)
             w, h = proxy.width * k, proxy.height * k
-        for c in (image_display, original_display, mask_canvas):
+        for c in (image_display, original_display, depth_display,
+                  mask_canvas):
             c.width, c.height = w, h
 
     def _apply_preview_size(e=None):
@@ -1960,6 +1986,11 @@ def main(page: ft.Page):
                            active_color=color)
 
             def _flip(e, sub=sub, sw=sw, key=key):
+                if key == "show_depth":
+                    # Superposition, sans re-rendu (reste False dans
+                    # les réglages).
+                    _show_depth(sw.value)
+                    return
                 sub[key] = sw.value
                 live_preview_tick()
             sw.on_change = _flip
