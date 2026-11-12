@@ -1814,8 +1814,14 @@ class PhotoCropper:
             if snapshot.get("label") == _CUSTOM_KEY:
                 # Taille manuelle en % : pourcentages réels des dimensions
                 # d'origine (100% = pleine largeur/hauteur), pas un ratio.
-                target_w_px = max(1, round(self.original_width * _fw / 100))
-                target_h_px = max(1, round(self.original_height * _fh / 100))
+                # Pixels source réellement visibles dans le cadre : les
+                # % ET le zoom compensatoire des bords étirés réduisaient
+                # deux fois la taille (export illisible, retour user).
+                _eff = snapshot["base_scale"] * max(snapshot["scale"], 1.0)
+                target_w_px = max(1, round(snapshot["canvas_w"] / _eff
+                                           * max(snapshot["scale"], 1.0)))
+                target_h_px = max(1, round(snapshot["canvas_h"] / _eff
+                                           * max(snapshot["scale"], 1.0)))
             else:
                 _k = min(self.original_width / _fw, self.original_height / _fh)
                 target_w_px = max(1, math.floor(_fw * _k))
@@ -5016,6 +5022,12 @@ class PhotoCropper:
             self.current_format = self._real_dims()
             self.update_canvas_size()
         self.load_image(preserve_orientation=False)
+        sw = getattr(self, "custom_mode_switch", None)
+        if sw is not None and sw.value:
+            # Switch resté sur Personnalisé : sans ça, les bords à étirer
+            # restaient cachés jusqu'à off/on (retour user).
+            self.change_ratio(types.SimpleNamespace(
+                control=types.SimpleNamespace(value=_CUSTOM_KEY)))
         self._embed_base = self._embed_key()
 
     def embedded_crop(self):
