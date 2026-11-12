@@ -32,12 +32,18 @@ def _wgrad(a):
             (np.roll(a, -1, 0) - np.roll(a, 1, 0)) * 0.5)
 
 
-def _domes(n, r, rng, fill=0.9):
+def _domes(n, r, rng, fill=0.9, inside=None):
     """Union de demi-sphères (rayon ~r px) sur une texture n x n qui se
-    répète ; hauteur en unités de rayon."""
+    répète ; hauteur en unités de rayon. inside : centres gardés
+    seulement là où ce masque est vrai."""
     count = max(4, int(fill * n * n / (r * r)))
     pts = rng.random((count, 2)) * n
-    rad = r * rng.uniform(0.6, 1.4, count)
+    if inside is not None:
+        ok = inside[pts[:, 1].astype(int), pts[:, 0].astype(int)]
+        pts = pts[ok] if ok.sum() >= 4 else pts
+        count = len(pts)
+    # Tailles très mêlées : petites et grosses volutes côte à côte.
+    rad = r * np.clip(rng.lognormal(0.0, 0.45, count), 0.3, 2.5)
     out = np.zeros((n, n), np.float32)
     # Par paquets de rayon voisin : distanceTransform par paquet, puis
     # profil de sphère, union par max.
@@ -78,6 +84,17 @@ def _texture(seed, detail):
         o = _domes(n, r, rng, 1.1)
         # Seulement là où il y a déjà du nuage : pas de grains isolés.
         h = h + w * o * np.clip(h * 2, 0, 1)
+        # Bord fractal : petites volutes serrées le long du contour,
+        # qui débordent (plus de grand bord lisse).
+        m = (h > 0.02).astype(np.uint8)
+        kr = max(3, int(r * 0.6)) | 1
+        ker = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kr, kr))
+        bord = (m > 0) & (cv2.erode(m, ker) == 0)
+        e = _domes(n, r * 0.6, rng, 3.0, bord)
+        # Hauteur du voisinage : la volute de bord est aussi claire que
+        # la masse qu'elle prolonge, pas un grain sombre.
+        dil = cv2.dilate(h, ker)
+        h = np.where(e > 0, np.maximum(h, dil * (0.55 + 0.45 * e)), h)
         w *= 0.6
     h = h / max(1e-3, float(np.percentile(h, 99.7)))
     h = np.clip(h, 0, 1.2).astype(np.float32)
@@ -158,7 +175,7 @@ def render(img, far, layer=0.4, size=0.5, billow=0.6, detail=1.0,
     th = cam * float(np.clip(layer, 0, 0.97))  # nappe au-dessus du sol
     levels, r0, n = _texture(int(seed), float(detail))
     # Taille des volutes (rayon de la plus grosse) en unités monde.
-    R = cam * (0.05 + 0.7 * size ** 1.5)
+    R = cam * (0.03 + 0.42 * size ** 1.5)
     # Hauteur des tours, jamais au-dessus de l'œil.
     amp = min(R * 1.2, 0.7 * dh) * (0.25 + 0.75 * billow)
     tw = R * n / r0  # taille monde de la texture
