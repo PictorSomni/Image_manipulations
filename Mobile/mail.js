@@ -14,6 +14,24 @@ function mailSheet(opts = {}) {
   const to = h("input", {type: "email", placeholder: "À",
     value: m ? m.from : (opts.to || "")});
   if (m) to.readOnly = true;
+  // Suggestions d'adresses déjà écrites ou reçues (cache du Pi).
+  const sugg = h("div", {class: "row", style: {flexWrap: "wrap", gap: "6px"}});
+  if (!m) {
+    to.autocomplete = "off";
+    to.oninput = async () => {
+      const q = to.value.trim().toLowerCase();
+      sugg.replaceChildren();
+      if (q.length < 2) return;
+      try { mailSheet.contacts ??= await api("/api/mail",
+        {action: "contacts"}); } catch (e) { return; }
+      mailSheet.contacts.filter(c => (c.a + " " + c.n).toLowerCase()
+        .includes(q)).slice(0, 6).forEach(c => sugg.append(
+          h("button", {class: "chipbtn", style: {background: "var(--blue)",
+            fontSize: "13px", padding: "6px 10px"},
+            onclick: () => { to.value = c.a; sugg.replaceChildren(); }},
+            c.n ? `${c.n} · ${c.a}` : c.a)));
+    };
+  }
   const subj = h("input", {placeholder: "Objet", value: opts.subject || ""});
   const t = h("textarea", {rows: 11},
     opts.text ?? (m ? m.draft || "" : "Bonjour,\n\n"));
@@ -61,14 +79,9 @@ function mailSheet(opts = {}) {
     location.href = `sms:${tel(opts.phone)}&body=` +
       encodeURIComponent(t.value); closeSheet();
     if (opts.onSent) opts.onSent(); }}, ic("sms"), " SMS") : null;
-  openSheet([
-    h("b", {}, m ? (m.subject || "(sans sujet)") : "Mail"),
-    ...(m ? [h("div", {class: "muted"}, m.from),
-             (m.points || []).length ? md(m.points.map(x => "- **" + x +
-               "**").join("\n")) : null,
-             md(m.body || ""),
-             m.files_id ? mailFiles(m.files_id) : null]
-          : [to, subj]),
+  const card = (color, ...kids) => h("div", {class: "card", style: {
+    borderLeft: `4px solid var(${color})`, margin: "10px 0"}}, ...kids);
+  const form = [
     ...(opts.info || []),
     h("div", {class: "label"}, "Adresse"),
     choice("tu", [[false, "Vous"], [true, "Tu"]], v => {
@@ -78,6 +91,19 @@ function mailSheet(opts = {}) {
     choice("tone", [["professionnel et chaleureux", "Chaleureux"],
       ["professionnel et sobre", "Sobre"], ["très bref", "Bref"]]),
     hint, h("div", {class: "row"}, gen), t, names,
-    h("div", {class: "row"}, join, send, sms,
-      ...(opts.extra || [])), pick], true);
+    h("div", {class: "row"}, join, send, sms, ...(opts.extra || []))];
+  const title = (txt, color) => h("div", {class: "label", style: {
+    marginTop: 0, color: `var(${color})`, fontWeight: 700,
+    fontSize: "14px"}}, txt);
+  openSheet([
+    h("b", {}, m ? (m.subject || "(sans sujet)") : "Mail"),
+    ...(m ? [card("--grey", title("Message reçu", "--grey"),
+               h("div", {class: "muted"}, m.from),
+               (m.points || []).length ? md(m.points.map(x => "- **" + x +
+                 "**").join("\n")) : null,
+               md(m.body || ""),
+               m.files_id ? mailFiles(m.files_id) : null),
+             card("--blue", title("Réponse", "--blue"), ...form)]
+          : [to, sugg, subj, ...form]),
+    pick], true);
 }

@@ -12,6 +12,8 @@ import flet as ft
 import CONSTANTS
 import hub_sync
 
+_contacts = []  # adresses déjà écrites / reçues (cache du Pi)
+
 TONES = [("professionnel et chaleureux", "Chaleureux"),
          ("professionnel et sobre", "Sobre"), ("très bref", "Bref")]
 
@@ -21,6 +23,16 @@ def build(ui, bg, show, close, seg, field):
     page = ui.page
     WHITE, LIGHT_GREY, GREY = ui.WHITE, ui.LIGHT_GREY, ui.GREY
 
+    def _card(label, color, controls):
+        """Bloc encadré (message reçu / réponse), liseré de couleur."""
+        return ft.Container(
+            ft.Column([ft.Text(label, size=14, weight=ft.FontWeight.BOLD,
+                               color=color), *controls],
+                      tight=True, spacing=8),
+            bgcolor=ft.Colors.with_opacity(0.06, WHITE), border_radius=8,
+            padding=12, border=ft.Border(
+                left=ft.BorderSide(4, color)))
+
     def open_mail(to="", subject="", text=None, text_tu=None, reply=None,
                   header=None, extra_actions=(), on_sent=None, files=()):
         """reply : mail auquel on répond (adresse et objet imposés).
@@ -28,8 +40,37 @@ def build(ui, bg, show, close, seg, field):
         tant que le texte n'a pas été retouché.
         header : contrôles affichés au-dessus (pièces du mail reçu…)."""
         o = {"tu": False, "tone": TONES[0][0], "touched": False}
+        sugg = ft.Row(wrap=True, spacing=6, run_spacing=6)
+
+        def _pick(addr):
+            to_f.value = addr
+            sugg.controls.clear()
+            page.update()
+
+        def _suggest(e=None):
+            q = (to_f.value or "").strip().lower()
+            sugg.controls = [
+                ft.Button(f"{c['n']} · {c['a']}" if c["n"] else c["a"],
+                          bgcolor=ui.BLUE, color="#10141a",
+                          on_click=lambda e, a=c["a"]: _pick(a))
+                for c in _contacts
+                if len(q) >= 2 and q in (c["a"] + " " + c["n"]).lower()
+            ][:6]
+            page.update()
+
+        def _loaded(out):
+            if isinstance(out, list):
+                _contacts[:] = out
+                _suggest()
+
+        def _typed(e):
+            if not _contacts:
+                bg(lambda: hub_sync.mail("contacts"), _loaded)
+            _suggest()
+
         to_f = field(label="À", value=reply["from"] if reply else to,
-                     read_only=bool(reply), autofocus=not (to or reply))
+                     read_only=bool(reply), autofocus=not (to or reply),
+                     visible=not reply, on_change=_typed)
         subj_f = field(label="Objet", value=subject,
                        visible=not reply)
         hint = field(hint_text="Consignes", multiline=True, min_lines=1,
@@ -109,6 +150,9 @@ def build(ui, bg, show, close, seg, field):
             if on_sent:
                 on_sent()
 
+        received = ([ft.Text(reply["from"], size=13, color=LIGHT_GREY,
+                             selectable=True)] if reply else []) \
+            + list(header or [])
         title = (reply.get("subject") or "(sans sujet)") if reply \
             else "Mail"
         dlg = ui._dialog(
@@ -118,13 +162,14 @@ def build(ui, bg, show, close, seg, field):
                               tooltip="Fermer",
                               on_click=lambda e: close(dlg))]),
             content=ft.Column([
-                *(header or []),
-                *([ft.Divider(height=1, color=GREY)] if header else []),
-                to_f, subj_f,
-                seg([(False, "Vous"), (True, "Tu")], _tu),
-                seg(TONES, lambda v: o.update(tone=v)),
-                hint, body, names, status],
-                tight=True, spacing=8, width=600,
+                *([_card("Message reçu", LIGHT_GREY, received)]
+                  if received else []),
+                _card("Réponse" if reply else "Nouveau mail", ui.BLUE, [
+                    to_f, sugg, subj_f,
+                    seg([(False, "Vous"), (True, "Tu")], _tu),
+                    seg(TONES, lambda v: o.update(tone=v)),
+                    hint, body, names, status])],
+                tight=True, spacing=14, width=600,
                 scroll=ft.ScrollMode.AUTO,
                 height=max(300, min(680, (page.height or 900) - 220))),
             actions=[*extra_actions,

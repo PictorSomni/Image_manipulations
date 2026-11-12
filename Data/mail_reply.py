@@ -6,6 +6,7 @@ Rien ne part sans validation dans Hub ou la webapp. Tourne sur le Pi
 (mot de passe via `pass`) ; Hub y accède par hub-sync (POST /mail).
 """
 import base64
+import email
 import email.utils
 import datetime
 import html
@@ -215,6 +216,54 @@ def search(q, limit=30):
     return found
 
 
+CONTACTS = os.path.join(HOME, ".mail_contacts.json")
+
+
+def contacts(max_age=12 * 3600):
+    """Adresses déjà écrites ou reçues (envoyés comptés double), pour
+    l'autocomplétion du champ « À ». Cache ~/.mail_contacts.json."""
+    try:
+        if time.time() - os.path.getmtime(CONTACTS) < max_age:
+            with open(CONTACTS, encoding="utf-8") as f:
+                return json.load(f)
+    except (OSError, ValueError):
+        pass
+    import mail_reader
+    seen = {}
+    with imaplib.IMAP4_SSL(HOST, 993, timeout=60) as imap:
+        imap.login(ADDRESS, _password())
+        for folder, keys, w in (("INBOX", ("From", "Cc"), 1),
+                                (_sent_folder(imap), ("To", "Cc"), 2)):
+            n = int(imap.select(folder, readonly=True)[1][0] or 0)
+            if not n:
+                continue
+            _, data = imap.fetch(
+                f"{max(1, n - 3000)}:{n}",
+                "(BODY.PEEK[HEADER.FIELDS (FROM TO CC)])")
+            for part in data:
+                if not isinstance(part, tuple):
+                    continue
+                msg = email.message_from_bytes(part[1])
+                vals = [mail_reader._decode(v) for k in keys
+                        for v in msg.get_all(k, [])]
+                for name, addr in email.utils.getaddresses(vals):
+                    addr = addr.strip().lower()
+                    if ("@" not in addr or addr == ADDRESS
+                            or re.search(r"no-?reply|mailer-daemon|"
+                                         r"notification", addr)):
+                        continue
+                    c = seen.setdefault(addr, {"a": addr, "n": "", "c": 0})
+                    c["c"] += w
+                    name = name.strip().strip('"')
+                    if name and name.lower() != addr:
+                        c["n"] = name
+    out = sorted(seen.values(), key=lambda c: -c["c"])
+    with open(CONTACTS + ".tmp", "w", encoding="utf-8") as f:
+        json.dump(out, f, ensure_ascii=False)
+    os.replace(CONTACTS + ".tmp", CONTACTS)
+    return out
+
+
 def draft(mid, tu, tone, hint):
     m = _mail(mid)
     rule = (f"Rédige la réponse du Studio C, magasin photo à Leuze (studio, tirages, "
@@ -319,6 +368,8 @@ def call(req):
         return copy_files(req["src"], req["dst"])
     if a == "search":
         return search(req.get("q", ""))
+    if a == "contacts":
+        return contacts()
     if a == "briefing":  # le texte du matin, pour Hub
         path = os.path.join(HOME, "briefing.md")
         try:
