@@ -2801,6 +2801,7 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
     # agrandis ; seul le mélange final se fait en pleine résolution.
     s = min(1.0, _RES / max(H, W))
     h, w = max(1, int(H * s)), max(1, int(W * s))
+    far_full = far
     if s < 1:
         far = cv2.resize(far, (w, h), interpolation=cv2.INTER_AREA)
         if np.ndim(hw):
@@ -2928,8 +2929,15 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
         C = C * keep[..., None] + col * al[..., None]
     if s >= 1:
         return out * A[..., None] + blur * B[..., None] + C
-    return (out * up_(A)[..., None] + blur * up_(B)[..., None]
-            + up_(C.astype(np.float32)))
+    res = (out * up_(A)[..., None] + blur * up_(B)[..., None]
+           + up_(C.astype(np.float32)))
+    if s < 1:
+        # Objets fins plus proches que leur voisinage (clocher) : perdus
+        # en basse résolution, la brume les traversait. On les garde
+        # devant d'après la profondeur pleine résolution.
+        occ = np.clip((up_(far) - far_full - 0.04) / 0.08, 0, 1)
+        res = res + (out - res) * occ[..., None]
+    return res
 
 
 def _sun_shadow(far, sx, sy, fov=60.0):
