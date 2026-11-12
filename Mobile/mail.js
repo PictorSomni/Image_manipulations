@@ -82,7 +82,6 @@ function mailSheet(opts = {}) {
   const card = (color, ...kids) => h("div", {class: "card", style: {
     borderLeft: `4px solid var(${color})`, margin: "10px 0"}}, ...kids);
   const form = [
-    ...(opts.info || []),
     h("div", {class: "label"}, "Adresse"),
     choice("tu", [[false, "Vous"], [true, "Tu"]], v => {
       if (opts.textTu && !touched) t.value = v ? opts.textTu : opts.text;
@@ -90,7 +89,8 @@ function mailSheet(opts = {}) {
     h("div", {class: "label"}, "Ton"),
     choice("tone", [["professionnel et chaleureux", "Chaleureux"],
       ["professionnel et sobre", "Sobre"], ["très bref", "Bref"]]),
-    hint, h("div", {class: "row"}, gen), t, names,
+    hint, h("div", {class: "row"}, gen)];
+  const mine = [t, names,
     h("div", {class: "row"}, join, send, sms, ...(opts.extra || []))];
   const title = (txt, color) => h("div", {class: "label", style: {
     marginTop: 0, color: `var(${color})`, fontWeight: 700,
@@ -103,7 +103,11 @@ function mailSheet(opts = {}) {
                  "**").join("\n")) : null,
                md(m.body || ""),
                m.files_id ? mailFiles(m.files_id) : null),
-             card("--blue", title("Réponse", "--blue"), ...form)]
-          : [to, sugg, subj, ...form]),
+             ...(opts.info || []),
+             card("--violet", title("Rédaction IA", "--violet"), ...form),
+             card("--blue", title("Réponse", "--blue"), ...mine)]
+          : [to, sugg, subj, ...(opts.info || []),
+             card("--violet", title("Rédaction IA", "--violet"), ...form),
+             card("--blue", title("Message", "--blue"), ...mine)]),
     pick], true);
 }

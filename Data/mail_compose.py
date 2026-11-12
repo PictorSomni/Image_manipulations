@@ -164,19 +164,21 @@ def build(ui, bg, show, close, seg, field):
             content=ft.Column([
                 *([_card("Message reçu", LIGHT_GREY, received)]
                   if received else []),
-                _card("Réponse" if reply else "Nouveau mail", ui.BLUE, [
-                    to_f, sugg, subj_f,
+                *([to_f, sugg, subj_f] if not reply else []),
+                _card("Rédaction IA", ui.VIOLET, [
                     seg([(False, "Vous"), (True, "Tu")], _tu),
                     seg(TONES, lambda v: o.update(tone=v)),
-                    hint, body, names, status])],
+                    hint,
+                    ui._dlg_btn("Rédiger", color=ui.VIOLET,
+                                on_click=_draft)]),
+                _card("Réponse" if reply else "Message", ui.BLUE, [
+                    body, names, status])],
                 tight=True, spacing=14, width=600,
                 scroll=ft.ScrollMode.AUTO,
                 height=max(300, min(680, (page.height or 900) - 220))),
             actions=[*extra_actions,
                      ui._dlg_btn("Joindre", color=CONSTANTS.COLOR_MINT,
                                  on_click=_join),
-                     ui._dlg_btn("Rédiger", color=ui.VIOLET,
-                                 on_click=_draft),
                      ui._dlg_btn("Envoyer", "primary", on_click=_send)],
             inset_padding=ft.Padding(20, 40, 20, 40))
         show(dlg)
