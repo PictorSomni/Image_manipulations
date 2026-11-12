@@ -197,7 +197,8 @@ button, a, [role="button"], .chipbtn {
   touch-action: manipulation; user-select: none;
   -webkit-user-select: none; -webkit-touch-callout: none;
   transition: transform 100ms ease-out, filter 100ms ease-out; }
-button:active, [role="button"]:active, .chipbtn:active {
+.pressed { transition: none !important; }
+button.pressed, [role="button"].pressed, .chipbtn.pressed {
   transform: scale(.97); filter: brightness(.85); }
 [style*="overflow"], .scroll, main, #sheet, #log { overscroll-behavior: contain; }
 </style>
@@ -1488,6 +1489,25 @@ function showLogin() {
   tab(S.tab);
   refresh(false);
   setInterval(() => refresh(false), 3600e3);
+})();
+</script>
+<script>
+(() => {
+  const SEL = 'button, [role="button"], .chipbtn';
+  document.addEventListener('pointerdown', e => {
+    const b = e.target.closest(SEL);
+    if (!b) return;
+    b.classList.add('pressed');
+    const t0 = Date.now();
+    const up = () => {
+      setTimeout(() => b.classList.remove('pressed'),
+                 Math.max(0, 140 - (Date.now() - t0)));
+      removeEventListener('pointerup', up);
+      removeEventListener('pointercancel', up);
+    };
+    addEventListener('pointerup', up);
+    addEventListener('pointercancel', up);
+  }, {passive: true});
 })();
 </script>
 </body>
