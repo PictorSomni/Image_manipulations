@@ -220,13 +220,18 @@ ASK = os.path.expanduser("~/.claude_ask.json")
 
 def _ask(pane):
     """Question à choix en attente (déposée par Pi/ask_hook.py), ou None."""
-    if "Esc to cancel" not in pane:
-        return None
     try:
         with open(ASK, encoding="utf-8") as f:
-            return json.load(f)
+            ask = json.load(f)
     except (OSError, ValueError):
         return None
+    # Question longue (> 24 lignes du pane) : le pied « Esc to cancel »
+    # sort de l'écran, d'où aussi la recherche d'un des choix.
+    labels = [o for q in ask.get("q", []) for o in q.get("o", []) if o]
+    if ("Esc to cancel" in pane or "Enter to select" in pane
+            or any(o in pane for o in labels)):
+        return ask
+    return None
 
 
 def _tmux(*keys, literal=False):
