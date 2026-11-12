@@ -2474,7 +2474,10 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     global _SEED, _GRAIN, _RES, _VOLUME, _VOL_LIGHT, _SUN
     _SUN = sun
     # volume : 1 diffus (boules éclairées en volume), 2 volume.
-    _VOLUME, _VOL_LIGHT = max(1, int(volume)), None
+    # Volume = même nappe que Diffus (taille et densité calées), relief
+    # de la mer de nuages posé dessus en fin de rendu.
+    vol2 = int(volume) == 2
+    _VOLUME, _VOL_LIGHT = 1, None
     # Résolution des volutes : rapide 960 px, qualité la moitié de
     # l'image (3000 px max : mémoire saturée sur le Pi).
     _RES = 960.0 if precise < 1 else float(
@@ -2499,7 +2502,8 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     # Fond : tout ce qui est plus loin que ce seuil compte comme le fond.
     far = np.clip(far / max(0.05, fond), 0, 1)
     sky_cut = 1.0
-    if ground > 0 and _VOLUME == 2 and not show_depth:
+    sea_img = None
+    if ground > 0 and vol2 and not show_depth:
         # Volume : vraie mer de nuages en perspective autour du sujet.
         import cloud_sea
         sea = cloud_sea.render(
@@ -2510,9 +2514,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
             strength=min(1.0, amount / 0.6) ** 1.5
             * (0.1 + 1.6 * ((distort - 0.15) / 0.49) ** 2))
         if sea is not None:
-            sea, sky_cut = sea
-            img = np.clip(sea, 0, 1).astype(np.float32)
-            ground = 0.0
+            sea_img = np.clip(sea[0], 0, 1).astype(np.float32)
     # Brume au sol : dense près de l'eau / des fonds, s'efface en montant.
     hw = 1.0
     if ground > 0:
@@ -2639,6 +2641,18 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     if swell is not None:
         # Houle posée en dernier : elle marque aussi les bancs.
         out = out * np.clip(1 + swell * a[..., 0], 0.82, 1.15)[..., None]
+    if sea_img is not None:
+        # Relief de la mer de nuages (lumière / ombre des volutes)
+        # modulé dans la brume Diffus : même emprise, pas de flaque.
+        lum = sea_img.mean(axis=2)
+        k = max(h, w)
+        base = cv2.GaussianBlur(lum, (0, 0), k / 40)
+        det = np.clip(lum / (base + 1e-3), 0.55, 1.5)
+        big = np.clip(base / (cv2.GaussianBlur(lum, (0, 0), k / 8)
+                              + 1e-3), 0.7, 1.3)
+        cover = np.clip(a[..., 0] / max(cap, 1e-3), 0, 1)
+        rel = 1 + ((det - 1) * 2.5 + (big - 1) * 2) * cover * contrast * 2
+        out = out * np.clip(rel, 0.4, 1.5)[..., None]
     return _to_pil(out)
 
 
