@@ -2849,6 +2849,87 @@ def _dome_relief(h, w, r0, i, cv, dy, sf):
                    * (0.4 + 0.6 * near), 0.2, 1.6)
 
 
+def _puff_field(h, w, base, r0, rng, tall, levels):
+    """Champ de hauteur de volutes : grosses sphères posées le long de
+    base (y par colonne), en tour si tall est haut, puis sous-sphères
+    de plus en plus petites sur leur arrondi (levels niveaux). Chaque
+    sphère est un dôme (max des hauteurs) : creux nets entre elles."""
+    hf = np.zeros((h, w), np.float32)
+
+    def stamp(cx, cy, r, z0):
+        x0, x1 = max(0, int(cx - r)), min(w, int(cx + r) + 2)
+        y0, y1 = max(0, int(cy - r)), min(h, int(cy + r) + 2)
+        if x0 >= x1 or y0 >= y1:
+            return
+        xs = np.arange(x0, x1, dtype=np.float32) - cx
+        ys = np.arange(y0, y1, dtype=np.float32)[:, None] - cy
+        d2 = r * r - xs * xs - ys * ys
+        z = np.where(d2 > 0, z0 + np.sqrt(np.maximum(d2, 0)), 0)
+        np.maximum(hf[y0:y1, x0:x1], z, out=hf[y0:y1, x0:x1])
+
+    def subs(cx, cy, r, z0, lv):
+        if lv <= 0 or r < 2.0:
+            return
+        # Moins de sous-sphères à chaque niveau (coût), tailles mêlées.
+        nb = (7, 5, 4, 3)[min(3, levels - lv)]
+        for _ in range(nb):
+            a = rng.uniform(np.pi * 1.0, np.pi * 2.0)
+            rr = r * float(np.clip(rng.lognormal(np.log(0.38), 0.3),
+                                   0.18, 0.6))
+            d = r * rng.uniform(0.75, 0.95)
+            x, y = cx + d * np.cos(a), cy + d * np.sin(a)
+            # Posée sur la surface du parent, à moitié enfoncée.
+            zp = z0 + np.sqrt(max(0.0, r * r - d * d))
+            stamp(x, y, rr, zp - rr * 0.5)
+            subs(x, y, rr, zp - rr * 0.5, lv - 1)
+
+    asp = 0.55 + 0.45 * min(1.0, 2.0 * tall)
+    c = -r0
+    while c < w + r0:
+        r = r0 * float(np.clip(rng.lognormal(0.0, 0.45), 0.35, 2.2))
+        cx = c
+        by = float(base[int(np.clip(cx, 0, w - 1))])
+        # Grosse sphère à moitié dans le banc, épaules, puis tour.
+        masses = [(cx, by + r * 0.35, r)]
+        for sd in (-1, 1):
+            if rng.random() < 0.6:
+                rr = r * rng.uniform(0.5, 0.75)
+                masses.append((cx + sd * r * rng.uniform(0.6, 0.9),
+                               by + rr * 0.4, rr))
+        y, rr = by + r * 0.35, r
+        for _ in range(int(round(3 * tall * rng.uniform(0.5, 1.2)))):
+            y -= rr * asp * rng.uniform(0.6, 0.85)
+            rr *= rng.uniform(0.65, 0.85)
+            masses.append((cx + rng.uniform(-0.3, 0.3) * rr, y, rr))
+        for x, yy, rr in masses:
+            stamp(x, yy, rr, 0.0)
+            subs(x, yy, rr, 0.0, levels)
+        c += r * rng.uniform(0.6, 1.0)
+    return hf
+
+
+def _puff_shade(hf, r0, contrast, wgt):
+    """Éclairage des sphères par leur normale (soleil des Rayons,
+    zénith sinon) et occlusion douce dans les creux entre elles ;
+    wgt dose l'effet (fort sur le dessus, nul dans le corps)."""
+    # Jonctions adoucies : volutes de brume, pas des bulles de savon.
+    hf = cv2.GaussianBlur(hf, (0, 0), max(0.8, r0 * 0.06))
+    gx = cv2.Sobel(hf, cv2.CV_32F, 1, 0, ksize=3) / 8
+    gy = cv2.Sobel(hf, cv2.CV_32F, 0, 1, ksize=3) / 8
+    nn = np.sqrt(gx * gx + gy * gy + 1)
+    # Soleil des Rayons (% du cadre), zénith sinon : lumière d'en haut.
+    sx, sy = (50.0, -200.0) if _SUN is None else _SUN
+    sx, sy = float(sx) - 50.0, float(sy) - 50.0
+    ln = max(1e-3, float(np.hypot(sx, sy)))
+    lx, ly, lz = 0.7 * sx / ln, 0.7 * sy / ln, 0.7
+    lam = np.clip((-gx * lx - gy * ly + lz) / nn, 0, 1)
+    ao = np.clip(cv2.GaussianBlur(hf, (0, 0), max(1.0, r0 * 0.25))
+                 - hf, 0, None) / max(1.0, r0 * 0.3)
+    k = 0.2 * contrast * wgt
+    sh = 1 + k * (lam - 0.6) * 2 - np.clip(ao, 0, 1) * k * 0.6
+    return np.where(hf > 0, sh, 1.0).astype(np.float32)
+
+
 def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
                curl=0.5, distort=0.5, n=7, bumps=0.5, contrast=0.5,
                cap=0.97):
@@ -2932,35 +3013,13 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
         # Écart fond/avant adouci (x2,6 au lieu de x5,5) et plancher plus
         # haut : la dernière couche ne fait plus une bande de miettes.
         r0 = h * 0.036 * (0.35 + 0.75 * (1 - t)) * (0.6 + 1.9 * bumps)
-        if r0 >= 1.5:
-            # Profil dessiné en 2D pour y poser les sous-volutes
-            # (fractal, comme la brume au sol), puis lu colonne par
-            # colonne : hauteur du dessus.
-            hc = int(r0 * (4 + 6 * bumps)) + 4
-            pad = int(r0 * 3)
-            can = np.zeros((hc, w + 2 * pad), np.uint8)
-            c = -r0
-            while c < w + r0:
-                # Tailles mêlées : petites et grosses côte à côte.
-                r = r0 * float(np.clip(rng.lognormal(0.0, 0.45),
-                                       0.3, 2.5))
-                cx = int(c) + pad
-                # Sphères puis sous-sphères (premier plan : 4 niveaux).
-                _cumulus(can, cx, hc - 1, r, 255, rng, bumps,
-                         (4 if t < 0.35 else 2) if cv > 0 else 0)
-                c += r * rng.uniform(0.45, 0.8)
-            can = can[:, pad:pad + w] > 127
-            bump = np.where(can.any(axis=0),
-                            hc - 1 - can.argmax(axis=0), 0)
-            # Détail au minimum : sous-volutes adoucies.
-            bump = cv2.GaussianBlur(
-                bump.astype(np.float32)[None, :], (0, 0),
-                max(0.6, r0 * (0.03 + 0.25 * _GRAIN)))[0]
-            # Hauteur bornée en douceur : pas de tours en zigzag.
-            # Plus haut en cumulus bourgeonnant (curseur Volutes).
-            hb = 1.6 * r0 * (1 + 2.5 * bumps)
-            bump = hb * np.tanh(bump / hb)
-            edge = edge - cv * bump[None, :]
+        # Volutes : vraies sphères puis sous-sphères (champ de hauteur
+        # 2D) posées sur le bord lisse. Pas de profil par colonne : il
+        # étirait chaque bosse vers le bas en rideau.
+        hf = None
+        if r0 >= 1.5 and cv > 0:
+            hf = _puff_field(h, w, edge[0], r0, rng, bumps,
+                             3 if t < 0.35 else 2)
         dy = yy - edge
         # Au loin, bords fondus et bancs plus légers (spread).
         sf = soft * (1 + 1.5 * spread + 3 * spread * t ** 2) \
@@ -2972,11 +3031,14 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
         # Densité : volute épaisse opaque, creux fin qui laisse voir.
         dens = np.clip(0.55 + (tex - 0.5) * 9 * contrast, 0.0, 1)
         cov = cov * dens * (1 + 0.5 * contrast) * present
-        # Sous-volutes à l'intérieur du banc : texture fractale de
-        # dômes (même que la mer de nuages), à l'échelle des volutes du
-        # banc ; creux et bosses lisibles, surtout à l'avant.
-        if r0 >= 1.5 and cv > 0:
-            cov = cov * _dome_relief(h, w, r0, i, cv, dy, sf)
+        if hf is not None:
+            # Silhouette festonnée : les sphères sont opaques, bord
+            # adouci sur ~1 px seulement.
+            # Seulement au-dessus du bord : sous le bord, le banc reste
+            # un voile (pas un empilement de bulles).
+            cp = np.clip(hf / max(1.0, r0 * 0.15), 0, 1) * present \
+                * np.clip(1 - dy / (r0 * 0.8), 0, 1)
+            cov = np.maximum(cov, cp * cov.max(initial=0.0) * 0.9)
         vis = np.clip((far - t) * 20 / (1 + 5 * spread) + 0.5, 0, 1)
         vis = vis * vis * (3 - 2 * vis)
         rim = np.exp(-(dy / (sf * 1.5 + 2)) ** 2) * (dy > -sf)
@@ -3001,6 +3063,12 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
             lt = up(lt.astype(np.float32))[..., None]
             col = shade + (color * 1.08 - shade) * np.clip(
                 0.25 + 0.8 * lt, 0, 1.4)
+        if hf is not None:
+            # Relief par la forme : chaque sphère éclairée selon sa
+            # normale, creux entre sphères assombris.
+            col = col * _puff_shade(hf, r0, contrast,
+                                    np.clip(1 - dy / (r0 * 1.5), 0, 1)
+                                    )[..., None]
         al = np.clip(amount * thick * 0.85 * cov * vis * hw
                      * (1 - 0.5 * spread * t), 0, cap)
         al = al.astype(np.float32)
