@@ -2028,7 +2028,14 @@ def main(page: ft.Page):
                           for t in ("Diffus", "Volume")])
 
             def _mode(e, sub=sub):
-                sub["volume"] = e.control.selected_index + 1
+                # e.data : index déjà à jour (selected_index peut
+                # garder l'ancien choix pendant l'événement).
+                try:
+                    idx = int(e.data)
+                except (TypeError, ValueError):
+                    idx = e.control.selected_index
+                e.control.selected_index = idx
+                sub["volume"] = idx + 1
                 _seg_ink(e.control)
                 e.control.update()
                 live_preview_tick()
