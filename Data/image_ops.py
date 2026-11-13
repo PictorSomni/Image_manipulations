@@ -120,7 +120,10 @@ _pil_open = Image.open
 def _decode_raw(path, _mtime):
     import rawpy
     with rawpy.imread(path) as r:
-        rgb = r.postprocess(use_camera_wb=True, output_bps=8)
+        # Sans auto-bright : sinon une photo de brume (claire) est
+        # étirée jusqu'au blanc, brûlée.
+        rgb = r.postprocess(use_camera_wb=True, no_auto_bright=True,
+                            output_bps=8)
     return Image.fromarray(rgb)
 
 
@@ -2549,7 +2552,11 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     # premier plan sans noyer le fond, qui reste lisible sous cap.
     # Fond visible : 0 = brume jusqu'à 0.97, 1 = plafond 0.3.
     cap = float(np.clip(0.97 - 0.67 * visible, 0.05, 0.97))
-    a = (cap * (1 - np.exp(-amount * m / cap)))[..., None]
+    # Au-delà de 1, l'intensité épaissit les nappes sans voiler les
+    # zones claires (faible densité) : courbe plus raide en bas.
+    g = 1.0 + 0.5 * max(0.0, amount - 1.0)
+    a = (cap * (1 - np.exp(-amount * np.clip(m, 0, None) ** g
+                           / cap)))[..., None]
     swell = None
     if contrast > 0:
         # Houle : 0 = nappe d'eau plate, 1 = mer de nuages. Bandes
@@ -2644,7 +2651,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
             al = al[..., None]
             out = out * (1 - al) + col * al
     # ponytail: épaisseur, fondu et volutes figés au max (retour user).
-    out = _fog_banks(out, far, hw * sky_cut, amount, 1.0, color, shade, 1.0, 1.0,
+    out = _fog_banks(out, far, np.clip(hw, 0, None) ** g * sky_cut, amount, 1.0, color, shade, 1.0, 1.0,
                      distort, n=14, bumps=bumps, contrast=contrast,
                      cap=cap)
     if swell is not None:
