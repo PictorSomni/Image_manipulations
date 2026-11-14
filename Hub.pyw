@@ -9871,8 +9871,8 @@ def main(page: ft.Page):
                 and not _terminal_fullscreen["active"]):
             hs.append(terminal_panel.height or 0)
         inset = max(hs)
-        if box.bottom != inset:
-            box.bottom = inset
+        if box.padding.bottom != inset:
+            box.padding = ft.Padding.only(bottom=inset)
             try:
                 box.update()
             except Exception:
@@ -10486,7 +10486,11 @@ print("[délai dépassé]")
         ),
     )
 
-    main_row = ft.Row([left_rail, center], expand=True, spacing=0)
+    # Seul l'onglet est raccourci sous les bandeaux : le rail des
+    # onglets garde toute la hauteur (retour user).
+    center_box = ft.Container(center, expand=True,
+                              padding=ft.Padding.only(bottom=0))
+    main_row = ft.Row([left_rail, center_box], expand=True, spacing=0)
     # Bloc-notes + Terminal en calque par-dessus l'onglet (retour user :
     # ne plus écraser les onglets), côte à côte quand les deux sont
     # ouverts. left=60 : le rail gauche reste entièrement visible.
@@ -10499,7 +10503,7 @@ print("[délai dépassé]")
     panels_dock = ft.Container(content=panels_row, left=60, right=0,
                                bottom=0)
     main_box = ft.Container(main_row, left=0, top=0, right=0, bottom=0)
-    _dock["box"] = main_box
+    _dock["box"] = center_box
     body = ft.Column([
         ft.Divider(height=1, color=GREY),
         # main_row positionné plein cadre : contraintes fixes (un enfant
