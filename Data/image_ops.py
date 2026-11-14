@@ -1968,6 +1968,19 @@ def _blur_pct(arr, radius_pct, min_sigma=20.0):
     return cv2.resize(small, (w, h), interpolation=cv2.INTER_LINEAR)
 
 
+def _gblur(arr, sigma, min_sigma=12.0):
+    """GaussianBlur en basse résolution au-delà de ~min_sigma px."""
+    h, w = arr.shape[:2]
+    scale = min(1.0, min_sigma / max(sigma, 1e-3))
+    arr = arr.astype(np.float32, copy=False)
+    if scale >= 0.8:
+        return cv2.GaussianBlur(arr, (0, 0), sigma)
+    sh, sw = max(1, int(h * scale)), max(1, int(w * scale))
+    small = cv2.resize(arr, (sw, sh), interpolation=cv2.INTER_AREA)
+    small = cv2.GaussianBlur(small, (0, 0), sigma * scale)
+    return cv2.resize(small, (w, h), interpolation=cv2.INTER_LINEAR)
+
+
 def _luma(img):
     return 0.299 * img[..., 0] + 0.587 * img[..., 1] + 0.114 * img[..., 2]
 
@@ -2296,8 +2309,13 @@ def _grain(h, w, seed, sig=None):
     rng = np.random.default_rng(seed + 1000 * _SEED)
     if sig is None:
         sig = max(0.6, max(h, w) / 700.0 * (5 + 16 * _GRAIN))
-    g = cv2.GaussianBlur(rng.standard_normal((h, w)).astype(np.float32),
-                         (0, 0), sig)
+    # Grand sigma : bruit tiré en basse résolution, même aspect.
+    k = min(1.0, 6.0 / sig)
+    lh, lw = max(2, int(h * k)), max(2, int(w * k))
+    g = cv2.GaussianBlur(rng.standard_normal((lh, lw)).astype(np.float32),
+                         (0, 0), sig * k)
+    if k < 1.0:
+        g = cv2.resize(g, (w, h), interpolation=cv2.INTER_CUBIC)
     return g / max(1e-3, float(g.std()))
 
 
@@ -2609,7 +2627,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
         # Occlusion ambiante : creux entre volutes (densité plus basse
         # que le voisinage) plus sombres, à deux échelles.
         hwf = np.asarray(hw, np.float32)
-        ao = sum(np.clip(cv2.GaussianBlur(hwf, (0, 0), h * sc) - hwf, 0, 1)
+        ao = sum(np.clip(_gblur(hwf, h * sc) - hwf, 0, 1)
                  for sc in (0.01, 0.04))
         f = f * (1 - np.clip(ao * 4.0 * contrast, 0, 0.5))
         if _VOL_LIGHT is not None:
@@ -2930,7 +2948,7 @@ def _puff_shade(hf, r0, contrast, wgt):
     ln = max(1e-3, float(np.hypot(sx, sy)))
     lx, ly, lz = 0.7 * sx / ln, 0.7 * sy / ln, 0.7
     lam = np.clip((-gx * lx - gy * ly + lz) / nn, 0, 1)
-    ao = np.clip(cv2.GaussianBlur(hf, (0, 0), max(1.0, r0 * 0.25))
+    ao = np.clip(_gblur(hf, max(1.0, r0 * 0.25))
                  - hf, 0, None) / max(1.0, r0 * 0.3)
     k = 0.2 * contrast * wgt
     sh = 1 + k * (lam - 0.6) * 2 - np.clip(ao, 0, 1) * k * 0.6
