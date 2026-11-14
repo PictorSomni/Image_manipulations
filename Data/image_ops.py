@@ -2572,9 +2572,10 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
         # Bords recalés sur la photo (filtre guidé, en ~800 px) : ni
         # halo ni liseré autour des silhouettes, transition douce.
         ray = _snap(img, ray)
-        ray = _bumpy_top(ray, bumps, edge, far,
-                         amp=1 - 0.75 * ground_height,
-                         contrast=contrast)
+        if int(volume) != 3:
+            ray = _bumpy_top(ray, bumps, edge, far,
+                             amp=1 - 0.75 * ground_height,
+                             contrast=contrast)
         hw = (1 - ground) + ground * np.clip(ray, 0, 1)
     if show_depth:
         return _depth_view(far)
@@ -2689,9 +2690,13 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
             al = al[..., None]
             out = out * (1 - al) + col * al
     # ponytail: épaisseur, fondu et volutes figés au max (retour user).
-    out = _fog_banks(out, far, np.clip(hw, 0, None) ** g * sky_cut, amount, 1.0, color, shade, 1.0, 1.0,
-                     distort, n=14, bumps=bumps, contrast=contrast,
-                     cap=cap)
+    if int(volume) == 3:
+        out = _fog_volume(out, far, np.clip(hw, 0, None) ** g * sky_cut,
+                          amount, color, shade, distort, contrast, cap)
+    else:
+        out = _fog_banks(out, far, np.clip(hw, 0, None) ** g * sky_cut,
+                         amount, 1.0, color, shade, 1.0, 1.0, distort,
+                         n=14, bumps=bumps, contrast=contrast, cap=cap)
     if swell is not None:
         # Houle posée en dernier : elle marque aussi les bancs.
         out = out * np.clip(1 + swell * a[..., 0], 0.82, 1.15)[..., None]
@@ -3004,6 +3009,66 @@ def _puff_shade(hf, r0, contrast, wgt):
     k = 0.2 * contrast * wgt
     sh = 1 + k * (lam - 0.6) * 2 - np.clip(ao, 0, 1) * k * 0.6
     return np.where(hf > 0, sh, 1.0).astype(np.float32)
+
+
+def _fog_volume(out, far, hw, amount, color, shade, distort=0.5,
+                contrast=0.5, cap=0.97, steps=28):
+    """Brume en volume continu : densité 3D (bruit interpolé en
+    profondeur, grain plus fin au loin) intégrée de l'appareil jusqu'à
+    la surface (Beer-Lambert). Lumière par l'épaisseur traversée
+    au-dessus : dessus clair, dessous ombré, sans bords de bancs."""
+    H, W = far.shape
+    s = min(1.0, _RES / max(H, W))
+    h, w = max(1, int(H * s)), max(1, int(W * s))
+    if s < 1:
+        far = cv2.resize(far, (w, h), interpolation=cv2.INTER_AREA)
+        if np.ndim(hw):
+            hw = cv2.resize(hw, (w, h), interpolation=cv2.INTER_AREA)
+        color, shade = (cv2.resize(np.asarray(c, np.float32), (w, h),
+                                   interpolation=cv2.INTER_AREA)
+                        if np.ndim(c) == 3 else c for c in (color, shade))
+    hw = np.broadcast_to(np.asarray(hw, np.float32), (h, w))
+    color = np.asarray(color, np.float32)
+    shade = np.asarray(shade, np.float32)
+    # Tranches de bruit : interpolées en profondeur, donc continues.
+    m = 7
+    cs = max(4.0, 0.14 * max(h, w))
+    sl = [np.clip(_cloud_noise_cached(h, w, cs * (1.1 - j / m) ** 1.5,
+                                      61 + j), 0, None) for j in range(m)]
+    # Octave fine : volutes dans la masse.
+    fn = [np.clip(_cloud_noise_cached(h, w, cs * 0.3 * (1.1 - j / m)
+                                      ** 1.5, 81 + j), 0, None)
+          for j in range(m)]
+    sl = [x * (0.4 + 1.2 * y / max(1e-3, float(y.mean())))
+          for x, y in zip(sl, fn)]
+    sl = [x / max(1e-3, float(x.mean())) for x in sl]
+    dt = 1.0 / steps
+    k = amount * (6.0 + 18.0 * distort)
+    T = np.ones((h, w), np.float32)
+    C = np.zeros((h, w, 3), np.float32)
+    for i in range(steps):
+        t = (i + 0.5) * dt
+        u = t * (m - 1)
+        j = min(m - 2, int(u))
+        f = u - j
+        n = sl[j] * (1 - f) + sl[j + 1] * f
+        # Volutes plus contrastées selon contrast.
+        n = np.clip(n - 0.7 * contrast, 0, None) ** (1 + contrast)
+        inside = np.clip((far - t) / dt + 0.5, 0, 1)
+        rho = k * hw * n * inside
+        # Lumière : épaisseur de la tranche au-dessus du pixel.
+        up = np.cumsum(rho, axis=0) * (2.0 / h)
+        up = cv2.GaussianBlur(up, (0, 0), max(1.0, h * 0.01))
+        lit = np.exp(-up * (1 + 2 * contrast))[..., None]
+        light = shade + (color * 1.06 - shade) * lit
+        a = 1 - np.exp(-rho * dt)
+        C += (T * a)[..., None] * light
+        T *= 1 - a
+    T = np.maximum(T, 1 - cap)
+    if s < 1:
+        T = cv2.resize(T, (W, H), interpolation=cv2.INTER_LINEAR)
+        C = cv2.resize(C, (W, H), interpolation=cv2.INTER_LINEAR)
+    return out * T[..., None] + C
 
 
 def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,

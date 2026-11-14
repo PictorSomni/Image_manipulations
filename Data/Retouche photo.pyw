@@ -2025,7 +2025,7 @@ def main(page: ft.Page):
                 selected_index=max(0, int(sub["volume"]) - 1),
                 thumb_color=color, expand=True,
                 controls=[ft.Text(t, size=12, color=WHITE)
-                          for t in ("Diffus", "Volume")])
+                          for t in ("Diffus", "Volume", "Nuée")])
 
             def _mode(e, sub=sub):
                 # e.data : index déjà à jour (selected_index peut
