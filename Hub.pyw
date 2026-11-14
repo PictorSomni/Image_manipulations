@@ -9523,14 +9523,22 @@ def main(page: ft.Page):
         new_height = max(_TERMINAL_MIN_HEIGHT, min(
             _TERMINAL_MAX_HEIGHT, terminal_panel.height - e.local_delta.y))
         terminal_panel.height = new_height
+        # Un seul bloc : Bloc-notes et terminal gardent la même hauteur.
+        notes_panel.height = new_height
         _terminal_fullscreen["last_height"] = new_height
-        terminal_panel.update()
+        page.update(terminal_panel, notes_panel)
 
     terminal_resize_handle = ft.GestureDetector(
         content=ft.Container(height=6, bgcolor=GREEN),
         mouse_cursor=ft.MouseCursor.RESIZE_UP_DOWN,
         on_pan_update=_on_terminal_resize,
+        on_pan_end=lambda e: _sync_dock_inset(),
     )
+
+    # Poignée du Bloc-notes : même réglage que celle du terminal.
+    notes_panel.content.controls[0].on_pan_update = _on_terminal_resize
+    notes_panel.content.controls[0].on_pan_end = (
+        lambda e: _sync_dock_inset())
 
     terminal_title = ft.Text("Terminal", size=CONSTANTS.TEXT_LG,
                            color=GREEN,
@@ -9778,8 +9786,8 @@ def main(page: ft.Page):
         terminal_panel.visible = not terminal_panel.visible
         if terminal_panel.visible and shell_term.get("nudge"):
             shell_term["nudge"]()
-        _sync_terminal_btn()
         _terminal_autohide["pinned"] = terminal_panel.visible
+        _sync_terminal_btn()
         t = _terminal_autohide["task"]
         if t is not None and not t.done():
             t.cancel()
@@ -9847,8 +9855,32 @@ def main(page: ft.Page):
         height=CONSTANTS.HUB_STATUSBAR_TAP_HEIGHT, on_click=_toggle_terminal,
     )
 
+    # Onglets raccourcis de la hauteur des bandeaux ouverts (Bloc-notes,
+    # terminal épinglé) : on peut défiler jusqu'au bas d'une liste au
+    # lieu qu'elle reste cachée sous le calque (retour user).
+    _dock = {"box": None}
+
+    def _sync_dock_inset():
+        box = _dock["box"]
+        if box is None:
+            return
+        hs = [0]
+        if notes_panel.visible:
+            hs.append(notes_panel.height or 0)
+        if (terminal_panel.visible and _terminal_autohide["pinned"]
+                and not _terminal_fullscreen["active"]):
+            hs.append(terminal_panel.height or 0)
+        inset = max(hs)
+        if box.bottom != inset:
+            box.bottom = inset
+            try:
+                box.update()
+            except Exception:
+                pass
+
     def _sync_terminal_btn():
         active = terminal_panel.visible
+        _sync_dock_inset()
         # TextButton n'a pas de `bgcolor` direct (attribut fantôme, sans
         # effet) — il faut passer par style=ButtonStyle(bgcolor=...)
         # (retour user : les boutons restaient gris malgré l'affectation).
@@ -9878,6 +9910,7 @@ def main(page: ft.Page):
 
     def _sync_notes_btn():
         active = notes_panel.visible
+        _sync_dock_inset()
         notes_toggle_btn.style = ft.ButtonStyle(
             bgcolor=VIOLET if active else None)
         notes_btn_icon.color = DARK if active else WHITE
@@ -10465,12 +10498,13 @@ print("[délai dépassé]")
                         vertical_alignment=ft.CrossAxisAlignment.END)
     panels_dock = ft.Container(content=panels_row, left=60, right=0,
                                bottom=0)
+    main_box = ft.Container(main_row, left=0, top=0, right=0, bottom=0)
+    _dock["box"] = main_box
     body = ft.Column([
         ft.Divider(height=1, color=GREY),
         # main_row positionné plein cadre : contraintes fixes (un enfant
         # non positionné d'un Stack reçoit des contraintes lâches).
-        ft.Stack([ft.Container(main_row, left=0, top=0, right=0, bottom=0),
-                  panels_dock], expand=True),
+        ft.Stack([main_box, panels_dock], expand=True),
         statusbar,
     ], expand=True, spacing=0)
 

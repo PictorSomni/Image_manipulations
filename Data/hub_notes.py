@@ -320,6 +320,7 @@ def build(ui):
         content=ft.Container(height=6, bgcolor=VIOLET),
         mouse_cursor=ft.MouseCursor.RESIZE_UP_DOWN,
         on_pan_update=_on_notes_resize,
+        on_pan_end=lambda e: _sync_notes_btn(),
     )
 
     notes_panel = ft.Container(
