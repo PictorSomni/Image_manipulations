@@ -407,4 +407,4 @@ def render(img, far, layer=0.4, size=0.5, billow=0.6, detail=1.0,
     k = np.clip(alpha * 2.5, 0, 1)[..., None]
     back = img + (back - img) * k
     return (back * (1 - alpha[..., None]) + col * alpha[..., None],
-            up(under))
+            up(under), alpha)

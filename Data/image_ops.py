@@ -2556,6 +2556,9 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
             * (0.1 + 1.6 * ((distort - 0.15) / 0.49) ** 2))
         if sea is not None:
             sea_img = np.clip(sea[0], 0, 1).astype(np.float32)
+            # Relief seulement là où il y a des nuages : sinon il
+            # durcit le contraste de la photo elle-même.
+            sea_a = np.clip(np.asarray(sea[2], np.float32), 0, 1)
     # Brume au sol : dense près de l'eau / des fonds, s'efface en montant.
     hw = 1.0
     if ground > 0:
@@ -2709,7 +2712,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
         det = np.clip(lum / (base + 1e-3), 0.55, 1.5)
         big = np.clip(base / (cv2.GaussianBlur(lum, (0, 0), k / 8)
                               + 1e-3), 0.7, 1.3)
-        cover = np.clip(a[..., 0] / max(cap, 1e-3), 0, 1)
+        cover = np.clip(a[..., 0] / max(cap, 1e-3), 0, 1) * sea_a
         rel = 1 + ((det - 1) * 2.5 + (big - 1) * 2) * cover * contrast * 2
         out = out * np.clip(rel, 0.4, 1.5)[..., None]
     return _to_pil(out)
