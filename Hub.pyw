@@ -1396,9 +1396,14 @@ def main(page: ft.Page):
 
     def _start_thumb_loader(pending):
         """Génère les miniatures manquantes en arrière-plan (token = annulation)."""
+        # Token incrémenté AVANT le retour anticipé : un rendu sans vignette
+        # à générer (tout en mémoire, recherche, switch liste/vignettes,
+        # 2e _render() de _tool_refresh) doit lui aussi périmer le
+        # chargeur précédent, sinon il patchait encore les vignettes de
+        # l'ancien rendu, détachées de l'arbre (RangeError, retour user).
+        state["thumb_token"] += 1
         if not pending:
             return
-        state["thumb_token"] += 1
         token = state["thumb_token"]
         snapshot = list(pending.items())
 
@@ -1537,18 +1542,23 @@ def main(page: ft.Page):
             # réelle (retour user). _toggle_strip réduit toute la fenêtre
             # (et masque le terminal avec, puisqu'il fait partie de `body`)
             # : jamais le bon outil pour garder le terminal visible.
-            _busy_start()
+            # _busy_start/_busy_end touchent au terminal et à la barre :
+            # appelés dans la boucle Flet, jamais depuis ce thread (même
+            # désynchronisation du client que _safe_update, RangeError).
+            _run_task(_busy_start_async)
             try:
                 work()
             finally:
-                action_progress_bar.visible = False
-                _busy_end()
-                try:
-                    page.update()
-                except Exception:
-                    pass
+                _run_task(_busy_end_async)
 
         threading.Thread(target=_run, daemon=True).start()
+
+    async def _busy_start_async():
+        _busy_start()
+
+    async def _busy_end_async():
+        action_progress_bar.visible = False
+        _busy_end()
 
     # ═════════════════════════════════════════════════════════════════════
     #  Copier / Couper / Coller / Supprimer — presse-papiers interne à l'app
@@ -1760,6 +1770,29 @@ def main(page: ft.Page):
         picked = {}
         # Pile des dossiers traversés, la racine de l'appareil en premier.
         trail = []
+        # Dernier chargement demandé : un dossier lent qui répond après
+        # qu'on en a ouvert un autre ne doit plus toucher à la liste.
+        load_token = {"n": 0}
+
+        def _apply(token, fn):
+            # Contrôles modifiés dans la boucle Flet, jamais depuis le
+            # thread de lecture (cf. _safe_update : un remplacement de
+            # list_view.controls pendant un page.update() désynchronisait
+            # le client, RangeError).
+            async def _do():
+                if token != load_token["n"]:
+                    return
+                fn()
+                try:
+                    page.update()
+                except Exception:
+                    pass
+            _run_task(_do)
+
+        def _set_status(token, message):
+            def _do():
+                status_text.value = message
+            _apply(token, _do)
 
         def _refresh_import_btn():
             import_btn.disabled = not picked
@@ -1790,10 +1823,12 @@ def main(page: ft.Page):
             status_text.value = "Chargement…"
             list_view.controls.clear()
             page.update()
-            threading.Thread(target=lambda: _fill(trail[-1][1]),
+            load_token["n"] += 1
+            current, token = trail[-1][1], load_token["n"]
+            threading.Thread(target=lambda: _fill(current, token),
                              daemon=True).start()
 
-        def _fill(current):
+        def _fill(current, token):
             if current is None:
                 # Première ouverture : l'appareil est ouvert ici, dans un
                 # thread de travail, et pas sur le thread UI (cf. la RÈGLE
@@ -1801,8 +1836,7 @@ def main(page: ft.Page):
                 try:
                     current = mtp_devices.MTPDevice(pnp_id).root()
                 except Exception as exc:
-                    status_text.value = f"Erreur : {exc}"
-                    page.update()
+                    _set_status(token, f"Erreur : {exc}")
                     return
                 trail[0] = (trail[0][0], current)
             # PAS de "with" sur le pool : si le thread reste bloqué sur un
@@ -1817,11 +1851,10 @@ def main(page: ft.Page):
                 # d'une seconde sur le Mi 10T de test.
                 folders, files = future.result(timeout=90)
             except concurrent.futures.TimeoutError:
-                status_text.value = (
+                _set_status(token, (
                     "Le téléphone ne répond pas (délai dépassé). Vérifie "
                     "qu'il est déverrouillé et que le transfert de "
-                    "fichiers est bien autorisé, puis réessaie.")
-                page.update()
+                    "fichiers est bien autorisé, puis réessaie."))
                 pool.shutdown(wait=False)
                 return
             except Exception as exc:
@@ -1830,8 +1863,7 @@ def main(page: ft.Page):
                 # tuait le thread en silence et laissait le dialogue figé
                 # sur "Recherche des photos..." pour toujours — c'était ça,
                 # le "blocage" du premier essai réel (2026-08-07).
-                status_text.value = f"Erreur : {exc}"
-                page.update()
+                _set_status(token, f"Erreur : {exc}")
                 pool.shutdown(wait=False)
                 return
             pool.shutdown(wait=False)
@@ -1890,17 +1922,19 @@ def main(page: ft.Page):
                                   italic=True),
                     dense=True,
                 ))
-            list_view.controls = rows
             parts = []
             if folders:
                 parts.append(f"{len(folders)} dossier(s)")
             if shown:
                 parts.append(f"{shown} photo(s)")
-            status_text.value = " — ".join(parts) or "Dossier vide"
-            _refresh_import_btn()
-            import_btn.on_click = lambda e: _confirm_mtp_import(
-                dlg, list(picked.values()))
-            page.update()
+
+            def _show():
+                list_view.controls = rows
+                status_text.value = " — ".join(parts) or "Dossier vide"
+                _refresh_import_btn()
+                import_btn.on_click = lambda e: _confirm_mtp_import(
+                    dlg, list(picked.values()))
+            _apply(token, _show)
 
         up_btn.on_click = lambda e: _load(None, None, False)
         # La racine entre dans trail avec un item None : _fill l'ouvre
@@ -2088,12 +2122,9 @@ def main(page: ft.Page):
                 if now - last_update >= 0.1 or done == sub_total:
                     last_update = now
                     pct = int(done * 100 / sub_total)
-                    progress_text.value = (
+                    _terminal_set(
+                        progress_text,
                         f"    ↳ {done}/{sub_total} sous-fichier(s) ({pct}%)")
-                    try:
-                        progress_text.update()
-                    except Exception:
-                        pass
             for d in dirs:
                 try:
                     os.rmdir(os.path.join(root, d))
@@ -2183,14 +2214,10 @@ def main(page: ft.Page):
             last_update = 0
             for i, path in enumerate(paths, start=1):
                 name = os.path.basename(path)
-                progress_text.value = f"[{i}/{total}] {name}"
                 now = time.time()
                 if now - last_update >= 0.1 or i == total:
                     last_update = now
-                    try:
-                        progress_text.update()
-                    except Exception:
-                        pass
+                    _terminal_set(progress_text, f"[{i}/{total}] {name}")
                 ext = os.path.splitext(path)[1].lower()
                 if ext not in CONSTANTS.ROTATABLE_EXTS:
                     continue
@@ -4541,6 +4568,19 @@ def main(page: ft.Page):
             if valid == recents:
                 return
             _save_recent(valid)
+            _run_task(_apply_pruned, valid)
+
+        async def _apply_pruned(valid):
+            # Liste raccourcie posée dans la boucle Flet, pas depuis le
+            # thread : isdir() sur un partage lent finit pendant qu'un
+            # page.update() diffe encore l'ancienne liste, plus longue
+            # (RangeError « 0..1: 2 », retour user). Menu refermé ou
+            # reconstruit entre-temps (Favoris retiré...) : cette colonne
+            # n'est plus affichée, rien à patcher.
+            if (open_menu_overlay not in page.overlay
+                    or open_menu_panel.content.controls[0].controls[0]
+                    is not recent_lane):
+                return
             items = [_recent_row(p) for p in valid[:30]] or [ft.Container(
                 content=ft.Text("Aucun dossier récent",
                                 size=CONSTANTS.TEXT_SM, color=GREY),
@@ -6650,15 +6690,18 @@ def main(page: ft.Page):
             # ci-dessous, y compris si le process plante avant la fin.
             running_proc["proc"] = proc
             running_proc["stopped"] = False
-            terminal_stop_button.visible = True
-            page.update()
             # Outil avec sa propre fenêtre Flet (.pyw) : minimiser Hub le
             # temps qu'il tourne, comme Dashboard.pyw:8992-9004/9058-9068.
             is_gui_tool = (app_path.endswith(".pyw")
                           or script_name in _GUI_TOOLS_PY_EXT)
-            if is_gui_tool:
-                page.window.minimized = True
+
+            # Dans la boucle Flet, jamais depuis ce thread (cf. _finish).
+            async def _on_started():
+                terminal_stop_button.visible = True
+                if is_gui_tool:
+                    page.window.minimized = True
                 page.update()
+            _run_task(_on_started)
 
             # Lecture en temps réel, comme Dashboard.pyw:9314-9348
             # (read_output) : chaque ligne part au terminal au fil de l'eau
@@ -6705,6 +6748,21 @@ def main(page: ft.Page):
             t_err.join()
             if is_gui_tool:
                 async def _restore_window():
+                    # Un outil lancé depuis la visionneuse plein écran
+                    # (Recadrage manuel/Augmentation IA sur l'image
+                    # courante) laisse `viewer_overlay` ouvert pendant tout
+                    # le subprocess (Hub est juste minimisé, pas la
+                    # visionneuse fermée) — sans ce nettoyage, restaurer la
+                    # fenêtre ramenait l'utilisateur dans la visionneuse au
+                    # lieu de Hub (retour user). Gardé par `in page.overlay`
+                    # : ne touche à rien pour les outils lancés depuis
+                    # ailleurs (visionneuse jamais ouverte). Fait ICI, dans
+                    # la boucle Flet : retirer l'overlay depuis le thread
+                    # pendant que _restore_window/_finish faisaient leur
+                    # page.update() désynchronisait le client (RangeError
+                    # « 0..1: 2 » au retour d'un recadrage, retour user).
+                    if viewer_overlay in page.overlay:
+                        _close_viewer()
                     # Même séquence que _delayed_maximize au démarrage :
                     # dé-minimiser et maximiser dans le MÊME update est
                     # parfois ignoré par Windows — Hub revenait en mode
@@ -6718,17 +6776,6 @@ def main(page: ft.Page):
                     await page.window.to_front()
 
                 _run_task(_restore_window)
-                # Un outil lancé depuis la visionneuse plein écran (Recadrage
-                # manuel/Augmentation IA sur l'image courante) laisse
-                # `viewer_overlay` ouvert pendant tout le subprocess (Hub est
-                # juste minimisé, pas la visionneuse fermée) — sans ce
-                # nettoyage, restaurer la fenêtre ramenait l'utilisateur dans
-                # la visionneuse au lieu de Hub (retour user). Gardé par
-                # `in page.overlay` : ne touche à rien pour les outils lancés
-                # depuis ailleurs (visionneuse jamais ouverte).
-                if viewer_overlay in page.overlay:
-                    _close_viewer()
-                page.update()
             running_proc["proc"] = None
             if running_proc["stopped"]:
                 _log_to_terminal(f"[ARRÊTÉ] {script_name} interrompu", ORANGE)
@@ -6745,8 +6792,8 @@ def main(page: ft.Page):
             else:
                 _log_to_terminal(f"[OK] {script_name} terminé", GREEN)
                 _terminal_autohide["pinned"] = prev_pinned
-                _show_terminal_and_schedule_hide(
-                    CONSTANTS.HUB_TERMINAL_TOOL_CLOSE_DELAY)
+            ok = not running_proc["stopped"] and proc.returncode == 0
+
             # Tout dans la boucle Flet, après le rafraîchissement : un
             # page.update() depuis ce thread pendant que _tool_refresh
             # reconstruit la liste donnait « RangeError … empty: 0 »
@@ -6756,6 +6803,9 @@ def main(page: ft.Page):
                 await _tool_refresh(path, names, origin_tab_id)
                 action_progress_bar.visible = False
                 terminal_stop_button.visible = False
+                if ok:
+                    _show_terminal_and_schedule_hide(
+                        CONSTANTS.HUB_TERMINAL_TOOL_CLOSE_DELAY)
                 page.update()
             _run_task(_finish)
 
@@ -8280,14 +8330,10 @@ def main(page: ft.Page):
             errors = []
             last_update = 0
             for i, (src_path, dst_dir, dst_path, name) in enumerate(tasks, start=1):
-                progress_text.value = f"[{i}/{total}] {name}"
                 now = time.time()
                 if now - last_update >= 0.1 or i == total:
                     last_update = now
-                    try:
-                        progress_text.update()
-                    except Exception:
-                        pass
+                    _terminal_set(progress_text, f"[{i}/{total}] {name}")
                 try:
                     if not os.path.exists(dst_path) or (
                             os.path.getmtime(src_path) > os.path.getmtime(dst_path)):
@@ -8954,6 +9000,19 @@ def main(page: ft.Page):
             _run_task(_do)
         except RuntimeError:
             pass
+
+    def _terminal_set(ctrl, value):
+        """Change le texte d'une ligne du terminal depuis un thread de
+        travail, dans la boucle Flet (cf. _terminal_add) : la ligne peut
+        avoir été retirée entre-temps par un clear/pop du terminal."""
+        async def _do():
+            ctrl.value = value
+            if ctrl in terminal_output.controls:
+                try:
+                    page.update(ctrl)
+                except Exception:
+                    pass
+        _run_task(_do)
 
     shell_term = {"term": None}   # vrai terminal (Hub compilé, cf. plus bas)
 
