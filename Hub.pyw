@@ -9616,6 +9616,20 @@ def main(page: ft.Page):
             def resize(rows, cols):
                 fcntl.ioctl(fd, termios.TIOCSWINSZ,
                             struct.pack("HHHH", rows, cols, 0, 0))
+        raw_write = write
+        last = {"data": b"", "t": 0.0}
+
+        def write(data):
+            # Cmd+V : xterm.dart colle déjà quand il a le focus, notre
+            # raccourci recolle → on ignore le doublon immédiat.
+            now = time.monotonic()
+            if (len(data) > 1 and data == last["data"]
+                    and now - last["t"] < 0.5
+                    and now - shell_term.get("paste_at", 0) < 0.5):
+                return
+            last["data"], last["t"] = data, now
+            raw_write(data)
+
         term.set_on_bytes(write)
 
         def _resize(e):
@@ -10567,6 +10581,7 @@ print("[délai dépassé]")
                 and ((event.ctrl and event.shift) or event.meta)):
             term = shell_term["term"]
             if event.key == "V":
+                shell_term["paste_at"] = time.monotonic()
                 term.paste()
                 return
 
