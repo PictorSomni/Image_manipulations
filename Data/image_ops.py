@@ -2432,12 +2432,15 @@ def _hg(c, g):
     return (1 - g * g) / (4 * np.pi * (1 + g * g - 2 * g * c) ** 1.5)
 
 
-def _volume_light(dens, r0, contrast):
-    """Lumière du soleil (_SUN, en % du cadre ; zénith sinon) à travers
-    le champ de densité (Hillaire 2016/2020) : épaisseur optique vers le
-    soleil, multi-diffusion sum a^i exp(-b^i tau) p(g c^i), phase à
-    deux lobes (liseré argenté en contre-jour), effet powder."""
-    h, w = dens.shape
+_SUN_CACHE = {}
+
+
+def _sun_geom(h, w):
+    """Direction moyenne vers le soleil, angle de vue et phases, ne
+    dépendant que de la taille et de _SUN : calculés une fois."""
+    key = (h, w, _SUN)
+    if key in _SUN_CACHE:
+        return _SUN_CACHE[key]
     sx, sy = (50.0, -200.0) if _SUN is None else _SUN
     sx, sy = sx / 100.0 * w, sy / 100.0 * h
     yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
@@ -2445,6 +2448,28 @@ def _volume_light(dens, r0, contrast):
     dist = np.sqrt(vx * vx + vy * vy) + 1e-3
     # Direction moyenne vers le soleil pour la marche (champ lisse).
     dx, dy = float(np.mean(vx / dist)), float(np.mean(vy / dist))
+    # Angle de vue : pixel proche du soleil = contre-jour (cos -> 1).
+    diag = float(np.hypot(h, w))
+    c = np.clip(1.6 * np.exp(-dist / (0.35 * diag)) - 0.6, -1, 1)
+    p0 = 0.5 * _hg(0.0, 0.8) + 0.5 * _hg(0.0, -0.3)
+    phs = []
+    for i in range(3):
+        cc = 0.5 ** i
+        ph = 0.5 * _hg(c, 0.8 * cc) + 0.5 * _hg(c, -0.3 * cc)
+        phs.append(np.clip(ph / p0, 0, 4).astype(np.float32))
+    if len(_SUN_CACHE) > 4:
+        _SUN_CACHE.clear()
+    _SUN_CACHE[key] = (dx, dy, c.astype(np.float32), phs)
+    return _SUN_CACHE[key]
+
+
+def _volume_light(dens, r0, contrast):
+    """Lumière du soleil (_SUN, en % du cadre ; zénith sinon) à travers
+    le champ de densité (Hillaire 2016/2020) : épaisseur optique vers le
+    soleil, multi-diffusion sum a^i exp(-b^i tau) p(g c^i), phase à
+    deux lobes (liseré argenté en contre-jour), effet powder."""
+    h, w = dens.shape
+    dx, dy, c, phs = _sun_geom(h, w)
     n = 8
     L = 3.0 * r0
     tau = np.zeros_like(dens)
@@ -2455,15 +2480,10 @@ def _volume_light(dens, r0, contrast):
                               borderMode=cv2.BORDER_CONSTANT)
     tau = tau * (4.0 / n) * (0.5 + contrast)
     tau = cv2.GaussianBlur(tau, (0, 0), max(1.0, r0 * 0.3))
-    # Angle de vue : pixel proche du soleil = contre-jour (cos -> 1).
-    diag = float(np.hypot(h, w))
-    c = np.clip(1.6 * np.exp(-dist / (0.35 * diag)) - 0.6, -1, 1)
-    p0 = 0.5 * _hg(0.0, 0.8) + 0.5 * _hg(0.0, -0.3)
     lum = 0.0
     for i in range(3):
-        a, b, cc = 0.5 ** i, 0.5 ** i, 0.5 ** i
-        ph = 0.5 * _hg(c, 0.8 * cc) + 0.5 * _hg(c, -0.3 * cc)
-        lum = lum + a * np.exp(-tau * b) * np.clip(ph / p0, 0, 4)
+        a = b = 0.5 ** i
+        lum = lum + a * np.exp(-tau * b) * phs[i]
     # Beer-Powder (Schneider, Horizon Zero Dawn) : 2 e^-d (1 - e^-2d),
     # bords fins sombres, cœur lumineux ; plus marqué dos au soleil.
     d = cv2.GaussianBlur(dens, (0, 0), max(1.0, r0 * 0.3)) * 3
@@ -2880,8 +2900,13 @@ def _puff_field(h, w, base, r0, rng, tall, levels):
     de plus en plus petites sur leur arrondi (levels niveaux). Chaque
     sphère est un dôme (max des hauteurs) : creux nets entre elles."""
     hf = np.zeros((h, w), np.float32)
+    small = []
 
     def stamp(cx, cy, r, z0):
+        if r < 12:
+            # Petites sphères : tracées ensemble plus bas.
+            small.append((cx, cy, r, z0))
+            return
         x0, x1 = max(0, int(cx - r)), min(w, int(cx + r) + 2)
         y0, y1 = max(0, int(cy - r)), min(h, int(cy + r) + 2)
         if x0 >= x1 or y0 >= y1:
@@ -2892,6 +2917,31 @@ def _puff_field(h, w, base, r0, rng, tall, levels):
         z = np.where(d2 > 0, z0 + np.sqrt(np.maximum(d2, 0)), 0)
         np.maximum(hf[y0:y1, x0:x1], z, out=hf[y0:y1, x0:x1])
 
+    def flush():
+        """Sphères de rayon < 12 px, vectorisées par lots ; le max
+        rend l'ordre indifférent, le résultat est le même."""
+        if not small:
+            return
+        a = np.asarray(small, np.float32)
+        cx, cy, r, z0 = a[:, 0], a[:, 1], a[:, 2], a[:, 3]
+        o = np.arange(-12, 14, dtype=np.float32)
+        for i in range(0, len(a), 4096):
+            sl = slice(i, i + 4096)
+            px = np.floor(cx[sl] - 12)[:, None] + o + 12
+            py = np.floor(cy[sl] - 12)[:, None] + o + 12
+            dx = px - cx[sl, None]
+            dy = py - cy[sl, None]
+            d2 = (r[sl, None, None] ** 2 - dy[:, :, None] ** 2
+                  - dx[:, None, :] ** 2)
+            z = z0[sl, None, None] + np.sqrt(np.maximum(d2, 0))
+            ok = ((d2 > 0) & (z > 0)
+                  & (px[:, None, :] >= 0) & (px[:, None, :] < w)
+                  & (py[:, :, None] >= 0) & (py[:, :, None] < h))
+            n_ = np.nonzero(ok)
+            idx = (py[n_[0], n_[1]].astype(np.int64) * w
+                   + px[n_[0], n_[2]].astype(np.int64))
+            np.maximum.at(hf.reshape(-1), idx, z[ok])
+
     def subs(cx, cy, r, z0, lv):
         if lv <= 0 or r < 2.0:
             return
@@ -2899,8 +2949,8 @@ def _puff_field(h, w, base, r0, rng, tall, levels):
         nb = (7, 5, 4, 3)[min(3, levels - lv)]
         for _ in range(nb):
             a = rng.uniform(np.pi * 1.0, np.pi * 2.0)
-            rr = r * float(np.clip(rng.lognormal(np.log(0.38), 0.3),
-                                   0.18, 0.6))
+            rr = r * min(0.6, max(0.18, float(
+                rng.lognormal(np.log(0.38), 0.3))))
             d = r * rng.uniform(0.75, 0.95)
             x, y = cx + d * np.cos(a), cy + d * np.sin(a)
             # Posée sur la surface du parent, à moitié enfoncée.
@@ -2930,6 +2980,7 @@ def _puff_field(h, w, base, r0, rng, tall, levels):
             stamp(x, yy, rr, 0.0)
             subs(x, yy, rr, 0.0, levels)
         c += r * rng.uniform(0.6, 1.0)
+    flush()
     return hf
 
 
