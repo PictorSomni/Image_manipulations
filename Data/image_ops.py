@@ -312,13 +312,27 @@ def compensate_jpeg_bytes(jpeg_bytes: bytes, quality: int = 90) -> bytes:
         return jpeg_bytes
 
 
+def erosion_radius(size_min: int, pct: float) -> int:
+    """Rayon signé (px) d'un réglage d'érosion en % du petit côté :
+    positif = rétrécir, négatif = élargir, 0 = rien."""
+    if not pct:
+        return 0
+    r = max(1, round(size_min * abs(pct) / 100))
+    return r if pct > 0 else -r
+
+
 def erode_alpha(source_image: Image.Image, radius: int) -> Image.Image:
-    """Érode le canal alpha d'une image RGBA d'environ ``radius`` pixels."""
-    if source_image.mode != "RGBA" or radius <= 0:
+    """Érode le canal alpha d'une image RGBA d'environ ``radius`` pixels ;
+    un rayon négatif l'élargit (dilatation)."""
+    if source_image.mode != "RGBA" or not radius:
         return source_image
     r, g, b, alpha_channel = source_image.split()
-    for _ in range(radius):
-        alpha_channel = alpha_channel.filter(ImageFilter.MinFilter(3))
+    k = 2 * abs(radius) + 1
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
+    arr = np.asarray(alpha_channel)
+    arr = (cv2.erode(arr, kernel) if radius > 0
+           else cv2.dilate(arr, kernel))
+    alpha_channel = Image.fromarray(arr, mode="L")
     return Image.merge("RGBA", (r, g, b, alpha_channel))
 
 
@@ -529,10 +543,10 @@ def compute_crop_with_canvas(image: Image.Image, target_w_px: int,
     )
 
     if output_image.mode == "RGBA":
-        if rembg_erosion_pct > 0:
-            erosion_radius = max(
-                1, round(min(output_image.size) * rembg_erosion_pct / 100))
-            output_image = erode_alpha(output_image, erosion_radius)
+        if rembg_erosion_pct:
+            erosion_px = erosion_radius(min(output_image.size),
+                                        rembg_erosion_pct)
+            output_image = erode_alpha(output_image, erosion_px)
         if rembg_feather_pct > 0:
             feather_radius = max(
                 1, round(min(output_image.size) * rembg_feather_pct / 100))
@@ -640,10 +654,10 @@ def compute_fit_in(image: Image.Image, target_w_px: int, target_h_px: int,
     blancs), rotation ignorée. Reprend `PhotoCropper._compute_fit_in`."""
     source_image = image
     if source_image.mode == "RGBA":
-        if rembg_erosion_pct > 0:
-            erosion_radius = max(
-                1, round(min(source_image.size) * rembg_erosion_pct / 100))
-            source_image = erode_alpha(source_image.copy(), erosion_radius)
+        if rembg_erosion_pct:
+            erosion_px = erosion_radius(min(source_image.size),
+                                        rembg_erosion_pct)
+            source_image = erode_alpha(source_image.copy(), erosion_px)
         if rembg_feather_pct > 0:
             feather_radius = max(
                 1, round(min(source_image.size) * rembg_feather_pct / 100))
@@ -1394,6 +1408,329 @@ def run_rembg(image: Image.Image, *, precise: bool = False,
         session = _rembg_new_session(model_name)
         cache[model_name] = session
     return _rembg_remove(image, session=session)
+
+
+# ================================================================ #
+#               RETOUCHE DU MASQUE DE DÉTOURAGE                    #
+# ================================================================ #
+
+# Côté long (px) de l'image de travail de GrabCut : ~1 s sur le Pi 5,
+# le masque est ensuite remonté en pleine résolution (filtre guidé).
+GRABCUT_WORK_PX = 900
+
+
+def _fit_size(size, max_px):
+    """Taille (w, h) réduite pour tenir dans `max_px` (côté long)."""
+    w, h = size
+    s = min(1.0, max_px / max(w, h))
+    return max(1, round(w * s)), max(1, round(h * s))
+
+
+def _resize_u8(arr, size, interp=cv2.INTER_LINEAR):
+    """Redimensionne un tableau uint8 vers `size` = (w, h)."""
+    w, h = size
+    if arr.shape[1] == w and arr.shape[0] == h:
+        return arr
+    if interp == cv2.INTER_LINEAR and w < arr.shape[1]:
+        interp = cv2.INTER_AREA
+    return cv2.resize(arr, (w, h), interpolation=interp)
+
+
+def stroke_layer(shape, points, radius, scale):
+    """Couche uint8 (0/255, bords anticrénelés) d'un trait de pinceau.
+
+    `points` : tableau (N, 2) en pixels de l'image pleine résolution,
+    `radius` : rayon en pixels pleine résolution, `scale` : (sx, sy)
+    pleine résolution -> `shape`.
+    """
+    layer = np.zeros(shape, dtype=np.uint8)
+    sx, sy = scale
+    pts = np.asarray(points, dtype=np.float64).reshape(-1, 2)
+    p = np.round(pts * (sx, sy) * 16).astype(np.int32)
+    r = max(0.5, radius * (sx + sy) / 2)
+    if len(p) == 1 or np.all(p == p[0]):
+        cv2.circle(layer, (int(p[0, 0]), int(p[0, 1])), round(r * 16),
+                   255, -1, cv2.LINE_AA, shift=4)
+    else:
+        # Les traits épais d'OpenCV ont des bouts et des jointures ronds.
+        cv2.polylines(layer, [p.reshape(-1, 1, 2)], False, 255,
+                      max(1, round(2 * r)), cv2.LINE_AA, shift=4)
+    return layer
+
+
+def apply_stroke(mask, layer, keep):
+    """Garder : force le sujet ; Enlever : force le fond."""
+    if keep:
+        return np.maximum(mask, layer)
+    return np.minimum(mask, 255 - layer)
+
+
+def guided_upsample(mask_small, guide_rgb, factor):
+    """Remonte un masque binaire basse résolution à la taille de
+    `guide_rgb` en recollant ses bords sur ceux de l'image (filtre
+    guidé, opencv-contrib) ; à défaut, simple bord adouci."""
+    h, w = guide_rgb.shape[:2]
+    up = cv2.resize(mask_small, (w, h), interpolation=cv2.INTER_LINEAR)
+    radius = max(2, round(factor * 1.5))
+    if hasattr(cv2, "ximgproc"):
+        guide = guide_rgb.astype(np.float32) / 255.0
+        src = up.astype(np.float32) / 255.0
+        out = cv2.ximgproc.guidedFilter(guide, src, radius, 1e-3)
+        return np.clip(out * 255.0 + 0.5, 0, 255).astype(np.uint8)
+    return cv2.GaussianBlur(up, (0, 0), radius / 2)
+
+
+def grabcut_mask(rgb, prior, keep_hint, remove_hint, *, iters=4):
+    """Recalcule un masque sujet par GrabCut, sans IA.
+
+    `rgb` : image de travail (h, w, 3) uint8 ; `prior` : masque courant
+    uint8 à la même taille, ou None (initialisation par rectangle) ;
+    `keep_hint` / `remove_hint` : booléens des traits Garder / Enlever,
+    imposés comme sujet / fond certains.
+
+    Avec un masque existant, seul le voisinage des traits qui le
+    contredisent peut changer : ailleurs, le détourage IA est gardé tel
+    quel (GrabCut seul dégrade souvent un bon masque).
+
+    Renvoie (masque uint8 0/255, zone modifiable uint8 0/255) ou None si
+    GrabCut n'a pas de quoi apprendre les deux couleurs.
+    """
+    h, w = rgb.shape[:2]
+    big = max(h, w)
+    hints = keep_hint | remove_hint
+    labels = np.empty((h, w), dtype=np.uint8)
+    if prior is None:
+        mx, my = max(1, round(w * 0.03)), max(1, round(h * 0.03))
+        labels[:] = cv2.GC_BGD
+        # Bas de cadre exclu : un buste y est coupé, c'est du sujet.
+        labels[my:, mx:w - mx] = cv2.GC_PR_FGD
+        region = np.ones((h, w), dtype=bool)
+    else:
+        sure = prior >= 128
+        # Seuls les traits qui CONTREDISENT le masque (Enlever sur du
+        # sujet, Garder sur du fond) ouvrent leur voisinage au recalcul :
+        # ailleurs le détourage est gardé tel quel. Laisser GrabCut
+        # rebattre tout le contour, ou le voisinage d'un trait posé là
+        # où le masque était déjà juste, rognait des cheveux de couleur
+        # proche du fond (essai sur portrait réel).
+        add = keep_hint & ~sure
+        cut = remove_hint & sure
+        if not (add.any() or cut.any()):
+            return None
+        far = np.float32(big)
+        d_add = (cv2.distanceTransform((~add).astype(np.uint8),
+                                       cv2.DIST_L2, 3) if add.any()
+                 else np.full((h, w), far, np.float32))
+        d_cut = (cv2.distanceTransform((~cut).astype(np.uint8),
+                                       cv2.DIST_L2, 3) if cut.any()
+                 else np.full((h, w), far, np.float32))
+        region = np.minimum(d_add, d_cut) < 0.08 * big
+        labels[:] = np.where(sure, cv2.GC_FGD, cv2.GC_BGD)
+        # Autour d'un trait, la zone part du côté qu'il réclame (sujet
+        # près d'un Garder, fond près d'un Enlever) : partir du masque
+        # faisait apprendre la couleur de l'objet visé au mauvais modèle,
+        # et GrabCut ne bougeait presque pas (lampe, coin de meuble).
+        labels[region] = np.where(d_add[region] < d_cut[region],
+                                  cv2.GC_PR_FGD, cv2.GC_PR_BGD)
+    labels[keep_hint] = cv2.GC_FGD
+    labels[remove_hint] = cv2.GC_BGD
+    region |= hints
+
+    # Calcul limité au rectangle englobant la zone modifiable (+ marge) :
+    # plus rapide, et modèle de couleurs local à la retouche.
+    ys, xs = np.nonzero(region)
+    if not len(xs):
+        return None
+    pad = max(8, round(0.03 * big))
+    x0, x1 = max(0, xs.min() - pad), min(w, xs.max() + pad + 1)
+    y0, y1 = max(0, ys.min() - pad), min(h, ys.max() + pad + 1)
+    sub = labels[y0:y1, x0:x1].copy()
+    fg = np.isin(sub, (cv2.GC_FGD, cv2.GC_PR_FGD))
+    if fg.all() or not fg.any():
+        return None
+    bgd = np.zeros((1, 65), np.float64)
+    fgd = np.zeros((1, 65), np.float64)
+    img = np.ascontiguousarray(rgb[y0:y1, x0:x1, ::-1])
+    cv2.grabCut(img, sub, None, bgd, fgd, iters, cv2.GC_INIT_WITH_MASK)
+    labels[y0:y1, x0:x1] = sub
+    result = np.isin(labels, (cv2.GC_FGD, cv2.GC_PR_FGD))
+    # Miettes de sujet isolées dans la zone recalculée : retirées.
+    count, comp, stats, _ = cv2.connectedComponentsWithStats(
+        result.astype(np.uint8), connectivity=8)
+    tiny = stats[:, cv2.CC_STAT_AREA] < 0.0005 * h * w
+    tiny[0] = False
+    if tiny.any():
+        result &= ~tiny[comp]
+    return ((result * 255).astype(np.uint8),
+            (region * 255).astype(np.uint8))
+
+
+class MaskEditor:
+    """Retouches d'un masque de détourage, rejouables à toute taille.
+
+    Le masque de départ (`base`, alpha IA/pipette pleine résolution, ou
+    None = tout sujet) n'est jamais modifié : les retouches sont une
+    liste d'opérations (traits Garder/Enlever, recalculs GrabCut) que
+    `render` rejoue à la taille demandée — taille d'affichage pendant
+    l'édition, pleine résolution à l'export. Annuler = retirer la
+    dernière opération.
+
+    Lecture depuis un autre thread (aperçu live, export) : chaque rendu
+    travaille sur une copie de la liste des opérations.
+    """
+
+    def __init__(self, source: Image.Image, base: np.ndarray | None):
+        self.source = source
+        self.size = source.size
+        self.base = base
+        self.ops = []
+        self.version = 0
+        self._rgb = {}
+        self._render_cache = {}
+
+    @property
+    def has_edits(self) -> bool:
+        return bool(self.ops)
+
+    def rebase(self, base: np.ndarray | None) -> None:
+        """Nouveau masque de départ (nouveau détourage), retouches
+        gardées."""
+        self.base = base
+        self._render_cache = {}
+        self.version += 1
+
+    def add_stroke(self, keep: bool, radius: float, points) -> None:
+        pts = np.asarray(points, dtype=np.float64).reshape(-1, 2)
+        if not len(pts):
+            return
+        self.ops.append({"kind": "stroke", "keep": bool(keep),
+                         "radius": float(radius), "points": pts})
+        self.version += 1
+
+    def undo(self) -> bool:
+        if not self.ops:
+            return False
+        self.ops.pop()
+        self.version += 1
+        return True
+
+    def rgb_at(self, size) -> np.ndarray:
+        arr = self._rgb.get(size)
+        if arr is None:
+            if size == self.size:
+                arr = np.asarray(self.source.convert("RGB"))
+            else:
+                arr = np.asarray(self.source.convert("RGB").resize(
+                    size, Image.Resampling.BILINEAR))
+            if len(self._rgb) > 3:
+                self._rgb.clear()
+            self._rgb[size] = arr
+        return arr
+
+    def _base_at(self, size) -> np.ndarray:
+        w, h = size
+        if self.base is None:
+            return np.full((h, w), 255, dtype=np.uint8)
+        return _resize_u8(self.base, size).copy()
+
+    def _grabcut_at(self, op, size):
+        cache = op.setdefault("cache", {})
+        hit = cache.get(size)
+        if hit is None:
+            factor = size[0] / op["mask"].shape[1]
+            soft = guided_upsample(op["mask"], self.rgb_at(size), factor)
+            weight = _resize_u8(op["region"], size)
+            if len(cache) > 2:
+                cache.clear()
+            hit = cache[size] = (soft, weight)
+        return hit
+
+    def _apply(self, mask, op, size):
+        if op["kind"] == "stroke":
+            scale = (size[0] / self.size[0], size[1] / self.size[1])
+            layer = stroke_layer(mask.shape, op["points"], op["radius"],
+                                 scale)
+            return apply_stroke(mask, layer, op["keep"])
+        soft, weight = self._grabcut_at(op, size)
+        w = weight.astype(np.float32) / 255.0
+        mixed = soft * w + mask * (1.0 - w)
+        return (mixed + 0.5).astype(np.uint8)
+
+    def render(self, size=None, live=None) -> np.ndarray:
+        """Masque uint8 (h, w) à `size` (défaut : pleine résolution).
+        `live` : trait en cours (keep, radius, points), dessiné sans être
+        enregistré."""
+        size = tuple(size or self.size)
+        version, ops = self.version, list(self.ops)
+        hit = self._render_cache.get(size)
+        if hit is not None and hit[0] == version:
+            mask = hit[1]
+        else:
+            mask = self._base_at(size)
+            for op in ops:
+                mask = self._apply(mask, op, size)
+            if size != self.size:
+                # Pas de cache en pleine résolution (export ponctuel).
+                if len(self._render_cache) > 2:
+                    self._render_cache.clear()
+                self._render_cache[size] = (version, mask)
+        if live is not None and len(live[2]):
+            keep, radius, points = live
+            scale = (size[0] / self.size[0], size[1] / self.size[1])
+            layer = stroke_layer(mask.shape, points, radius, scale)
+            mask = apply_stroke(mask, layer, keep)
+        return mask
+
+    def compose(self, size=None, live=None) -> Image.Image:
+        """Image RGBA : pixels d'origine + masque retouché."""
+        size = tuple(size or self.size)
+        rgb = self.rgb_at(size)
+        alpha = self.render(size, live)
+        return Image.fromarray(np.dstack([rgb, alpha]), mode="RGBA")
+
+    def grabcut(self, *, work_px: int = GRABCUT_WORK_PX,
+                iters: int = 4) -> bool:
+        """Recalcule le masque par GrabCut, guidé par les traits.
+        Ajoute une opération annulable ; False si rien n'a pu être
+        calculé (pas de trait ni de masque exploitable)."""
+        ops = list(self.ops)
+        has_gc = any(op["kind"] != "stroke" for op in ops)
+        with_prior = self.base is not None or has_gc
+        if not with_prior:
+            # Sans masque de départ, toute l'image est recalculée : plus
+            # petite image de travail pour rester vers 2-3 s.
+            work_px = min(work_px, 640)
+        size = _fit_size(self.size, work_px)
+        w, h = size
+        scale = (w / self.size[0], h / self.size[1])
+        keep = np.zeros((h, w), dtype=bool)
+        remove = np.zeros((h, w), dtype=bool)
+        for op in ops:
+            if op["kind"] != "stroke":
+                continue
+            layer = stroke_layer((h, w), op["points"], op["radius"],
+                                 scale) >= 128
+            (keep if op["keep"] else remove)[layer] = True
+            (remove if op["keep"] else keep)[layer] = False
+        prior = None
+        if with_prior:
+            # Masque SANS les traits : ce sont eux qu'on confronte au
+            # masque pour savoir où recalculer (cf. grabcut_mask).
+            prior = self._base_at(size)
+            for op in ops:
+                if op["kind"] != "stroke":
+                    prior = self._apply(prior, op, size)
+        elif not (keep.any() or remove.any()):
+            return False
+        result = grabcut_mask(self.rgb_at(size), prior, keep, remove,
+                              iters=iters)
+        if result is None:
+            return False
+        mask, region = result
+        self.ops.append({"kind": "grabcut", "mask": mask,
+                         "region": region})
+        self.version += 1
+        return True
 
 
 # ================================================================ #
