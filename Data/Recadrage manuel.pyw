@@ -173,8 +173,6 @@ HISTOGRAM_HEIGHT = 85    # Hauteur de l'histogramme en pixels
 # apps (voir docs/HUB_SPEC.md §14).
 mm_to_pixels = image_ops.mm_to_pixels
 convert_to_srgb = image_ops.convert_to_srgb
-_erode_alpha = image_ops.erode_alpha
-_feather_alpha = image_ops.feather_alpha
 _SRGB_ICC = image_ops._SRGB_ICC
 
 
@@ -688,6 +686,7 @@ class PhotoCropper:
             on_pan_down=self.on_pan_down,                # clic pipette (mode Instantané) — position immédiate
             on_pan_update=self.on_pan_update,           # déplacement souris / glissé pipette
             on_pan_end=self.on_pan_end,                 # relâchement pipette
+            on_pan_cancel=self.on_pan_cancel,           # clic sans glissé
             on_secondary_tap=self.on_canvas_secondary_tap,  # clic droit (simple clic, pas glissé) : bascule ajoute/retire
             on_scroll=self.on_gesture_scroll,           # molette souris conservée
             on_hover=self.on_canvas_hover,              # anneau du pinceau
@@ -839,6 +838,10 @@ class PhotoCropper:
             on_change_end=self.on_rembg_erosion_end,
             expand=True,
         )
+        # Rail rempli depuis 0 (milieu) : négatif à gauche, positif à
+        # droite.
+        self.rembg_erosion_track = ui_helpers.centered_slider(
+            self.rembg_erosion_slider, ORANGE)
 
         # Adoucissement (flou) du bord du masque — lisse un contour en
         # escalier (ex. flood fill à résolution réduite) sans rétrécir la
@@ -2327,13 +2330,9 @@ class PhotoCropper:
                 # corresponde au résultat final. L'échelle correcte est
                 # canvas_w / target_w_px (affichage → export), et non
                 # display_w / orig_w (qui sous-estime fortement pour les petits formats).
-                if getattr(self, 'rembg_erosion_pct', 0.0):
-                    erosion_radius_scaled = image_ops.erosion_radius(
-                        min(preview_image.size), self.rembg_erosion_pct)
-                    preview_image = _erode_alpha(preview_image, erosion_radius_scaled)
-                if getattr(self, 'rembg_feather_pct', 0.0) > 0:
-                    feather_radius_scaled = max(1, round(min(preview_image.size) * self.rembg_feather_pct / 100))
-                    preview_image = _feather_alpha(preview_image, feather_radius_scaled)
+                preview_image = image_ops.refine_alpha(
+                    preview_image, getattr(self, 'rembg_erosion_pct', 0.0),
+                    getattr(self, 'rembg_feather_pct', 0.0))
                 _bg_mode = getattr(self, 'rembg_bg_mode', 0)
                 _blur_key = (id(self._rembg_original), preview_width,
                              preview_height)
@@ -2548,6 +2547,13 @@ class PhotoCropper:
         self._pipette_start = None
         tol = self._pipette.end_drag()
         self.page.run_task(self._apply_pipette_pick, ix, iy, tol)
+
+    def on_pan_cancel(self, e):
+        """Clic sans mouvement : Flutter envoie pan_down puis
+        pan_cancel (pas pan_end) — un simple clic au pinceau est un
+        trait d'un point, à valider aussi."""
+        if self._mask_tool:
+            self._stroke_end()
 
     def on_gesture_scroll(self, e):
         """
@@ -4691,14 +4697,8 @@ class PhotoCropper:
         if _crop_mode == 'none':
             _src = job["image"]
             if _src.mode == 'RGBA':
-                if job["rembg_erosion_pct"]:
-                    _r = image_ops.erosion_radius(
-                        min(_src.size), job["rembg_erosion_pct"])
-                    _src = _erode_alpha(_src.copy(), _r)
-                if job["rembg_feather_pct"] > 0:
-                    _f = max(1, round(min(_src.size)
-                                      * job["rembg_feather_pct"] / 100))
-                    _src = _feather_alpha(_src.copy(), _f)
+                _src = image_ops.refine_alpha(
+                    _src, job["rembg_erosion_pct"], job["rembg_feather_pct"])
                 _bg_m = job["rembg_bg_mode"]
                 if _bg_m == 2 and job["rembg_original"] is not None:
                     _bg = job["rembg_original"].convert('RGB').filter(
@@ -6074,7 +6074,7 @@ def main(page: ft.Page):
                                     vertical_alignment=ft.CrossAxisAlignment.CENTER),
                                 ft.Row([
                                     ft.Text("Ér.", size=11, color=LIGHT_GREY),
-                                    app.rembg_erosion_slider,
+                                    app.rembg_erosion_track,
                                 ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                                 ft.Row([
                                     ft.Text("Ad.", size=11, color=LIGHT_GREY),

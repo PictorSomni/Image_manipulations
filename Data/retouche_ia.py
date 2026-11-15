@@ -60,6 +60,7 @@ import ui_helpers
 import meta_ai
 from ai_tools import _gemini_generate_image
 
+import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
 ###############################################################
@@ -141,6 +142,36 @@ def image_to_b64(img: Image.Image, fmt: str = "JPEG", quality: int = 92) -> str:
         img = img.convert("RGB")
     img.save(buf, format=fmt, quality=quality)
     return base64.b64encode(buf.getvalue()).decode("utf-8")
+
+
+class _LazyState(dict):
+    """État de l'outil dont l'image de travail peut être « en attente » :
+    `bake` (fonction sans argument) la calcule en pleine résolution.
+    Toute lecture de ``state["work_img"]`` la calcule d'abord si besoin
+    (synchrone) ; `peek` lit sans calculer (aperçu, tailles). Écrire
+    ``state["work_img"]`` annule l'attente. `derived` = l'image de
+    travail est le composite du détourage (aperçu rendu à part)."""
+
+    bake = None
+    derived = False
+
+    def __getitem__(self, key):
+        if key == "work_img" and self.bake is not None:
+            self.flush(self.bake())
+        return super().__getitem__(key)
+
+    def __setitem__(self, key, value):
+        if key == "work_img":
+            self.bake = None
+            self.derived = False
+        super().__setitem__(key, value)
+
+    def flush(self, img) -> None:
+        self.bake = None
+        super().__setitem__("work_img", img)
+
+    def peek(self, key):
+        return super().__getitem__(key)
 
 
 # ── Prompts fréquents + historique (fichiers locaux, non versionnés) ─────
@@ -275,7 +306,7 @@ async def main(page: ft.Page) -> None:
         )
 
     # ── État ─────────────────────────────────────────────────────────────────
-    state: dict = {
+    state = _LazyState({
         "index":        0,
         "source_path":  None,
         "orig_img":     None,
@@ -301,7 +332,7 @@ async def main(page: ft.Page) -> None:
         "retouch_base": None,   # Image de travail avant collage de la retouche
         "retouch_sel":  None,   # (x1, y1, x2, y2) de la retouche
         "retouch_mask": None,   # masque PIL "L" (objet SAM2) pour le fondu, ou None si rectangle
-    }
+    })
 
     # Cache spandrel : un objet ModelDescriptor par fichier modèle
     _custom_model_cache: dict = {}
@@ -361,7 +392,7 @@ async def main(page: ft.Page) -> None:
         (plusieurs secondes à froid — retour user sur la latence)."""
         try:
             with _sam2_lock:
-                if (state["work_img"] or state["orig_img"]) is not img:
+                if (state.peek("work_img") or state["orig_img"]) is not img:
                     return   # l'utilisateur a déjà changé d'image
                 _sam2_embed(img)
         except Exception:
@@ -614,7 +645,7 @@ async def main(page: ft.Page) -> None:
     # ── Helpers de rendu ─────────────────────────────────────────────────────
 
     def _compute_render_info() -> None:
-        img = state["work_img"] or state["orig_img"]
+        img = state.peek("work_img") or state["orig_img"]
         if img is None:
             state["render_info"] = None
             return
@@ -707,7 +738,10 @@ async def main(page: ft.Page) -> None:
         return flat, scale
 
     def _preview_base() -> tuple[Image.Image, float]:
-        img = state["work_img"] or state["orig_img"]
+        if (state["rembg_active"] and state.derived
+                and state["rembg_rgba"] is not None):
+            return _rembg_preview()
+        img = state.peek("work_img") or state["orig_img"]
         if _preview_base_cache["src"] is not img:
             base, scale = _flatten_reduced(img)
             _preview_base_cache.update(src=img, base=base, scale=scale)
@@ -715,10 +749,11 @@ async def main(page: ft.Page) -> None:
         return _preview_base_cache["base"], _preview_base_cache["scale"]
 
     def _render_preview() -> None:
-        img = state["work_img"] or state["orig_img"]
+        img = state.peek("work_img") or state["orig_img"]
         if img is None:
             return
-        _stage()   # onglet intégré : « Valider N » à jour sans changer d'onglet
+        # Onglet intégré : « Valider N » à jour sans changer d'onglet.
+        _stage(final=False)
         _compute_render_info()
         info = state["render_info"]
         if info is None:
@@ -757,9 +792,9 @@ async def main(page: ft.Page) -> None:
             # Sans teinte, l'encodage JPEG de la base est lui aussi mis en
             # cache : re-render (resize fenêtre, sélection annulée...)
             # sans réencoder 3000px à chaque fois.
-            if _preview_b64_cache["src"] is not img:
+            if _preview_b64_cache["src"] is not base:
                 _preview_b64_cache.update(
-                    src=img,
+                    src=base,
                     b64=image_to_b64(image_ops.compensate_for_display(base)))
             b64 = _preview_b64_cache["b64"]
 
@@ -858,10 +893,15 @@ async def main(page: ft.Page) -> None:
         async with ui_helpers.slow_veil(page, load_veil):
             await _load_image_path_inner(path, pre_decoded)
 
-    def _stage() -> None:
+    def _stage(final: bool = True) -> None:
         """Onglet intégré : la retouche part dans la réserve de l'hôte,
-        écrite sur disque seulement à « Valider »."""
-        if embedded and state["modified"] and state["work_img"] is not None:
+        écrite sur disque seulement à « Valider ». `final=False`
+        (aperçu) : attend la fin du calcul pleine résolution en cours
+        plutôt que de le faire ici (cf. `_bake_later`)."""
+        if not final and state.bake is not None:
+            return
+        if (embedded and state["modified"]
+                and state.peek("work_img") is not None):
             page.on_staged(os.path.basename(state["source_path"]),
                            state["work_img"].copy())
             state["modified"] = False
@@ -904,10 +944,11 @@ async def main(page: ft.Page) -> None:
             state["rembg_active"] = False
             state["rembg_rgba"]   = None
             state["rembg_before"] = None
+            _mask_reset()
             _bg_pick_cancel()
             _pipette.reset()
             _sync_pipette_sign_btn()
-            rembg_apply_btn.text    = "Supprimer le fond"
+            rembg_apply_btn.content    = "Supprimer le fond"
             rembg_apply_btn.bgcolor = GREY if REMBG_AVAILABLE else GREY
             rembg_status.value = ""
             _render_preview()
@@ -947,6 +988,10 @@ async def main(page: ft.Page) -> None:
         tombait à côté du point cliqué). N'agit que si la pipette est
         armée, sinon ne fait rien (le rubber band démarre via
         `_on_pan_start`, geste distinct)."""
+        if _mask["tool"]:
+            _stroke_begin(float(e.local_position.x),
+                          float(e.local_position.y))
+            return
         if not state["bg_pick_active"]:
             return
         cx, cy = float(e.local_position.x), float(e.local_position.y)
@@ -961,6 +1006,10 @@ async def main(page: ft.Page) -> None:
         state["drag_current"] = (cx, cy)
 
     def _on_pan_update(e) -> None:
+        if _mask["tool"]:
+            _stroke_move(float(e.local_position.x),
+                         float(e.local_position.y))
+            return
         if state["bg_pick_active"]:
             if _pipette_start[0] is not None:
                 tol = _pipette.drag(e.local_delta.x)
@@ -996,7 +1045,7 @@ async def main(page: ft.Page) -> None:
         has_prompt = bool(prompt_field.value and prompt_field.value.strip())
         send_btn.disabled = not has_prompt
         state["sel_mode"]          = False
-        inpaint_btn.text           = "Retouche IA"
+        inpaint_btn.content           = "Retouche IA"
         inpaint_btn.icon           = ft.Icons.AUTO_FIX_HIGH
         inpaint_btn.bgcolor        = VIOLET
         image_gesture.visible      = False
@@ -1061,6 +1110,9 @@ async def main(page: ft.Page) -> None:
         _open_inpaint_dialog_for_selection(w_sel, h_sel)
 
     def _on_pan_end(e) -> None:
+        if _mask["tool"]:
+            _stroke_end()
+            return
         if state["bg_pick_active"]:
             if _pipette_start[0] is None:
                 return
@@ -1103,6 +1155,11 @@ async def main(page: ft.Page) -> None:
             _cancel_selection_ui("Sélection trop petite — recommencez")
 
     def _on_pan_cancel(e) -> None:
+        # Clic sans mouvement : pan_down puis pan_cancel (pas pan_end) —
+        # un trait d'un point, à valider aussi.
+        if _mask["tool"]:
+            _stroke_end()
+            return
         _pipette_start[0]      = None
         state["drag_start"]   = None
         state["drag_current"] = None
@@ -1335,7 +1392,7 @@ async def main(page: ft.Page) -> None:
         state["drag_start"]        = None
         state["drag_current"]      = None
         state["sel_mode"]          = False
-        inpaint_btn.text           = "Retouche IA"
+        inpaint_btn.content           = "Retouche IA"
         inpaint_btn.icon           = ft.Icons.AUTO_FIX_HIGH
         inpaint_btn.bgcolor        = VIOLET
         image_gesture.visible      = False
@@ -1554,8 +1611,9 @@ async def main(page: ft.Page) -> None:
         shutil.copy2(src, dest)
 
     async def _save_current() -> bool:
-        if state["work_img"] is None:
+        if state.peek("work_img") is None:
             return False
+        await _bake_pending()
         src  = state["source_path"]
         path = _save_path()
         if not path:
@@ -2399,14 +2457,61 @@ async def main(page: ft.Page) -> None:
         style=ft.ButtonStyle(padding=ft.Padding.all(2)),
     )
 
+    # Érosion -2..2 % (négatif = élargit le masque), comme Recadrage.
     rembg_erosion_slider = ft.Slider(
-        value=0, min=0, max=2, divisions=20, label="{value} %",
-        active_color=ORANGE, width=90,
+        value=0, min=-2, max=2, divisions=40, label="{value} %",
+        active_color=ORANGE, expand=True,
     )
     rembg_feather_slider = ft.Slider(
         value=0, min=0, max=0.5, divisions=20, label="{value} %",
-        active_color=BLUE, width=90,
+        active_color=BLUE, expand=True,
     )
+
+    # ── Retouche du masque (pinceaux Garder/Enlever, GrabCut guidé) ──
+    # Même moteur que Recadrage manuel (image_ops.MaskEditor) : l'aperçu
+    # rejoue les retouches à taille réduite, la pleine résolution est
+    # calculée en tâche de fond (cf. _LazyState, _bake_later).
+    _MASK_PREVIEW_PX = 2000
+    _MASK_LIVE_PX = 1000
+    _mask: dict = {
+        "editor":  None,   # image_ops.MaskEditor, créé au premier trait
+        "base_of": None,   # rembg_rgba dont vient le masque de départ
+        "tool":    0,      # 0 = déplacer, 1 = garder, 2 = enlever
+        "overlay": False,  # vue de contrôle (fond teinté de rouge)
+        "brush":   24,     # rayon du pinceau, pixels écran
+        "stroke":  None,   # [garder, rayon image, [(x, y)…]]
+    }
+    mask_tool_btn = _seg(
+        [(0, "Déplacer"), (1, "Garder"), (2, "Enlever")], 0,
+        on_change=lambda e: on_mask_tool_change(e),
+        tooltip="Pinceaux du masque")
+    brush_size_slider = ft.Slider(
+        value=_mask["brush"], min=4, max=120, divisions=29,
+        label="{value}", active_color=GREEN, expand=True,
+        on_change=lambda e: _mask.update(brush=int(e.control.value)),
+    )
+    mask_overlay_btn = ft.IconButton(
+        icon=ft.Icons.LAYERS_OUTLINED, icon_color=LIGHT_GREY,
+        tooltip="Voir le masque", icon_size=20,
+        on_click=lambda e: on_mask_overlay_toggle(e),
+        style=ft.ButtonStyle(padding=ft.Padding.all(4)))
+    mask_undo_btn = ft.IconButton(
+        icon=ft.Icons.UNDO, icon_color=ORANGE,
+        tooltip="Annuler la dernière retouche (Ctrl+Z)", icon_size=20,
+        on_click=lambda e: on_mask_undo(e),
+        style=ft.ButtonStyle(padding=ft.Padding.all(4)))
+    mask_recalc_btn = ft.Button(
+        "Recalculer", icon=ft.Icons.AUTO_FIX_NORMAL,
+        bgcolor=VIOLET, color=DARK, expand=True,
+        tooltip="Recalculer le détourage d'après les traits",
+        on_click=lambda e: page.run_task(on_mask_recalc, e),
+        style=ft.ButtonStyle(padding=ft.Padding.symmetric(horizontal=6)),
+    )
+    brush_ring = ft.Container(
+        width=0, height=0, left=0, top=0, opacity=0,
+        border=ft.Border.all(2, GREEN), border_radius=999,
+    )  # masqué par l'opacité : le faire sortir de l'arbre décalerait
+    # image_gesture dans la pile et couperait le glissé en cours.
 
     def _sync_pipette_sign_btn() -> None:
         if _pipette.sign == 1:
@@ -2479,34 +2584,376 @@ async def main(page: ft.Page) -> None:
 
     rembg_erosion_slider.on_change     = on_rembg_erosion_change
     rembg_erosion_slider.on_change_end = on_rembg_erosion_end
+    rembg_erosion_track = ui_helpers.centered_slider(
+        rembg_erosion_slider, ORANGE)
     rembg_feather_slider.on_change     = on_rembg_feather_change
     rembg_feather_slider.on_change_end = on_rembg_feather_end
 
+    # Caches de rendu du détourage : `refs` garde les images sources
+    # vivantes, les clés comparent par id() sans risque de réemploi.
+    _rgba_small: dict = {"refs": None, "imgs": {}}
+    _blur_small: dict = {"refs": None, "imgs": {}}
+    _rembg_prev: dict = {"key": None, "refs": None, "img": None}
+
+    def _cached_at(cache, src, size, make):
+        if cache["refs"] is not src:
+            cache.update(refs=src, imgs={})
+        img = cache["imgs"].get(size)
+        if img is None:
+            if len(cache["imgs"]) > 2:
+                cache["imgs"].clear()
+            img = cache["imgs"][size] = make()
+        return img
+
+    def _rgba_at(rgba, size):
+        """`rgba` réduit, couleurs et alpha séparément (un resize RGBA
+        prémultiplie et noircit les pixels transparents, visibles dès
+        qu'une érosion négative élargit le masque)."""
+        if size == rgba.size:
+            return rgba
+
+        def make():
+            small = rgba.convert("RGB").resize(
+                size, Image.Resampling.BILINEAR)
+            small.putalpha(rgba.getchannel("A").resize(
+                size, Image.Resampling.BILINEAR))
+            return small
+        return _cached_at(_rgba_small, rgba, size, make)
+
+    def _blur_at(before, size):
+        def make():
+            img = before.convert("RGB")
+            if size != img.size:
+                img = img.resize(size, Image.Resampling.BILINEAR)
+            radius = max(1, round(64 * size[0] / before.width))
+            return img.filter(ImageFilter.GaussianBlur(radius=radius))
+        return _cached_at(_blur_small, before, size, make)
+
+    def _rembg_snap(editor) -> dict:
+        return {"rgba": state["rembg_rgba"],
+                "before": state["rembg_before"], "editor": editor,
+                "erosion": _rembg_erosion_pct[0],
+                "feather": _rembg_feather_pct[0],
+                "mode": _seg_value(rembg_dropdown)}
+
+    def _rembg_render(snap, size=None, live=None, overlay=False):
+        """Composite du détourage à `size` (défaut : pleine résolution) :
+        masque (retouché si l'éditeur a des traits), érosion,
+        adoucissement, puis fond choisi — ou vue de contrôle du masque.
+        Pur : appelable depuis un thread."""
+        rgba, editor = snap["rgba"], snap["editor"]
+        size = tuple(size or rgba.size)
+        if editor is not None:
+            img = editor.compose(size, live)
+        else:
+            img = _rgba_at(rgba, size)
+        img = image_ops.refine_alpha(img, snap["erosion"], snap["feather"])
+        if overlay:
+            return image_ops.mask_overlay(img)
+        mode = snap["mode"]
+        if mode == "Transparent":
+            return img.copy()
+        if mode == "Flou" and snap["before"] is not None:
+            bg = _blur_at(snap["before"], size).copy()
+        elif mode == "Gris":
+            bg = Image.new("RGB", size,
+                           tuple(CONSTANTS.RECADRAGE_REMBG_BG_GRAY[:3]))
+        else:
+            bg = Image.new("RGB", size, (255, 255, 255))
+        bg.paste(img.convert("RGB"), mask=img.getchannel("A"))
+        return bg
+
+    def _rembg_preview(live=None) -> tuple[Image.Image, float]:
+        """Aperçu réduit du détourage (RGB, échelle / pleine
+        résolution), mis en cache hors trait en cours."""
+        snap = _rembg_snap(_mask["editor"])
+        full = snap["rgba"].size
+        size = image_ops._fit_size(
+            full, _MASK_LIVE_PX if live else _MASK_PREVIEW_PX)
+        scale = size[0] / full[0]
+        if live:
+            return _rembg_render(snap, size, live, _mask["overlay"]), scale
+        editor = snap["editor"]
+        key = (id(snap["rgba"]), id(snap["before"]), id(editor),
+               editor.version if editor is not None else -1,
+               snap["erosion"], snap["feather"], snap["mode"],
+               _mask["overlay"], size)
+        if _rembg_prev["key"] != key:
+            img = _rembg_render(snap, size, None, _mask["overlay"])
+            _rembg_prev.update(key=key, img=img,
+                               refs=(snap["rgba"], snap["before"], editor))
+        return _rembg_prev["img"], scale
+
+    _bake_gen = [0]
+
+    async def _bake_later(gen: int) -> None:
+        """Pleine résolution en tâche de fond, après une pause dans les
+        retouches ; ignorée si l'état a changé entre-temps."""
+        await asyncio.sleep(0.8)
+        while _mask["stroke"] is not None:
+            await asyncio.sleep(0.3)
+        if gen != _bake_gen[0]:
+            return
+        bake = state.bake
+        if bake is None:
+            return
+        try:
+            img = await asyncio.to_thread(bake)
+        except Exception:
+            return
+        if state.bake is bake:
+            state.flush(img)
+            _stage()
+
+    async def _bake_pending() -> None:
+        """Termine hors du fil UI un calcul pleine résolution en
+        attente (enregistrement)."""
+        bake = state.bake
+        if bake is None:
+            return
+        async with _veiled("Calcul du détourage…"):
+            img = await asyncio.to_thread(bake)
+        if state.bake is bake:
+            state.flush(img)
+
     def _rembg_apply_composite() -> None:
+        """Nouveau composite du détourage : l'aperçu le rend à taille
+        réduite, l'image de travail pleine résolution est calculée en
+        tâche de fond (ou à la première lecture, cf. _LazyState)."""
         rgba = state["rembg_rgba"]
         if rgba is None:
             return
-        if _rembg_erosion_pct[0] > 0:
-            r = max(1, round(min(rgba.size) * _rembg_erosion_pct[0] / 100))
-            rgba = image_ops.erode_alpha(rgba, r)
-        if _rembg_feather_pct[0] > 0:
-            f = max(1, round(min(rgba.size) * _rembg_feather_pct[0] / 100))
-            rgba = image_ops.feather_alpha(rgba, f)
-        mode = _seg_value(rembg_dropdown)
-        if mode == "Transparent":
-            state["work_img"] = rgba.copy()
-            return
-        w, h = rgba.size
-        if mode == "Gris":
-            bg = Image.new("RGBA", (w, h), CONSTANTS.RECADRAGE_REMBG_BG_GRAY)
-        elif mode == "Flou":
-            bg = state["rembg_before"].convert("RGB").filter(
-                ImageFilter.GaussianBlur(radius=64)
-            ).convert("RGBA")
+        editor = _mask["editor"]
+        if editor is not None and _mask["base_of"] is not rgba:
+            # Le détourage a changé (pipette) : nouveau masque de
+            # départ, les retouches déjà faites sont gardées.
+            editor.rebase(np.asarray(rgba.getchannel("A")))
+            _mask["base_of"] = rgba
+        frozen = (editor.snapshot()
+                  if editor is not None and editor.has_edits else None)
+        snap = _rembg_snap(frozen)
+
+        def bake():
+            return _rembg_render(snap)
+        state.bake = bake
+        state.derived = True
+        _bake_gen[0] += 1
+        page.run_task(_bake_later, _bake_gen[0])
+
+    def _mask_reset() -> None:
+        """Oublie les retouches du masque (autre image, nouveau
+        détourage, fond restauré)."""
+        _mask.update(editor=None, base_of=None, stroke=None)
+        _rembg_prev["key"] = None
+
+    def _mask_get_editor():
+        """Éditeur du masque courant, créé à la première retouche. Sans
+        détourage préalable, toute l'image est sujet : les traits
+        Enlever ou Recalculer font le détourage."""
+        editor = _mask["editor"]
+        if editor is not None:
+            return editor
+        if state.peek("work_img") is None or state["working"]:
+            return None
+        if not (state["rembg_active"] and state.derived
+                and state["rembg_rgba"] is not None):
+            before = state["work_img"]
+            old = state["rembg_rgba"] if state["rembg_active"] else None
+            rgba = before.convert("RGBA")
+            if old is not None and old.size == rgba.size:
+                rgba.putalpha(old.getchannel("A"))
+            else:
+                old = None
+            state["rembg_before"] = before
+            state["rembg_rgba"] = rgba
+            state["rembg_active"] = True
+            rembg_apply_btn.content = "Restaurer le fond"
+            rembg_apply_btn.bgcolor = ORANGE
+            save_btn.disabled = False
+            base = None if old is None else np.asarray(old.getchannel("A"))
         else:
-            bg = Image.new("RGBA", (w, h), (255, 255, 255, 255))
-        bg.paste(rgba, mask=rgba.split()[3])
-        state["work_img"] = bg.convert("RGB")
+            base = np.asarray(state["rembg_rgba"].getchannel("A"))
+        editor = image_ops.MaskEditor(state["rembg_before"], base)
+        _mask.update(editor=editor, base_of=state["rembg_rgba"])
+        _rembg_apply_composite()
+        return editor
+
+    def _brush_point(cx: float, cy: float) -> tuple[float, float]:
+        """Point écran -> pixels pleine résolution, en flottants et sans
+        borner : un trait peut commencer ou finir hors de l'image."""
+        _, _, ox, oy, sx, sy = state["render_info"]
+        return (cx - ox) / sx, (cy - oy) / sy
+
+    def _ring_move(cx: float, cy: float) -> None:
+        r = _mask["brush"]
+        brush_ring.width = brush_ring.height = 2 * r
+        brush_ring.left, brush_ring.top = cx - r, cy - r
+        brush_ring.border = ft.Border.all(
+            2, GREEN if _mask["tool"] == 1 else RED)
+        brush_ring.opacity = 1
+        brush_ring.update()
+
+    def _ring_hide() -> None:
+        if brush_ring.opacity:
+            brush_ring.opacity = 0
+            brush_ring.update()
+
+    _live = {"busy": False, "dirty": False}
+
+    def _live_tick() -> None:
+        """Rendu de l'aperçu hors du fil UI, le dernier état gagne."""
+        _live["dirty"] = True
+        if not _live["busy"]:
+            _live["busy"] = True
+            page.run_task(_live_loop)
+
+    async def _live_loop() -> None:
+        try:
+            while _live["dirty"]:
+                _live["dirty"] = False
+                stroke = _mask["stroke"]
+                live = ((stroke[0], stroke[1], list(stroke[2]))
+                        if stroke else None)
+
+                def work():
+                    base, _ = _rembg_preview(live)
+                    return base, image_to_b64(
+                        image_ops.compensate_for_display(base))
+                base, b64 = await asyncio.to_thread(work)
+                if live is None:
+                    _preview_b64_cache.update(src=base, b64=b64)
+                preview_img.src = f"data:image/jpeg;base64,{b64}"
+                preview_img.update()
+        except Exception as ex:
+            rembg_status.value = f"[ERREUR] aperçu du masque : {ex}"
+            rembg_status.update()
+        finally:
+            _live["busy"] = False
+
+    def _stroke_begin(cx: float, cy: float) -> None:
+        if state["render_info"] is None or _mask_get_editor() is None:
+            return
+        # Rayon fixé en pixels écran (vue non zoomée en mode pinceau).
+        sx = state["render_info"][4]
+        _mask["stroke"] = [_mask["tool"] == 1,
+                           _mask["brush"] / max(1e-6, sx),
+                           [_brush_point(cx, cy)]]
+        _ring_move(cx, cy)
+        _live_tick()
+
+    def _stroke_move(cx: float, cy: float) -> None:
+        stroke = _mask["stroke"]
+        if stroke is None:
+            return
+        stroke[2].append(_brush_point(cx, cy))
+        _ring_move(cx, cy)
+        _live_tick()
+
+    def _stroke_end() -> None:
+        stroke, _mask["stroke"] = _mask["stroke"], None
+        editor = _mask["editor"]
+        if stroke is None or editor is None:
+            return
+        editor.add_stroke(stroke[0], stroke[1], stroke[2])
+        state["modified"] = True
+        save_btn.disabled = False
+        save_btn.update()
+        _rembg_apply_composite()
+        _live_tick()
+
+    def _mask_tool_set(tool: int) -> None:
+        _mask["tool"] = tool
+        mask_tool_btn.selected_index = tool
+        mask_tool_btn.thumb_color = (BLUE, GREEN, RED)[tool]
+        for i, t in enumerate(mask_tool_btn.controls):
+            t.color = DARK if i == tool else WHITE
+        brush_size_slider.active_color = RED if tool == 2 else GREEN
+        if not tool:
+            _ring_hide()
+
+    def _leave_sel_mode() -> None:
+        if not state["sel_mode"]:
+            return
+        state["sel_mode"]     = False
+        state["drag_start"]   = None
+        state["drag_current"] = None
+        inpaint_btn.content      = "Retouche IA"
+        inpaint_btn.icon      = ft.Icons.AUTO_FIX_HIGH
+        inpaint_btn.bgcolor   = VIOLET
+        _update_sel_canvas()
+
+    def on_mask_tool_change(e) -> None:
+        """Déplacer / Garder / Enlever : en mode pinceau, le glissé
+        peint au lieu de déplacer l'image."""
+        tool = _seg_value(mask_tool_btn)
+        _mask_tool_set(tool)
+        if tool:
+            _bg_pick_cancel()
+            _leave_sel_mode()
+            image_gesture.visible = True
+            image_gesture.mouse_cursor = ft.MouseCursor.PRECISE
+            preview_viewer.pan_enabled = False
+            page.run_task(preview_viewer.reset)
+            if not _mask["overlay"]:
+                _set_mask_overlay(True)
+                if state["rembg_active"] and state.derived:
+                    _render_preview()
+        elif not state["sel_mode"] and not state["bg_pick_active"]:
+            image_gesture.visible = False
+            preview_viewer.pan_enabled = True
+        page.update()
+
+    def _set_mask_overlay(on: bool) -> None:
+        _mask["overlay"] = on
+        mask_overlay_btn.icon = (ft.Icons.LAYERS if on
+                                 else ft.Icons.LAYERS_OUTLINED)
+        mask_overlay_btn.icon_color = RED if on else LIGHT_GREY
+        mask_overlay_btn.tooltip = "Vue normale" if on else "Voir le masque"
+
+    def on_mask_overlay_toggle(e) -> None:
+        _set_mask_overlay(not _mask["overlay"])
+        if state.peek("work_img") is not None:
+            _render_preview()
+        page.update()
+
+    def _mask_can_undo() -> bool:
+        editor = _mask["editor"]
+        return (editor is not None and editor.has_edits and state.derived
+                and _mask["stroke"] is None)
+
+    def on_mask_undo(e) -> None:
+        if not _mask_can_undo():
+            return
+        _mask["editor"].undo()
+        state["modified"] = True
+        _rembg_apply_composite()
+        rembg_status.value = "Retouche du masque annulée"
+        _render_preview()
+
+    async def on_mask_recalc(e) -> None:
+        """GrabCut guidé par les traits Garder/Enlever (≈ 1 s, thread)."""
+        editor = _mask_get_editor()
+        if editor is None:
+            return
+        mask_recalc_btn.disabled = True
+        page.update()
+        try:
+            async with _veiled("Recalcul du masque…"):
+                done = await asyncio.to_thread(editor.grabcut)
+            if done:
+                state["modified"] = True
+                _rembg_apply_composite()
+                rembg_status.value = ("[OK] Masque recalculé — Ctrl+Z "
+                                      "pour annuler")
+            else:
+                rembg_status.value = ("Rien à recalculer : aucun trait "
+                                      "ne contredit le masque")
+        except Exception as ex:
+            rembg_status.value = f"[ERREUR] recalcul du masque : {ex}"
+        finally:
+            mask_recalc_btn.disabled = False
+            _render_preview()
+            page.update()
 
     def on_rembg_bg_change(e) -> None:
         if not state["rembg_active"]:
@@ -2534,14 +2981,14 @@ async def main(page: ft.Page) -> None:
                 state["modified"]      = True
                 undo_btn.disabled      = False
                 save_btn.disabled      = False
-                rembg_apply_btn.text    = "Restaurer le fond"
+                rembg_apply_btn.content    = "Restaurer le fond"
                 rembg_apply_btn.bgcolor = ORANGE
                 rembg_status.value = (
                     "[OK] Fond supprimé — glissez pour ajouter/retirer, recliquer pour restaurer")
             else:
                 state["work_img"]     = source
                 state["rembg_active"] = False
-                rembg_apply_btn.text    = "Supprimer le fond"
+                rembg_apply_btn.content    = "Supprimer le fond"
                 rembg_apply_btn.bgcolor = GREY
                 rembg_status.value = "Rien à retirer — glissez d'abord pour ajouter une sélection"
             _pipette_tolerance_label.value = f"Tol. {tolerance}"
@@ -2591,13 +3038,14 @@ async def main(page: ft.Page) -> None:
         # dernier pick ajouté/retiré).
         if state["rembg_active"]:
             _bg_pick_cancel()
+            _mask_reset()
             state["work_img"]     = state["rembg_before"]
             state["rembg_rgba"]   = None
             state["rembg_before"] = None
             state["rembg_active"] = False
             _pipette.reset()
             _sync_pipette_sign_btn()
-            rembg_apply_btn.text    = "Supprimer le fond"
+            rembg_apply_btn.content    = "Supprimer le fond"
             rembg_apply_btn.bgcolor = GREY
             rembg_status.value = "Fond restauré"
             _render_preview()
@@ -2614,6 +3062,8 @@ async def main(page: ft.Page) -> None:
             # alors d'une image de plus en plus blanchie, s'auto-alimentant
             # en boucle quelle que soit la direction du glissé (retour user).
             _pipette.arm()
+            _mask_reset()
+            _mask_tool_set(0)
             state["rembg_before"]     = state["work_img"]
             state["bg_pick_active"]   = True
             image_gesture.visible      = True
@@ -2648,11 +3098,18 @@ async def main(page: ft.Page) -> None:
                 model = "u2net_human_seg" if _rembg_human[0] else "u2net"
             if model not in _rembg_sessions:
                 _rembg_sessions[model] = _rembg.new_session(model)
-            return _rembg.remove(base.convert("RGB"), session=_rembg_sessions[model])
+            cut = _rembg.remove(base.convert("RGB"),
+                                session=_rembg_sessions[model])
+            # Pixels d'origine sous le masque (rembg noircit le fond) :
+            # visibles quand une érosion négative élargit le sujet.
+            rgba = base.convert("RGB")
+            rgba.putalpha(cut.getchannel("A"))
+            return rgba
 
         try:
             async with _veiled("Détourage en cours…"):
                 rgba = await asyncio.to_thread(_do_rembg)
+            _mask_reset()
             state["rembg_before"] = base
             state["rembg_rgba"]   = rgba
             state["rembg_active"] = True
@@ -2660,7 +3117,7 @@ async def main(page: ft.Page) -> None:
             state["modified"]       = True
             undo_btn.disabled       = False
             save_btn.disabled       = False
-            rembg_apply_btn.text    = "Restaurer le fond"
+            rembg_apply_btn.content    = "Restaurer le fond"
             rembg_apply_btn.bgcolor = ORANGE
             rembg_status.value      = "[OK] Fond supprimé"
         except Exception as ex:
@@ -2724,6 +3181,12 @@ async def main(page: ft.Page) -> None:
     image_gesture.on_secondary_tap_down = _on_gesture_secondary_tap
     image_gesture.mouse_cursor          = ft.MouseCursor.PRECISE
     image_gesture.visible               = False
+    # Anneau du pinceau.
+    image_gesture.on_hover = lambda e: (
+        _ring_move(float(e.local_position.x), float(e.local_position.y))
+        if _mask["tool"] else None)
+    image_gesture.on_exit = lambda e: _ring_hide()
+    image_gesture.hover_interval = 20
 
     _vw, _vh = state["view_size"]
     # Voile de chargement (> 300 ms) sur l'aperçu, cf. _load_image_path.
@@ -2741,7 +3204,8 @@ async def main(page: ft.Page) -> None:
             load_veil.content.controls[1].value = "Chargement de l'image…"
 
     inner_container = ft.Container(
-        content=ft.Stack([preview_img, sel_canvas, image_gesture, busy_ring_wrap]),
+        content=ft.Stack([preview_img, sel_canvas, brush_ring,
+                          image_gesture, busy_ring_wrap]),
         width=_vw,
         height=_vh,
         bgcolor=DARK,  # même fond que les autres onglets (retour user)
@@ -2758,7 +3222,9 @@ async def main(page: ft.Page) -> None:
     async def on_inpaint_btn(_) -> None:
         state["sel_mode"] = not state["sel_mode"]
         if state["sel_mode"]:
-            inpaint_btn.text           = "Annuler sélection"
+            _mask_tool_set(0)
+            mask_tool_btn.update()
+            inpaint_btn.content           = "Annuler sélection"
             inpaint_btn.icon           = ft.Icons.CROP_FREE
             inpaint_btn.bgcolor        = BLUE
             image_gesture.visible      = True
@@ -2772,7 +3238,7 @@ async def main(page: ft.Page) -> None:
             await preview_viewer.reset()
             preview_viewer.pan_enabled = False
         else:
-            inpaint_btn.text           = "Retouche IA"
+            inpaint_btn.content           = "Retouche IA"
             inpaint_btn.icon           = ft.Icons.AUTO_FIX_HIGH
             inpaint_btn.bgcolor        = VIOLET
             image_gesture.visible      = False
@@ -2809,7 +3275,7 @@ async def main(page: ft.Page) -> None:
         state["selection_mask"]    = None
         state["drag_start"]        = None
         state["drag_current"]      = None
-        inpaint_btn.text           = "Annuler sélection"
+        inpaint_btn.content           = "Annuler sélection"
         inpaint_btn.icon           = ft.Icons.CROP_FREE
         inpaint_btn.bgcolor        = BLUE
         image_gesture.visible      = True
@@ -2863,10 +3329,6 @@ async def main(page: ft.Page) -> None:
             padding=ft.Padding(CONSTANTS.SPACE_SM, CONSTANTS.SPACE_XS,
                                0, CONSTANTS.SPACE_XS))
 
-    rembg_erosion_slider.width = None
-    rembg_erosion_slider.expand = True
-    rembg_feather_slider.width = None
-    rembg_feather_slider.expand = True
     for _row_btn in (topaz_wonder_btn, topaz_wonder_x2_btn,
                      topaz_wonder_x4_btn):
         _row_btn.expand = True
@@ -2900,14 +3362,19 @@ async def main(page: ft.Page) -> None:
                 rembg_precise_btn,
                 ft.Row([rembg_model_btn, pipette_sign_btn,
                         _pipette_tolerance_label], spacing=6, wrap=True),
-                ft.Column([
-                    ft.Text("Érosion du masque", size=11,
-                            color=LIGHT_GREY),
-                    rembg_erosion_slider,
-                    ft.Text("Adoucissement du masque", size=11,
-                            color=LIGHT_GREY),
-                    rembg_feather_slider,
-                ], spacing=0),
+                ft.Row([ft.Text("Ér.", size=11, color=LIGHT_GREY),
+                        rembg_erosion_track], spacing=2,
+                       vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                ft.Row([ft.Text("Ad.", size=11, color=LIGHT_GREY),
+                        rembg_feather_slider], spacing=2,
+                       vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                mask_tool_btn,
+                ft.Row([ft.Text("Pin.", size=11, color=LIGHT_GREY),
+                        brush_size_slider], spacing=2,
+                       vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                ft.Row([mask_overlay_btn, mask_undo_btn, mask_recalc_btn],
+                       spacing=4,
+                       vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 rembg_progress,
                 rembg_status,
             ]),
@@ -2931,7 +3398,8 @@ async def main(page: ft.Page) -> None:
 
     def _show_original(show):
         def handler(e):
-            if state["orig_img"] is None or state["work_img"] is None:
+            if (state["orig_img"] is None
+                    or state.peek("work_img") is None):
                 return
             compare_icon.color = BLUE if show else WHITE
             if show:
@@ -3094,7 +3562,10 @@ async def main(page: ft.Page) -> None:
         # pour qui vient de Windows.
         mod = event.meta or event.ctrl
         if mod and event.key == "Z":
-            if not undo_btn.disabled:
+            if _mask_can_undo():
+                on_mask_undo(None)
+                page.update()
+            elif not undo_btn.disabled:
                 on_undo(None)
                 page.update()
         elif mod and event.key == "S":

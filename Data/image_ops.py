@@ -348,6 +348,24 @@ def feather_alpha(source_image: Image.Image, radius: int) -> Image.Image:
     return Image.merge("RGBA", (r, g, b, alpha_channel))
 
 
+def refine_alpha(source_image: Image.Image, erosion_pct: float = 0.0,
+                 feather_pct: float = 0.0) -> Image.Image:
+    """Érosion signée puis adoucissement du canal alpha d'une image RGBA,
+    les deux réglages en % du petit côté de l'image (``erosion_pct``
+    négatif = élargir le masque). Renvoie l'image telle quelle si aucun
+    réglage n'est actif."""
+    if source_image.mode != "RGBA":
+        return source_image
+    size_min = min(source_image.size)
+    if erosion_pct:
+        source_image = erode_alpha(source_image,
+                                   erosion_radius(size_min, erosion_pct))
+    if feather_pct > 0:
+        source_image = feather_alpha(
+            source_image, max(1, round(size_min * feather_pct / 100)))
+    return source_image
+
+
 # ================================================================ #
 #                    GÉOMÉTRIE DU RECADRAGE                        #
 # ================================================================ #
@@ -543,14 +561,8 @@ def compute_crop_with_canvas(image: Image.Image, target_w_px: int,
     )
 
     if output_image.mode == "RGBA":
-        if rembg_erosion_pct:
-            erosion_px = erosion_radius(min(output_image.size),
-                                        rembg_erosion_pct)
-            output_image = erode_alpha(output_image, erosion_px)
-        if rembg_feather_pct > 0:
-            feather_radius = max(
-                1, round(min(output_image.size) * rembg_feather_pct / 100))
-            output_image = feather_alpha(output_image, feather_radius)
+        output_image = refine_alpha(output_image, rembg_erosion_pct,
+                                    rembg_feather_pct)
         if rembg_bg_mode == 0:
             background_layer = Image.new("RGBA", output_image.size,
                                           (255, 255, 255, 255))
@@ -654,14 +666,8 @@ def compute_fit_in(image: Image.Image, target_w_px: int, target_h_px: int,
     blancs), rotation ignorée. Reprend `PhotoCropper._compute_fit_in`."""
     source_image = image
     if source_image.mode == "RGBA":
-        if rembg_erosion_pct:
-            erosion_px = erosion_radius(min(source_image.size),
-                                        rembg_erosion_pct)
-            source_image = erode_alpha(source_image.copy(), erosion_px)
-        if rembg_feather_pct > 0:
-            feather_radius = max(
-                1, round(min(source_image.size) * rembg_feather_pct / 100))
-            source_image = feather_alpha(source_image.copy(), feather_radius)
+        source_image = refine_alpha(source_image, rembg_erosion_pct,
+                                    rembg_feather_pct)
         if rembg_bg_mode == 0:
             background_layer = Image.new("RGBA", source_image.size,
                                           (255, 255, 255, 255))

@@ -334,3 +334,61 @@ class slow_veil:
 
     async def __aexit__(self, *exc):
         return self.__exit__(*exc)
+
+
+def centered_slider(slider, color, track=None, inset=8):
+    """Habille un ft.Slider dont la plage encadre 0 (ex. -2..2) pour que
+    son rail se remplisse depuis le milieu vers le curseur plutôt que
+    depuis la borne gauche : bande peinte sous un curseur aux pistes
+    transparentes. À appeler APRÈS avoir branché `on_change` (il est
+    enveloppé pour suivre le glissé). Renvoie le ft.Stack à placer dans
+    la mise en page ; `stack.data()` resynchronise la bande après une
+    écriture de `slider.value` par le code."""
+    track = track or ft.Colors.with_opacity(0.22, ft.Colors.WHITE)
+    lo, hi = slider.min, slider.max
+    span = (hi - lo) or 1
+    n = int(slider.divisions or 100)
+    centre = round((0 - lo) / span * n)
+    parts = [ft.Container(height=4, bgcolor=c)
+             for c in (track, color, track)]
+
+    def _paint(value):
+        k = round((min(hi, max(lo, value)) - lo) / span * n)
+        weights = (min(k, centre), abs(k - centre), n - max(k, centre))
+        for part, w in zip(parts, weights):
+            part.expand = w
+            part.visible = w > 0
+
+    slider.active_color = ft.Colors.TRANSPARENT
+    slider.inactive_color = ft.Colors.TRANSPARENT
+    slider.thumb_color = color
+    slider.padding = ft.Padding.symmetric(horizontal=inset)
+    _paint(slider.value or 0)
+    band = ft.Container(
+        content=ft.Row(parts, spacing=0),
+        height=4, border_radius=2, clip_behavior=ft.ClipBehavior.HARD_EDGE,
+        margin=ft.Margin.symmetric(horizontal=inset))
+    user_change = slider.on_change
+
+    def _follow(e):
+        _paint(e.control.value)
+        band.update()
+
+    if asyncio.iscoroutinefunction(user_change):
+        async def _on_change(e):
+            _follow(e)
+            await user_change(e)
+    else:
+        def _on_change(e):
+            _follow(e)
+            if user_change:
+                user_change(e)
+
+    def _refresh():
+        _paint(slider.value or 0)
+        band.update()
+
+    slider.on_change = _on_change
+    return ft.Stack([band, slider], alignment=ft.Alignment.CENTER,
+                    expand=slider.expand, width=slider.width,
+                    data=_refresh)
