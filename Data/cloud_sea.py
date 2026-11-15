@@ -253,22 +253,28 @@ def sea(img, far, layer=0.35, size=0.5, billow=0.5, detail=1.0,
     R = gap * (0.08 + 0.12 * float(np.clip(size, 0.5, 2.0)))
     tw = R * N / r0  # taille monde de la texture
     # Dômes ronds à 0,5 ; ni volute ni tour au-dessus de l'œil.
+    # Nappe basse : dômes aplatis avec elle (apparition continue).
     amp = min(R * (0.5 + float(np.clip(billow, 0, 1))),
-              0.95 * gap / fmax)
+              0.95 * gap / fmax, 1.2 * th)
     ymax, ymin = th + amp * fmax, th + amp * fmin
     # Détail : 0 = dômes lissés, 1 = toutes les petites volutes.
     blur = 0.3 + 1.5 * (1 - float(np.clip(detail, 0, 1)))
     rng = np.random.default_rng(77 + int(seed))
     ou, ov = rng.uniform(0, N, 2)
-    # Densité : vapeur au ras du dessus, de plus en plus dense en
-    # profondeur (bords et dômes fins translucides, couche épaisse
-    # quasi opaque). Fondu des bords = profondeur de la transition.
-    # Indépendante de la taille des volutes.
+    # Densité en long dégradé : vapeur qui déborde au-dessus des
+    # dômes (hv), presque rien au ras du dessus, de plus en plus dense
+    # en profondeur sans seuil ; la couche reste translucide vers son
+    # sommet. Fondu des bords = longueur du dégradé. Indépendante de
+    # la taille des volutes.
+    sf = float(np.clip(soft, 0, 1))
     dd = min(amp, 0.14 * gap * (0.5 + float(np.clip(billow, 0, 1)))) * (
-        1.0 + 1.5 * float(np.clip(soft, 0, 1)))
+        1.5 + 2.0 * sf)
+    hv = dd * (0.35 + 0.4 * sf)
 
     def rho(dep):
-        return 1 - np.exp(-np.maximum(dep, 0) / dd)
+        x = np.maximum(dep + hv, 0) / (dd + hv)
+        x = x * x
+        return x / (1 + x)
 
     def surface(X, Z, lod, interp=cv2.INTER_LINEAR):
         """Hauteur du dessus de la nappe en (X, Z) monde."""
@@ -291,13 +297,25 @@ def sea(img, far, layer=0.35, size=0.5, billow=0.5, detail=1.0,
     mh = rh - r_a
     steps = 64
     thick = np.zeros((mh, rw), np.float32)
+    # Opacité de Beer-Lambert sur l'épaisseur pondérée par la densité.
+    sig = 2.1 * max(amount, 0.0) * max(density, 0.0) / gap
+    # Lumière diffuse du volume (avant -> arrière, plus claire en haut)
+    # et part d'opacité du premier dôme touché : un rayon qui ne fait
+    # que frôler un dôme prend la lumière du volume, sans liseré.
+    trans = np.ones((mh, rw), np.float32)
+    lv = np.zeros((mh, rw), np.float32)
+    front = np.zeros((mh, rw), np.float32)
+    lf = 1.5 * R
+    ylo, yhi = ymin, ymax + hv
     zhit = np.full((mh, rw), zmax, np.float32)
     hit = np.zeros((mh, rw), bool)
     zp = dp = None
     zlo = np.zeros((mh, rw), np.float32)
     zhi = np.zeros((mh, rw), np.float32)
     lgs = (-np.log2(-gs)).astype(np.float32)
-    for y in np.linspace(ymax, ymin, steps):
+    zw = np.zeros((mh, rw), np.float32)
+    cw = np.zeros((mh, rw), np.float32)
+    for y in np.linspace(ymax + hv, ymin, steps):
         z = np.minimum((y - cam) / gs, zmax)
         # Détail à la taille du pixel ou du pas, sans log par pixel.
         fp = max((cam - y) / foc, 0.2 * (ymax - ymin) / (steps - 1))
@@ -306,18 +324,22 @@ def sea(img, far, layer=0.35, size=0.5, billow=0.5, detail=1.0,
         if zp is not None:
             seg = np.maximum(z - zp, 1e-6)
             vis = np.clip((np.minimum(z, zs) - zp) / seg, 0, 1)
-            fin = np.where(d > 0, np.where(dp > 0, 1.0, d / (d - dp)),
-                           np.where(dp > 0, dp / (dp - d), 0.0))
-            dm = 0.5 * (np.maximum(d, 0) + np.maximum(dp, 0)) / (
-                fin + 1e-6)
-            thick += (rho(dm) * fin * vis * seg).astype(np.float32)
+            c = (rho(0.5 * (d + dp)) * vis * seg).astype(np.float32)
+            thick += c
+            zw += c * z
+            cw += c
+            ex = np.exp(-sig * c)
+            yc = 0.5 * (y + yp)
+            lv += trans * (1 - ex) * (0.3 + 0.7 * (yc - ylo) / (yhi - ylo))
+            trans *= ex
             zc = zp + seg * np.clip(-dp / (d - dp + 1e-9), 0, 1)
             new = ~hit & (d > 0) & (zc < zs)
             zhit = np.where(new, zc, zhit)
             zlo = np.where(new, zp, zlo)
             zhi = np.where(new, z, zhi)
             hit |= new
-        zp, dp = z, d
+            front += np.where(hit & (z < zhit + lf), c, 0)
+        zp, dp, yp = z, d, y
     # Point d'entrée affiné par dichotomie (pas de courbes de niveau
     # sur les grands flancs).
     for _ in range(5):
@@ -328,10 +350,20 @@ def sea(img, far, layer=0.35, size=0.5, billow=0.5, detail=1.0,
     zhit = np.where(hit, np.minimum(0.5 * (zlo + zhi), zs), zhit)
     # Sous la dernière tranche tout est nuage : la couche est pleine.
     rest = np.clip(zs - zp, 0, None)
-    thick += rest * rho(np.maximum(dp, 0) - 0.5 * gs * rest)
+    c = rest * rho(np.maximum(dp, 0) - 0.5 * gs * rest)
+    thick += c
+    ex = np.exp(-sig * c)
+    lv += trans * (1 - ex) * 0.3
+    front += np.where(rest > 0, np.minimum(c, np.maximum(
+        0, zhit + lf - zp) * c / np.maximum(rest, 1e-6)), 0)
+    trans *= ex
     new = ~hit & (rest > 0)
     zhit = np.where(new, zp, zhit)
     hit |= new
+    # Rayons qui frôlent les dômes : vapeur seule, à sa distance moyenne.
+    vap = ~hit & (cw > 1e-6)
+    zhit = np.where(vap, zw / np.maximum(cw, 1e-6), zhit)
+    hit |= vap
     # Attributs au point touché, détail à la taille du pixel.
     lod = lod_of(zhit / foc)
     X0 = xs * zhit
@@ -369,6 +401,9 @@ def sea(img, far, layer=0.35, size=0.5, billow=0.5, detail=1.0,
                   0.45, 1.1)
     hl = np.clip((Sh - th - amp * fmin) / (amp * (fmax - fmin)), 0, 1)
     lum = (0.18 + 0.3 * hl ** 0.7) * cav + 0.85 * dif ** 1.5 * shad
+    # Rayons rasants : silhouettes fondues dans la vapeur.
+    kf = 1 - np.exp(-front / (0.05 * R))
+    lum = lum * kf + (lv / np.maximum(1 - trans, 1e-4)) * (1 - kf)
     # Blanc du nuage = blanc réel de la scène (tons hauts, vrais
     # nuages de préférence), sans points lumineux ni spéculaires.
     sm = cv2.resize(img, (rw, rh), interpolation=cv2.INTER_AREA)
@@ -401,17 +436,15 @@ def sea(img, far, layer=0.35, size=0.5, billow=0.5, detail=1.0,
     hz = sm[max(0, ri - 2): ri + 3].reshape(-1, 3).mean(0)
     fog = (0.8 * (1 - np.exp(-zhit / (12 * gap))))[..., None]
     col = col * (1 - fog) + hz * fog
-    # Opacité de Beer-Lambert sur l'épaisseur pondérée par la densité :
-    # bords et volutes fines vaporeux, couche épaisse quasi opaque.
-    sig = 2.1 * max(amount, 0.0) * max(density, 0.0) / gap
-    a = 1 - np.exp(-sig * thick)
+    # Bords et volutes fines vaporeux, couche épaisse quasi opaque.
+    a = 1 - trans
     a *= 1 - 0.7 * float(np.clip(visible, 0, 1))
     if recul > 0:
         # Éloignement : la mer s'efface devant, reste au fond.
         fh = np.clip(np.log(np.maximum(zhit, 1)) / math.log(80.0), 0, 1)
         e = 1.3 + max(0.0, recul - 1.0) * 3.0
-        dd = min(1.0, recul)
-        a *= (1 - dd) + dd * fh ** e
+        k = min(1.0, recul)
+        a *= (1 - k) + k * fh ** e
     a = np.where(hit, a, 0).astype(np.float32)
     # Vapeur fine : lumière diffusée, peu de modelé.
     va = np.sqrt(a)[..., None]
