@@ -3615,7 +3615,13 @@ def _fog_volume(out, far, hw, amount, color, shade, distort=0.5,
         a = 1 - np.exp(-rho * dt)
         C += (T * a)[..., None] * light
         T *= 1 - a
-    T = np.maximum(T, 1 - cap)
+    tc = np.maximum(T, 1 - cap)
+    if cap < 0.97:
+        # Fond visible : la lumière de la brume suit son opacité
+        # plafonnée ; sinon elle s'ajoutait au fond gardé (blanc cramé).
+        r = (1 - tc) / np.maximum(1 - np.maximum(T, 0.03), 1e-6)
+        C = C * r[..., None]
+    T = tc
     if s < 1:
         T = cv2.resize(T, (W, H), interpolation=cv2.INTER_LINEAR)
         C = cv2.resize(C, (W, H), interpolation=cv2.INTER_LINEAR)
