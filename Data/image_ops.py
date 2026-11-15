@@ -1565,6 +1565,20 @@ def grabcut_mask(rgb, prior, keep_hint, remove_hint, *, iters=4):
             (region * 255).astype(np.uint8))
 
 
+def mask_overlay(image: Image.Image) -> Image.Image:
+    """Vue de contrôle du masque : le fond retiré est assombri, désaturé
+    et teinté de rouge (lisible même sur un vêtement rouge), le sujet
+    reste intact."""
+    arr = np.asarray(image.convert("RGBA")).astype(np.float32)
+    rgb = arr[..., :3]
+    k = 0.6 * (1.0 - arr[..., 3:] / 255.0)
+    tint = rgb.mean(axis=2, keepdims=True) * 0.5 + np.float32(
+        [120, 0, 0])
+    out = rgb * (1.0 - k) + tint * k
+    return Image.fromarray(np.clip(out + 0.5, 0, 255).astype(np.uint8),
+                           mode="RGB")
+
+
 class MaskEditor:
     """Retouches d'un masque de détourage, rejouables à toute taille.
 
@@ -1613,6 +1627,16 @@ class MaskEditor:
         self.ops.pop()
         self.version += 1
         return True
+
+    def snapshot(self) -> "MaskEditor":
+        """Copie figée (export en tâche de fond pendant que l'édition
+        continue) : même source et mêmes caches, liste d'opérations
+        copiée."""
+        twin = MaskEditor(self.source, self.base)
+        twin.ops = list(self.ops)
+        twin.version = self.version
+        twin._rgb = self._rgb
+        return twin
 
     def rgb_at(self, size) -> np.ndarray:
         arr = self._rgb.get(size)
@@ -1720,8 +1744,6 @@ class MaskEditor:
             for op in ops:
                 if op["kind"] != "stroke":
                     prior = self._apply(prior, op, size)
-        elif not (keep.any() or remove.any()):
-            return False
         result = grabcut_mask(self.rgb_at(size), prior, keep, remove,
                               iters=iters)
         if result is None:

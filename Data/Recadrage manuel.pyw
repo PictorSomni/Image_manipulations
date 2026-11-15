@@ -154,6 +154,7 @@ WHITE        = CONSTANTS.COLOR_WHITE
 
 # ===================== Layout ===================== #
 LEFT_COL_WIDTH   = 250   # Largeur de la colonne de gauche (réglages sliders)
+_vcenter = ft.CrossAxisAlignment.CENTER  # rangées du panneau FOND IA
 RIGHT_COL_WIDTH  = 250   # Largeur de la colonne de droite (formats + histogramme + boutons)
 
 # Hauteur des blocs incompressibles de la colonne droite, hors liste des
@@ -663,9 +664,14 @@ class PhotoCropper:
         ]
 
         # Stack : image + grille en overlay fixe
+        # Anneau du pinceau Garder/Enlever, suit la souris au survol.
+        self._brush_ring = ft.Container(
+            width=0, height=0, left=0, top=0, visible=False,
+            border=ft.Border.all(2, GREEN), border_radius=999,
+        )
         self.image_stack = ft.Stack(
             controls=[self.image_container, *self._grid_lines,
-                      self._usa_guide],
+                      self._usa_guide, self._brush_ring],
             width=self.canvas_w,
             height=self.canvas_h,
         )
@@ -684,6 +690,9 @@ class PhotoCropper:
             on_pan_end=self.on_pan_end,                 # relâchement pipette
             on_secondary_tap=self.on_canvas_secondary_tap,  # clic droit (simple clic, pas glissé) : bascule ajoute/retire
             on_scroll=self.on_gesture_scroll,           # molette souris conservée
+            on_hover=self.on_canvas_hover,              # anneau du pinceau
+            on_exit=self.on_canvas_exit,
+            hover_interval=20,
         )
 
 
@@ -816,13 +825,14 @@ class PhotoCropper:
 
 
 
-        # Érosion du masque — slider 0–2 % par tranche de 0,1 % (0 = désactivé)
+        # Érosion du masque — slider -2..2 % par tranche de 0,1 %
+        # (0 = désactivé, négatif = élargit le sujet).
         self.rembg_erosion_pct = 0.0
         self.rembg_erosion_slider = ft.Slider(
             value=0,
-            min=0,
+            min=-2,
             max=2,
-            divisions=20,
+            divisions=40,
             label="{value} %",
             active_color=ORANGE,
             on_change=self.on_rembg_erosion_change,
@@ -871,6 +881,42 @@ class PhotoCropper:
             tooltip="Supprimer le fond par IA (rembg)" if REMBG_AVAILABLE else "pip install rembg onnxruntime",
             on_click=self.on_rembg,
             height=CONSTANTS.TOUCH_TARGET,
+        )
+
+        # Retouche du masque : pinceaux Garder / Enlever, recalcul
+        # GrabCut, vue de contrôle (cf. image_ops.MaskEditor). L'éditeur
+        # naît à la première retouche et meurt avec le détourage.
+        self._mask_editor = None
+        self._mask_baked = None      # (éditeur, version, RGBA pleine rés.)
+        self._mask_tool = 0          # 0 = déplacer, 1 = garder, 2 = enlever
+        self._mask_overlay = False
+        self._brush_px = 24          # rayon du pinceau, pixels écran
+        self._stroke = None          # [garder, rayon image, [(x, y)…]]
+        self._blur_bg_cache = None   # (clé, fond flou à taille d'aperçu)
+        self.mask_tool_btn = _seg(
+            ["Déplacer", "Garder", "Enlever"], 0, self.on_mask_tool_change,
+            None, "Pinceaux du masque")
+        self.brush_size_slider = ft.Slider(
+            value=self._brush_px, min=4, max=120, divisions=29,
+            label="{value}", active_color=GREEN,
+            on_change=self.on_brush_size_change, expand=True,
+        )
+        self.mask_overlay_btn = ft.IconButton(
+            icon=ft.Icons.LAYERS_OUTLINED, icon_color=LIGHT_GREY,
+            tooltip="Voir le masque", on_click=self.on_mask_overlay_toggle,
+            icon_size=20, style=ft.ButtonStyle(padding=ft.Padding.all(4)))
+        self.mask_undo_btn = ft.IconButton(
+            icon=ft.Icons.UNDO, icon_color=ORANGE,
+            tooltip="Annuler la dernière retouche (Ctrl+Z)",
+            on_click=self.on_mask_undo, icon_size=20,
+            style=ft.ButtonStyle(padding=ft.Padding.all(4)))
+        self.mask_recalc_btn = ft.Button(
+            "Recalculer", icon=ft.Icons.AUTO_FIX_NORMAL,
+            bgcolor=VIOLET, color=DARK,
+            tooltip="Recalculer le détourage d'après les traits",
+            on_click=self.on_mask_recalc, expand=True,
+            style=ft.ButtonStyle(
+                padding=ft.Padding.symmetric(horizontal=6)),
         )
 
 
@@ -1496,6 +1542,7 @@ class PhotoCropper:
             else:
                 self.current_pil_image = source_image
                 self._rembg_original = None
+                self._mask_reset()
                 self.rembg_btn.selected = False
                 self._pipette_cancel()
                 self._pipette.reset()
@@ -1913,7 +1960,7 @@ class PhotoCropper:
             display_w=self.display_w, display_h=self.display_h,
         )
         return image_ops.compute_crop_with_canvas(
-            self.current_pil_image, target_w_px, target_h_px, view,
+            self._mask_source(), target_w_px, target_h_px, view,
             is_bw=self.is_bw,
             rembg_erosion_pct=getattr(self, 'rembg_erosion_pct', 0.0),
             rembg_feather_pct=getattr(self, 'rembg_feather_pct', 0.0),
@@ -1936,7 +1983,7 @@ class PhotoCropper:
         """
 
         return image_ops.compute_fit_in(
-            self.current_pil_image, target_w_px, target_h_px,
+            self._mask_source(), target_w_px, target_h_px,
             self.original_width, self.original_height, is_bw=self.is_bw,
             rembg_erosion_pct=getattr(self, 'rembg_erosion_pct', 0.0),
             rembg_feather_pct=getattr(self, 'rembg_feather_pct', 0.0),
@@ -2208,7 +2255,29 @@ class PhotoCropper:
         # La résolution cible entre dans la clé de cache : sans elle, un
         # redimensionnement de fenêtre garderait l'ancienne base réduite.
         max_px = self._preview_max_px()
-        if (isinstance(base_cache, dict)
+        editor = getattr(self, '_mask_editor', None)
+        stroke = getattr(self, '_stroke', None)
+        if editor is not None:
+            # Retouche du masque en cours : l'éditeur rejoue ses
+            # opérations directement à la taille d'aperçu (rendu mis en
+            # cache), plus le trait en cours de tracé.
+            live = None
+            if stroke is not None and stroke[2]:
+                live = (stroke[0], stroke[1], list(stroke[2]))
+            ratio = min(max_px / self.original_width,
+                        max_px / self.original_height, 1.0)
+            if live:
+                # Pendant le tracé, demi-résolution (≈ 4× plus rapide) :
+                # l'aperçu suit le pinceau, le rendu net revient au
+                # relâchement.
+                ratio *= 0.5
+            preview_width = max(1, int(self.original_width * ratio))
+            preview_height = max(1, int(self.original_height * ratio))
+            preview_image = editor.compose((preview_width, preview_height),
+                                           live)
+            editor_key = (id(editor), editor.version,
+                          len(live[2]) if live else 0)
+        elif (isinstance(base_cache, dict)
                 and base_cache.get("src") is self.current_pil_image
                 and base_cache.get("max_px") == max_px):
             preview_image = base_cache["base"].copy()
@@ -2218,10 +2287,26 @@ class PhotoCropper:
                         max_px / self.original_height, 1.0)
             preview_width  = max(1, int(self.original_width  * ratio))
             preview_height = max(1, int(self.original_height * ratio))
-            preview_image = self.current_pil_image.resize((preview_width, preview_height), Image.Resampling.BILINEAR)
+            if self.current_pil_image.mode == "RGBA":
+                # Couleurs et alpha réduits séparément : le resize RGBA de
+                # PIL prémultiplie et noircit le fond retiré, que la vue
+                # du masque doit montrer.
+                preview_image = self.current_pil_image.convert(
+                    "RGB").resize((preview_width, preview_height),
+                                  Image.Resampling.BILINEAR)
+                preview_image.putalpha(
+                    self.current_pil_image.getchannel("A").resize(
+                        (preview_width, preview_height),
+                        Image.Resampling.BILINEAR))
+            else:
+                preview_image = self.current_pil_image.resize(
+                    (preview_width, preview_height),
+                    Image.Resampling.BILINEAR)
             self._preview_base_cache = {"src": self.current_pil_image,
                                         "max_px": max_px,
                                         "base": preview_image.copy()}
+        if editor is None:
+            editor_key = None
         
         if preview_image.mode == "RGBA":
             # Clé de cache : image source + taille d'affichage + format + paramètres de composition
@@ -2231,6 +2316,7 @@ class PhotoCropper:
                 getattr(self, 'rembg_erosion_pct', 0.0),
                 getattr(self, 'rembg_feather_pct', 0.0),
                 getattr(self, 'rembg_bg_mode', 0),
+                editor_key, getattr(self, '_mask_overlay', False),
             )
             if self._rembg_composite_cache is not None and self._rembg_composite_cache[0] == composite_cache_key:
                 # Cache valide : réutiliser le composite sans recalculer
@@ -2241,14 +2327,19 @@ class PhotoCropper:
                 # corresponde au résultat final. L'échelle correcte est
                 # canvas_w / target_w_px (affichage → export), et non
                 # display_w / orig_w (qui sous-estime fortement pour les petits formats).
-                if getattr(self, 'rembg_erosion_pct', 0.0) > 0:
-                    erosion_radius_scaled = max(1, round(min(preview_image.size) * self.rembg_erosion_pct / 100))
+                if getattr(self, 'rembg_erosion_pct', 0.0):
+                    erosion_radius_scaled = image_ops.erosion_radius(
+                        min(preview_image.size), self.rembg_erosion_pct)
                     preview_image = _erode_alpha(preview_image, erosion_radius_scaled)
                 if getattr(self, 'rembg_feather_pct', 0.0) > 0:
                     feather_radius_scaled = max(1, round(min(preview_image.size) * self.rembg_feather_pct / 100))
                     preview_image = _feather_alpha(preview_image, feather_radius_scaled)
                 _bg_mode = getattr(self, 'rembg_bg_mode', 0)
-                if _bg_mode == 0:
+                _blur_key = (id(self._rembg_original), preview_width,
+                             preview_height)
+                if getattr(self, '_mask_overlay', False):
+                    background_layer = None
+                elif _bg_mode == 0:
                     background_layer = Image.new("RGBA", preview_image.size, (255, 255, 255, 255))
                 elif _bg_mode == 1:
                     background_layer = Image.new(
@@ -2258,14 +2349,25 @@ class PhotoCropper:
                     # Utiliser l'image originale (opaque) comme source du flou pour éviter
                     # les débordements noirs des pixels transparents (alpha=0 → noir en RGBA→RGB)
                     blur_source_image = self._rembg_original if self._rembg_original is not None else None
-                    if blur_source_image is not None:
+                    _blur_hit = getattr(self, '_blur_bg_cache', None)
+                    if (blur_source_image is not None and _blur_hit
+                            and _blur_hit[0] == _blur_key):
+                        # Fond flou mis en cache : pendant un trait de
+                        # pinceau, seul le masque change.
+                        blurred_background = _blur_hit[1]
+                    elif blur_source_image is not None:
                         blurred_background = blur_source_image.convert("RGB").resize((preview_width, preview_height), Image.Resampling.BILINEAR).filter(ImageFilter.GaussianBlur(radius=30))
+                        self._blur_bg_cache = (_blur_key, blurred_background)
                     else:
                         white_background = Image.new("RGBA", preview_image.size, (255, 255, 255, 255))
                         blurred_background = Image.alpha_composite(white_background, preview_image).convert("RGB").filter(ImageFilter.GaussianBlur(radius=30))
                     background_layer = blurred_background.convert("RGBA")
                 subject_mask = preview_image.getchannel("A")
-                preview_image = Image.alpha_composite(background_layer, preview_image).convert("RGB")
+                if background_layer is None:
+                    preview_image = image_ops.mask_overlay(preview_image)
+                else:
+                    preview_image = Image.alpha_composite(
+                        background_layer, preview_image).convert("RGB")
                 preview_image.info["rembg_alpha"] = subject_mask
                 self._rembg_composite_cache = (composite_cache_key, preview_image.copy())
         else:
@@ -2390,6 +2492,9 @@ class PhotoCropper:
         ne se déclenchent pas du tout dans cette version de Flet/Flutter
         combinés aux gestionnaires de pan existants (retour user, testé)."""
 
+        if self._mask_tool:
+            self._stroke_begin(e.local_position.x, e.local_position.y)
+            return
         if not self._pipette.armed:
             return
         self._pipette_start = (e.local_position.x, e.local_position.y)
@@ -2413,6 +2518,9 @@ class PhotoCropper:
         à la fois, cf. `_pipette_live_preview`)."""
         if not self.image_paths or not hasattr(self, 'original_width'):
             return
+        if self._mask_tool:
+            self._stroke_move(e.local_position.x, e.local_position.y)
+            return
         if self._pipette.armed:
             if self._pipette_start is not None:
                 self._pipette_drag_tick(self._pipette.drag(e.local_delta.x))
@@ -2430,6 +2538,9 @@ class PhotoCropper:
         nouveau clic-glissé (utile si le fond n'est pas d'un seul tenant,
         ex. de part et d'autre d'un bras)."""
 
+        if self._mask_tool:
+            self._stroke_end()
+            return
         if not self._pipette.armed or self._pipette_start is None:
             return
         px, py = self._pipette_start
@@ -2928,6 +3039,209 @@ class PhotoCropper:
         iy = max(0, min(self.original_height - 1, round(iy)))
         return ix, iy
 
+    # ================================================================ #
+    #           RETOUCHE DU MASQUE (PINCEAUX, GRABCUT)                 #
+    # ================================================================ #
+    def _mask_reset(self) -> None:
+        """Oublie les retouches du masque (autre image, nouveau
+        détourage, fond restauré)."""
+        self._mask_editor = None
+        self._mask_baked = None
+        self._stroke = None
+        self._rembg_composite_cache = None
+
+    def _mask_rebase(self) -> None:
+        """Le détourage a changé (pipette) : il devient le masque de
+        départ de l'éditeur, les retouches déjà faites sont gardées."""
+        editor = self._mask_editor
+        img = self.current_pil_image
+        if editor is not None and img is not None and img.mode == "RGBA":
+            editor.rebase(np.asarray(img.getchannel("A")))
+            self._mask_baked = None
+
+    def _mask_get_editor(self):
+        """Éditeur du masque courant, créé à la première retouche. Sans
+        détourage préalable, toute l'image est sujet : les traits Enlever
+        ou Recalculer font le détourage."""
+        editor = self._mask_editor
+        if editor is not None:
+            return editor
+        img = self.current_pil_image
+        if img is None or not hasattr(self, 'original_width'):
+            return None
+        base = (np.asarray(img.getchannel("A")) if img.mode == "RGBA"
+                else None)
+        if self._rembg_original is None:
+            self._rembg_original = img
+            self.current_pil_image = img.convert("RGBA")
+            self.rembg_btn.selected = True
+            try:
+                self.rembg_btn.update()
+            except Exception:
+                pass
+        editor = image_ops.MaskEditor(self._rembg_original, base)
+        self._mask_editor = editor
+        return editor
+
+    def _mask_source(self):
+        """Image à recadrer : `current_pil_image`, ou la version
+        retouchée en pleine résolution (calculée une fois par état de
+        l'éditeur) s'il y a des retouches."""
+        img = self.current_pil_image
+        editor = self._mask_editor
+        if (editor is None or not editor.has_edits or img is None
+                or img is self._rembg_original):
+            return img
+        baked = self._mask_baked
+        if (baked is None or baked[0] is not editor
+                or baked[1] != editor.version):
+            baked = (editor, editor.version, editor.compose())
+            self._mask_baked = baked
+        return baked[2]
+
+    def _canvas_to_image_f(self, px: float, py: float):
+        """Comme `_canvas_point_to_image`, en flottants et sans borner :
+        un trait peut commencer ou finir hors de l'image."""
+        cx = self.canvas_w / 2 + self.offset_x
+        cy = self.canvas_h / 2 + self.offset_y
+        dx, dy = px - cx, py - cy
+        theta = -math.radians(self.rotation)
+        rdx = dx * math.cos(theta) - dy * math.sin(theta)
+        rdy = dx * math.sin(theta) + dy * math.cos(theta)
+        eff_scale = self.base_scale * self.scale
+        return (self.original_width / 2 + rdx / eff_scale,
+                self.original_height / 2 + rdy / eff_scale)
+
+    def _stroke_begin(self, px: float, py: float) -> None:
+        if not self.image_paths or not hasattr(self, 'original_width'):
+            return
+        if self._mask_get_editor() is None:
+            return
+        # Rayon fixé en pixels écran : même taille apparente quel que
+        # soit le zoom, plus fin en zoomant pour les détails.
+        radius = self._brush_px / max(1e-6, self.base_scale * self.scale)
+        self._stroke = [self._mask_tool == 1, radius,
+                        [self._canvas_to_image_f(px, py)]]
+        self._brush_ring_move(px, py)
+        self._live_preview_tick()
+
+    def _stroke_move(self, px: float, py: float) -> None:
+        stroke = self._stroke
+        if stroke is None:
+            return
+        stroke[2].append(self._canvas_to_image_f(px, py))
+        self._brush_ring_move(px, py)
+        self._live_preview_tick()
+
+    def _stroke_end(self) -> None:
+        stroke, self._stroke = self._stroke, None
+        editor = self._mask_editor
+        if stroke is None or editor is None:
+            return
+        editor.add_stroke(stroke[0], stroke[1], stroke[2])
+        self._mask_baked = None
+        # Rendu final par le fil d'aperçu live : il est peut-être encore
+        # en train de rendre le trait en cours, le dernier rendu gagne.
+        self._live_preview_tick()
+
+    def _brush_ring_move(self, px: float, py: float) -> None:
+        ring = self._brush_ring
+        r = self._brush_px
+        ring.width = ring.height = 2 * r
+        ring.left, ring.top = px - r, py - r
+        ring.border = ft.Border.all(
+            2, GREEN if self._mask_tool == 1 else RED)
+        ring.visible = True
+        try:
+            ring.update()
+        except Exception:
+            pass
+
+    def _brush_ring_hide(self) -> None:
+        if self._brush_ring.visible:
+            self._brush_ring.visible = False
+            try:
+                self._brush_ring.update()
+            except Exception:
+                pass
+
+    def on_canvas_hover(self, e):
+        if self._mask_tool:
+            self._brush_ring_move(e.local_position.x, e.local_position.y)
+
+    def on_canvas_exit(self, e):
+        self._brush_ring_hide()
+
+    def on_mask_tool_change(self, e):
+        """Déplacer / Garder / Enlever : en mode pinceau, le glissé
+        peint au lieu de déplacer l'image (la molette zoome toujours)."""
+        tool = int(e.control.selected_index)
+        self._mask_tool = tool
+        e.control.thumb_color = (BLUE, GREEN, RED)[tool]
+        e.control.update()
+        self.brush_size_slider.active_color = RED if tool == 2 else GREEN
+        self.brush_size_slider.update()
+        if tool:
+            self._pipette_cancel()
+            self.gesture_detector.mouse_cursor = ft.MouseCursor.PRECISE
+            if not self._mask_overlay:
+                self._set_mask_overlay(True)
+                self._render_preview()
+        else:
+            self.gesture_detector.mouse_cursor = ft.MouseCursor.MOVE
+            self._brush_ring_hide()
+        self.page.update()
+
+    def on_brush_size_change(self, e):
+        self._brush_px = int(e.control.value)
+
+    def _set_mask_overlay(self, on: bool) -> None:
+        self._mask_overlay = on
+        btn = self.mask_overlay_btn
+        btn.icon = ft.Icons.LAYERS if on else ft.Icons.LAYERS_OUTLINED
+        btn.icon_color = RED if on else LIGHT_GREY
+        btn.tooltip = "Vue normale" if on else "Voir le masque"
+
+    def on_mask_overlay_toggle(self, e):
+        self._set_mask_overlay(not self._mask_overlay)
+        self._render_preview()
+        self.page.update()
+
+    def on_mask_undo(self, e):
+        editor = self._mask_editor
+        if editor is None or self._stroke is not None or not editor.undo():
+            return
+        self._mask_baked = None
+        self._set_status("Retouche du masque annulée")
+        self._render_preview()
+        self.page.update()
+
+    async def on_mask_recalc(self, e):
+        """GrabCut guidé par les traits Garder/Enlever (≈ 1 s, thread)."""
+        editor = self._mask_get_editor()
+        if editor is None:
+            return
+        self.mask_recalc_btn.disabled = True
+        veil_text = self.load_veil.content.controls[1]
+        veil_text.value = "Recalcul du masque…"
+        try:
+            async with ui_helpers.slow_veil(self.page, self.load_veil):
+                done = await asyncio.to_thread(editor.grabcut)
+            if done:
+                self._mask_baked = None
+                self._set_status("[OK] Masque recalculé — Ctrl+Z pour "
+                                 "annuler")
+            else:
+                self._set_status("Rien à recalculer : aucun trait ne "
+                                 "contredit le masque")
+        except Exception as ex:
+            self._set_status(f"[ERREUR] recalcul du masque : {ex}")
+        finally:
+            veil_text.value = "Chargement de l'image…"
+            self.mask_recalc_btn.disabled = False
+            self._render_preview()
+            self.page.update()
+
     async def _pipette_live_preview(self, ix: int, iy: int, tolerance: int) -> None:
         """Aperçu en direct pendant le glissé : calcule le flood fill du
         point courant, le combine (cf. `image_ops.FloodPipette.combine`)
@@ -2952,6 +3266,7 @@ class PhotoCropper:
             combined = self._pipette.combine(new_mask)
             if combined is not None:
                 self.current_pil_image = image_ops.compose_bg_alpha(source, combined)
+                self._mask_rebase()
                 self._render_preview()
                 self.page.update()
         except Exception:
@@ -2979,6 +3294,7 @@ class PhotoCropper:
             self._rembg_original = source
             if bg_mask is not None:
                 self.current_pil_image = image_ops.compose_bg_alpha(source, bg_mask)
+                self._mask_rebase()
                 self.rembg_btn.selected = True
                 # Un pick qui ne ramène presque rien annonçait quand même
                 # "[OK] Fond supprimé" : rien ne distinguait un détourage
@@ -2999,6 +3315,7 @@ class PhotoCropper:
                         "[OK] Fond supprimé — glissez pour ajouter/retirer, recliquer pour restaurer")
             else:
                 self.current_pil_image = source
+                self._mask_reset()
                 self.rembg_btn.selected = False
                 self._set_status("Rien à retirer — glissez d'abord pour ajouter une sélection")
             self._rembg_tolerance_label.value = f"Tol. {tolerance}"
@@ -3096,6 +3413,7 @@ class PhotoCropper:
             self._pipette_cancel()
             self.current_pil_image = self._rembg_original
             self._rembg_original = None
+            self._mask_reset()
             self._pipette.reset()
             self._sync_pipette_sign_btn()
             self.rembg_btn.selected = False
@@ -3152,9 +3470,14 @@ class PhotoCropper:
                     model_name = "u2net_human_seg" if self.rembg_human_seg else "u2net"
                     self._rembg_session_u2net[0] = _rembg_new_session(model_name)
                 sess = self._rembg_session_u2net[0]
+            source_rgb = self.current_pil_image.convert("RGB")
             with contextlib.redirect_stderr(io.StringIO()):
-                result = _rembg_remove(self.current_pil_image.convert("RGB"), session=sess)
-            return result.convert("RGBA")
+                result = _rembg_remove(source_rgb, session=sess)
+            # Pixels d'origine + alpha IA : la découpe de rembg met le
+            # fond à noir, qui réapparaissait en élargissant le masque
+            # ou au pinceau Garder.
+            source_rgb.putalpha(result.getchannel("A"))
+            return source_rgb
 
         veil_text = self.load_veil.content.controls[1]
         veil_text.value = "Détourage en cours…"
@@ -3163,6 +3486,7 @@ class PhotoCropper:
                 result = await asyncio.to_thread(_do_rembg)
             self._rembg_original = self.current_pil_image
             self.current_pil_image = result
+            self._mask_reset()
             self.rembg_btn.selected = True
             self._set_status("[OK] Fond supprimé — recliquer pour restaurer")
         except Exception as ex:
@@ -4223,8 +4547,14 @@ class PhotoCropper:
         JAMAIS self.* pendant son calcul (l'UI est déjà passée à l'image
         suivante). `image` est partagée SANS copie : elle n'est jamais
         mutée en place (load_image / rembg en créent une nouvelle)."""
+        editor = self._mask_editor
         return {
             "image": self.current_pil_image,
+            # Retouches du masque : rejouées en pleine résolution par le
+            # worker (cf. _export_job_run), pas ici sur le thread UI.
+            "mask_editor": (editor.snapshot()
+                            if editor is not None and editor.has_edits
+                            else None),
             "rembg_original": self._rembg_original,
             "icc_profile": getattr(self, 'icc_profile', None),
             "source_exif": getattr(self, 'source_exif', None),
@@ -4308,6 +4638,8 @@ class PhotoCropper:
         des validations. Ne lit self.* que pour l'état PROPRE au worker
         (_id4_10x20_pending / _id4_10x20_seq)."""
         used_paths = set()
+        if job.get("mask_editor") is not None:
+            job["image"] = job["mask_editor"].compose()
 
         def unique_path(path):
             """Chemin unique dans la session d'export de CE job (suffixe
@@ -4359,9 +4691,9 @@ class PhotoCropper:
         if _crop_mode == 'none':
             _src = job["image"]
             if _src.mode == 'RGBA':
-                if job["rembg_erosion_pct"] > 0:
-                    _r = max(1, round(min(_src.size)
-                                      * job["rembg_erosion_pct"] / 100))
+                if job["rembg_erosion_pct"]:
+                    _r = image_ops.erosion_radius(
+                        min(_src.size), job["rembg_erosion_pct"])
                     _src = _erode_alpha(_src.copy(), _r)
                 if job["rembg_feather_pct"] > 0:
                     _f = max(1, round(min(_src.size)
@@ -5304,6 +5636,8 @@ def main(page: ft.Page):
                 app._update_transform()
         elif event.key == "0" and not event.meta and not event.ctrl:
             app.reset_zoom(event)
+        elif event.key == "Z" and (event.ctrl or event.meta):
+            app.on_mask_undo(event)
     page.on_keyboard_event = on_key
     key_sink = ft.TextField(width=1, height=1, border=ft.NoInputBorder(),
                             on_change=lambda e: setattr(
@@ -5746,6 +6080,17 @@ def main(page: ft.Page):
                                     ft.Text("Ad.", size=11, color=LIGHT_GREY),
                                     app.rembg_feather_slider,
                                 ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                                app.mask_tool_btn,
+                                ft.Row([
+                                    ft.Text("Pin.", size=11, color=LIGHT_GREY),
+                                    app.brush_size_slider,
+                                ], spacing=2,
+                                    vertical_alignment=_vcenter),
+                                ft.Row([
+                                    app.mask_overlay_btn, app.mask_undo_btn,
+                                    app.mask_recalc_btn,
+                                ], spacing=4,
+                                    vertical_alignment=_vcenter),
                             ], spacing=8, horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
                             border=ft.Border(left=ft.BorderSide(2, VIOLET)),
                             padding=ft.Padding.only(left=8),
