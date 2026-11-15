@@ -2699,7 +2699,8 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     else:
         out = _fog_banks(out, far, np.clip(hw, 0, None) ** g * sky_cut,
                          amount, 1.0, color, shade, 1.0, 1.0, distort,
-                         n=14, bumps=bumps, contrast=contrast, cap=cap)
+                         n=14, bumps=bumps, contrast=contrast, cap=cap,
+                         soft_vol=int(volume) == 1)
     if swell is not None:
         # Houle posée en dernier : elle marque aussi les bancs.
         out = out * np.clip(1 + swell * a[..., 0], 0.82, 1.15)[..., None]
@@ -3076,7 +3077,7 @@ def _fog_volume(out, far, hw, amount, color, shade, distort=0.5,
 
 def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
                curl=0.5, distort=0.5, n=7, bumps=0.5, contrast=0.5,
-               cap=0.97):
+               cap=0.97, soft_vol=False):
     """Bancs de brume en couches, du fond vers l'avant, comme des vagues :
     chaque banc a un bord supérieur ondulé, éclairé, qui se détache du
     banc de derrière ; il ne recouvre que ce qui est plus loin que lui.
@@ -3183,24 +3184,40 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
             cp = np.clip(hf / max(1.0, r0 * 0.15), 0, 1) * present \
                 * np.clip(1 - dy / (r0 * 0.8), 0, 1)
             cov = np.maximum(cov, cp * cov.max(initial=0.0) * 0.9)
+        if soft_vol:
+            # Nuage en volume : opacité par l'épaisseur traversée
+            # (sphères + corps qui s'épaissit en descendant), sans
+            # bord, liseré ni ombre de banc.
+            body = np.clip(dy / (h * 0.15 * (1.1 - t)), 0, 1.5)
+            tau = body * dens * present
+            if hf is not None:
+                tau = tau + hf / max(1.0, r0) * 2.0 * present
+            tau = tau.astype(np.float32)
+            cov = 1 - np.exp(-tau * (0.8 + contrast))
+            above = np.cumsum(tau, axis=0) / max(1.0, h * 0.04)
+            above = cv2.GaussianBlur(above, (0, 0), max(1.0, r0 * 0.5))
+            lit = np.exp(-above * (0.4 + 0.8 * contrast))
+            col = shade + (color * 1.08 - shade) * (
+                0.35 + 0.85 * lit)[..., None]
         vis = np.clip((far - t) * 20 / (1 + 5 * spread) + 0.5, 0, 1)
         vis = vis * vis * (3 - 2 * vis)
-        rim = np.exp(-(dy / (sf * 1.5 + 2)) ** 2) * (dy > -sf)
-        # Au fond, pas de liseré clair ni de bord net : sinon une ligne
-        # seule traverse la mer de brume.
-        fade = float(np.clip((0.7 - t) / 0.3, 0, 1))
-        rim = up((rim * (1 - spread * t) * cv * fade).astype(np.float32))
-        # Contraste : dessus éclairé, corps plus sombre, pour lire la
-        # forme des bancs même sur une photo claire.
-        lo = 0.7 - 0.45 * contrast
-        col = shade + (color * 1.08 - shade) * (lo + (1.15 - lo) * rim)[
-            ..., None]
-        # Occlusion : le corps s'assombrit en descendant sous le bord,
-        # là où le banc de devant le cache ; couches bien lisibles.
-        occ = 1 - np.exp(-np.maximum(dy, 0) / (h * 0.06 * (1.1 - t)))
-        col = col * up((1 - 0.5 * contrast * occ).astype(
-            np.float32))[..., None]
-        if _VOLUME:
+        if not soft_vol:
+            rim = np.exp(-(dy / (sf * 1.5 + 2)) ** 2) * (dy > -sf)
+            # Au fond, pas de liseré clair ni de bord net : sinon une ligne
+            # seule traverse la mer de brume.
+            fade = float(np.clip((0.7 - t) / 0.3, 0, 1))
+            rim = up((rim * (1 - spread * t) * cv * fade).astype(np.float32))
+            # Contraste : dessus éclairé, corps plus sombre, pour lire la
+            # forme des bancs même sur une photo claire.
+            lo = 0.7 - 0.45 * contrast
+            col = shade + (color * 1.08 - shade) * (lo + (1.15 - lo) * rim)[
+                ..., None]
+            # Occlusion : le corps s'assombrit en descendant sous le bord,
+            # là où le banc de devant le cache ; couches bien lisibles.
+            occ = 1 - np.exp(-np.maximum(dy, 0) / (h * 0.06 * (1.1 - t)))
+            col = col * up((1 - 0.5 * contrast * occ).astype(
+                np.float32))[..., None]
+        if _VOLUME and not soft_vol:
             # Bancs éclairés comme le volume : soleil, phase, powder.
             lt = _volume_light(np.clip(cov, 0, 1).astype(np.float32),
                                max(2.0, h * 0.03 * (1.1 - t)), contrast)
