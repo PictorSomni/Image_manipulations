@@ -191,7 +191,7 @@ def _by_lod(mips, u, v, lod, interp=cv2.INTER_LINEAR):
 def sea(img, far, layer=0.35, size=0.5, billow=0.5, detail=1.0,
         soft=0.1, amount=0.5, density=1.0, warmth=0.0, sun=None,
         res=960.0, seed=0, recul=0.0, visible=0.0, fov=60.0,
-        fade=0.5):
+        fade=1.0):
     """Mer de nuages pleine vue d'en haut : couche posée sur le
     plan du sol jusqu'à layer (0 sol .. 1 œil), dessus en dômes, tours
     de cumulus qui en sortent par endroits. Marche de rayons par pixel
@@ -270,9 +270,10 @@ def sea(img, far, layer=0.35, size=0.5, billow=0.5, detail=1.0,
     sf = float(np.clip(soft, 0, 1))
     dd = min(amp, 0.14 * gap * (0.5 + float(np.clip(billow, 0, 1)))) * (
         1.5 + 2.0 * sf)
-    # fade (Densité) : 0,5 neutre ; plus haut = dégradé plus long et
-    # vaporeux, plus bas = transition plus franche.
-    fk = 2.0 ** (2.0 * (float(np.clip(fade, 0, 1)) - 0.5))
+    # fade (Densité) : 1 = nappe pleine ; en baissant, dégradé plus
+    # long et nuage plus léger, vaporeux.
+    fl = 1.0 - float(np.clip(fade, 0, 1))
+    fk = 4.0 ** fl
     dd = dd * fk
     hv = dd * (0.35 + 0.4 * sf)
 
@@ -304,6 +305,7 @@ def sea(img, far, layer=0.35, size=0.5, billow=0.5, detail=1.0,
     thick = np.zeros((mh, rw), np.float32)
     # Opacité de Beer-Lambert sur l'épaisseur pondérée par la densité.
     sig = 2.1 * max(amount, 0.0) * max(density, 0.0) / gap
+    sig = sig * (1.0 - 0.6 * fl)
     # Lumière diffuse du volume (avant -> arrière, plus claire en haut)
     # et part d'opacité du premier dôme touché : un rayon qui ne fait
     # que frôler un dôme prend la lumière du volume, sans liseré.
