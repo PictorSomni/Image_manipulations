@@ -3088,6 +3088,8 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     _SEED = int(seed)
     # Détail : 1 = petites sous-volutes nombreuses, 0 = grosses.
     _GRAIN = 1.0 - float(grain)
+    # Volume : la Densité règle la longueur du dégradé nuage/paysage.
+    fade = float(distort)
     # Densité : curseur 0-1 remappé sur l'ancienne plage 0,15-0,64.
     distort = 0.15 + 0.49 * float(distort)
     # ponytail: nappes coupées (taches sombres qui cachent les
@@ -3113,7 +3115,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
             img, far, layer=ground_height, size=bumps, billow=contrast,
             detail=grain, soft=edge, amount=amount, density=ground,
             warmth=warmth, sun=sun, res=min(_RES, 1200.0), seed=seed,
-            recul=depth, visible=visible)
+            recul=depth, visible=visible, fade=fade)
         if sea is not None:
             return _to_pil(sea)
     # Brume au sol : dense près de l'eau / des fonds, s'efface en montant.

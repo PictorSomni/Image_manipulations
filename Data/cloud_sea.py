@@ -190,7 +190,8 @@ def _by_lod(mips, u, v, lod, interp=cv2.INTER_LINEAR):
 
 def sea(img, far, layer=0.35, size=0.5, billow=0.5, detail=1.0,
         soft=0.1, amount=0.5, density=1.0, warmth=0.0, sun=None,
-        res=960.0, seed=0, recul=0.0, visible=0.0, fov=60.0):
+        res=960.0, seed=0, recul=0.0, visible=0.0, fov=60.0,
+        fade=0.5):
     """Mer de nuages pleine vue d'en haut : couche posée sur le
     plan du sol jusqu'à layer (0 sol .. 1 œil), dessus en dômes, tours
     de cumulus qui en sortent par endroits. Marche de rayons par pixel
@@ -269,6 +270,10 @@ def sea(img, far, layer=0.35, size=0.5, billow=0.5, detail=1.0,
     sf = float(np.clip(soft, 0, 1))
     dd = min(amp, 0.14 * gap * (0.5 + float(np.clip(billow, 0, 1)))) * (
         1.5 + 2.0 * sf)
+    # fade (Densité) : 0,5 neutre ; plus haut = dégradé plus long et
+    # vaporeux, plus bas = transition plus franche.
+    fk = 2.0 ** (2.0 * (float(np.clip(fade, 0, 1)) - 0.5))
+    dd = dd * fk
     hv = dd * (0.35 + 0.4 * sf)
 
     def rho(dep):
@@ -402,7 +407,7 @@ def sea(img, far, layer=0.35, size=0.5, billow=0.5, detail=1.0,
     hl = np.clip((Sh - th - amp * fmin) / (amp * (fmax - fmin)), 0, 1)
     lum = (0.18 + 0.3 * hl ** 0.7) * cav + 0.85 * dif ** 1.5 * shad
     # Rayons rasants : silhouettes fondues dans la vapeur.
-    kf = 1 - np.exp(-front / (0.05 * R))
+    kf = 1 - np.exp(-front / (0.05 * fk * R))
     lum = lum * kf + (lv / np.maximum(1 - trans, 1e-4)) * (1 - kf)
     # Blanc du nuage = blanc réel de la scène (tons hauts, vrais
     # nuages de préférence), sans points lumineux ni spéculaires.
