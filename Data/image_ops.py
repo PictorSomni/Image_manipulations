@@ -3077,8 +3077,8 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     global _SEED, _GRAIN, _RES, _VOLUME, _VOL_LIGHT, _SUN
     _SUN = sun
     # volume : 1 diffus (boules éclairées en volume), 2 volume.
-    # Volume = même nappe que Diffus (taille et densité calées), relief
-    # de la mer de nuages posé dessus en fin de rendu.
+    # Volume = mer de nuages pleine (cloud_sea), à la place de la brume
+    # au sol.
     vol2 = int(volume) == 2
     _VOLUME, _VOL_LIGHT = 1, None
     # Résolution des volutes : rapide 960 px, qualité la moitié de
@@ -3105,22 +3105,17 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     # Fond : tout ce qui est plus loin que ce seuil compte comme le fond.
     far = np.clip(far / max(0.05, fond), 0, 1)
     sky_cut = 1.0
-    sea_img = None
     if ground > 0 and vol2 and not show_depth:
-        # Volume : vraie mer de nuages en perspective autour du sujet.
+        # Volume : mer de nuages pleine vue d'en haut, cumulus qui en
+        # sortent ; remplace la brume au sol.
         import cloud_sea
-        sea = cloud_sea.render(
-            img, far, layer=ground_height, size=0.6 * bumps,
-            billow=contrast, detail=grain, soft=edge, density=ground,
-            warmth=warmth, sun=sun, res=_RES * 0.5, seed=seed,
-            recul=depth,
-            strength=min(1.0, amount / 0.6) ** 1.5
-            * (0.1 + 1.6 * ((distort - 0.15) / 0.49) ** 2))
+        sea = cloud_sea.sea(
+            img, far, layer=ground_height, size=bumps, billow=contrast,
+            detail=grain, soft=edge, amount=amount, density=ground,
+            warmth=warmth, sun=sun, res=min(_RES, 1200.0), seed=seed,
+            recul=depth, visible=visible)
         if sea is not None:
-            sea_img = np.clip(sea[0], 0, 1).astype(np.float32)
-            # Relief seulement là où il y a des nuages : sinon il
-            # durcit le contraste de la photo elle-même.
-            sea_a = np.clip(np.asarray(sea[2], np.float32), 0, 1)
+            return _to_pil(sea)
     # Brume au sol : dense près de l'eau / des fonds, s'efface en montant.
     hw = 1.0
     if ground > 0:
@@ -3266,18 +3261,6 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     if swell is not None:
         # Houle posée en dernier : elle marque aussi les bancs.
         out = out * np.clip(1 + swell * a[..., 0], 0.82, 1.15)[..., None]
-    if sea_img is not None:
-        # Relief de la mer de nuages (lumière / ombre des volutes)
-        # modulé dans la brume Diffus : même emprise, pas de flaque.
-        lum = sea_img.mean(axis=2)
-        k = max(h, w)
-        base = cv2.GaussianBlur(lum, (0, 0), k / 40)
-        det = np.clip(lum / (base + 1e-3), 0.55, 1.5)
-        big = np.clip(base / (cv2.GaussianBlur(lum, (0, 0), k / 8)
-                              + 1e-3), 0.7, 1.3)
-        cover = np.clip(a[..., 0] / max(cap, 1e-3), 0, 1) * sea_a
-        rel = 1 + ((det - 1) * 2.5 + (big - 1) * 2) * cover * contrast * 2
-        out = out * np.clip(rel, 0.4, 1.5)[..., None]
     return _to_pil(out)
 
 

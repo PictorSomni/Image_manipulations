@@ -1660,7 +1660,10 @@ def main(page: ft.Page):
 
         # ponytail: pas de `divisions` — Flutter dessine alors des
         # graduations que le thème ne masque pas ; _write arrondit déjà.
-        slider = ft.Slider(min=minv, max=maxv, value=value, expand=True,
+        # Valeur hors plage (ancien préréglage) : rendue telle quelle,
+        # curseur posé en butée.
+        slider = ft.Slider(min=minv, max=maxv,
+                           value=min(maxv, max(minv, value)), expand=True,
                           on_change=_handle,
                           on_change_start=_drag_start,
                           on_change_end=_drag_end,
@@ -1697,7 +1700,7 @@ def main(page: ft.Page):
             live_preview_tick()."""
             value = _effective_value(dct, key, dct[key])
             _display(value)
-            slider.value = value
+            slider.value = min(maxv, max(minv, value))
             slider.update()
 
         column = ft.Column([
@@ -2098,7 +2101,7 @@ def main(page: ft.Page):
             ("ground_height", "Hauteur", 0, 1, 0.005),
             "Volutes",
             ("contrast", "Volutes", 0, 1, 0.01),
-            ("bumps", "Taille des volutes", 0, 1, 0.01),
+            ("bumps", "Taille des volutes", 0.5, 2, 0.01),
             ("grain", "Détail", 0, 1, 0.01),
             ("edge", "Fondu des bords", 0, 1, 0.01),
             ("seed", "Variante", 0, 20, 1)])

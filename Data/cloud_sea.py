@@ -1,15 +1,16 @@
-"""Mer de nuages en perspective, rendue comme un champ de hauteur.
+"""Mer de nuages vue d'en haut (brume « Volume »).
 
-Le dessus de la nappe est un champ de hauteur fait de demi-sphères
-empilées à plusieurs échelles (cumulus « chou-fleur ») posé sur un plan
-horizontal. Rendu par marche de rayons colonne par colonne, de l'avant
-vers le fond (algorithme « voxel space ») : perspective, occlusion et
-taille des volutes justes sans 3D lourde.
+Le dessus de la nappe est un champ de hauteur : demi-sphères empilées
+à plusieurs échelles (cumulus « chou-fleur »), houle large et bancs de
+gros dômes qui en sortent, sur une texture 2048 px qui se répète, avec
+sa pyramide de moyennes. La nappe est posée sur le plan du sol de la
+photo (déduit de la carte d'éloignement) : chaque pixel lance un rayon
+découpé en tranches de hauteur (« steep parallax ») et la scène plus
+proche que le nuage (murs, arbres, collines) en sort.
 
-Éclairage d'après Schneider (Nubis, Horizon Zero Dawn) et Hillaire
-(Frostbite 2016) : ombres portées sur le champ de hauteur
-(Beer-Lambert), occlusion des creux, Beer-Powder, phase à deux lobes
-(liseré en contre-jour), perspective atmosphérique.
+Éclairage doux, d'après Schneider (Nubis) et Hillaire (Frostbite) :
+normale lissée, ombres portées des bancs, creux plus sombres,
+perspective atmosphérique vers la couleur de l'horizon.
 """
 import math
 
@@ -24,12 +25,6 @@ def _wblur(a, sig):
     p = int(min(a.shape[0] // 2, 3 * sig + 2))
     b = np.pad(a, p, mode="wrap")
     return cv2.GaussianBlur(b, (0, 0), sig)[p:-p, p:-p]
-
-
-def _wgrad(a):
-    """Gradients (x, y) d'une texture qui se répète."""
-    return ((np.roll(a, -1, 1) - np.roll(a, 1, 1)) * 0.5,
-            (np.roll(a, -1, 0) - np.roll(a, 1, 0)) * 0.5)
 
 
 def _domes(n, r, rng, fill=0.9, inside=None):
@@ -107,21 +102,6 @@ def _texture(seed, detail):
     return _TEX[key]
 
 
-def _shadow_tex(hl, ldir, amp, steps=24):
-    """Ombre portée du champ de hauteur vers le soleil (Beer-Lambert sur
-    l'épaisseur traversée). ldir = (dx, dz, dy) dans l'espace texture,
-    en px de texture par unité de hauteur."""
-    tau = np.zeros_like(hl)
-    for k in range(1, steps + 1):
-        t = k * 3.0
-        M = np.float32([[1, 0, -ldir[0] * t], [0, 1, ldir[1] * t]])
-        hs = cv2.warpAffine(hl, M, hl.shape[::-1], flags=cv2.INTER_LINEAR,
-                            borderMode=cv2.BORDER_WRAP)
-        ray = hl + ldir[2] * t
-        tau += np.clip(hs - ray, 0, None)
-    return np.exp(-tau * 0.6).astype(np.float32)
-
-
 def sky_mask(far):
     """Ciel : plateau plat de la carte d'éloignement relié au haut du
     cadre (sa valeur varie d'une photo à l'autre)."""
@@ -132,31 +112,111 @@ def sky_mask(far):
     return far >= v - 0.02
 
 
-def render(img, far, layer=0.4, size=0.5, billow=0.6, detail=1.0,
-           soft=0.2, density=1.0, warmth=0.0, sun=None, res=800.0,
-           seed=0, fov=60.0, waves=1.0, follow=1.0, strength=1.0,
-           recul=1.0):
-    """img float RGB 0..1, far 0..1 (carte d'éloignement). layer :
-    hauteur du dessus de la nappe, 0 au sol .. 1 au niveau de l'œil.
-    Retourne l'image composée, ou None si la nappe est au-dessus de
-    l'œil (brume unie, gérée ailleurs)."""
+
+_SEA = {}
+
+
+def _wup(a, size):
+    """Agrandit une texture qui se répète (raccord sans couture)."""
+    k = a.shape[0] / size
+    c = ((np.arange(size, dtype=np.float32) + 0.5) * k - 0.5)
+    mx, my = np.meshgrid(c, c)
+    return cv2.remap(a, mx, my, cv2.INTER_CUBIC,
+                     borderMode=cv2.BORDER_WRAP)
+
+
+def _sea_texture(seed):
+    """Dessus de la mer, en hauteurs de volute, sur une texture 2048 px
+    qui se répète : dômes empilés (chou-fleur), houle large, et tours
+    de dômes deux fois plus gros sur les bancs hauts (elles sortent de
+    la couche sans couture). Pyramide de moyennes 2x2. ~1,5 s sur le
+    Pi, gardé en cache."""
+    if seed in _SEA:
+        return _SEA[seed]
+    rng = np.random.default_rng(4321 + seed)
+    n, r0 = 512, 44.0
+    h = _domes(n, r0, rng, 0.9)
+    w, r = 0.55, r0
+    for _ in range(3):
+        r *= 0.45
+        # Seulement sur le nuage déjà là : pas de grains isolés.
+        h = h + w * _domes(n, r, rng, 1.2) * np.clip(h * 2, 0, 1)
+        w *= 0.6
+    h = np.clip(h / max(1e-3, float(np.percentile(h, 99.5))), 0, 1.1)
+    # Creux entre dômes comblés en douceur : pas de puits.
+    h = np.maximum(h, 0.7 * _wblur(h, r0 * 0.5)).astype(np.float32)
+    N = 4 * n
+    wv = _wblur(rng.standard_normal((N // 32, N // 32)), 2.5)
+    wv = _wup(((wv - wv.mean()) / (wv.std() + 1e-6)).astype(np.float32), N)
+    # Bancs hauts : sur la houle, dômes deux fois plus gros (pied
+    # adouci, pas de falaise) qui sortent de la couche sans couture.
+    big = _wblur(np.roll(h, (n // 3, n // 5), (0, 1)), r0 * 0.2)
+    big = np.tile(_wup(big.astype(np.float32), 2 * n), (2, 2))
+    bm = np.clip((wv - 0.4) / 1.3, 0, 1)
+    bm = bm * bm * (3 - 2 * bm)
+    f = 0.3 * wv + (np.tile(h, (4, 4)) - 0.3) + 2.1 * bm * big
+    mips = [f.astype(np.float32)]
+    while mips[-1].shape[0] > 8:
+        mips.append(cv2.resize(mips[-1], None, fx=0.5, fy=0.5,
+                               interpolation=cv2.INTER_AREA))
+    _SEA[seed] = (mips, r0, N, float(f.min()), float(f.max()))
+    if len(_SEA) > 2:
+        _SEA.pop(next(iter(_SEA)))
+    return _SEA[seed]
+
+
+def _by_lod(mips, u, v, lod, interp=cv2.INTER_LINEAR):
+    """Échantillonne la pyramide en (u, v) px du niveau 0 ; niveau
+    choisi par bande de lignes (la taille d'un pixel au sol varie
+    surtout avec la ligne), fondu entre deux niveaux."""
+    out = np.empty(u.shape, np.float32)
+    top = len(mips) - 2
+    # Le plus fin de la ligne : les rayons perdus (ciel, objets) ne
+    # floutent pas le reste.
+    k = np.clip(lod.min(axis=1), 0, top).astype(int)
+    start = 0
+    for i in range(1, len(k) + 1):
+        if i < len(k) and k[i] == k[start]:
+            continue
+        sl, q = slice(start, i), int(k[start])
+        a, b = (cv2.remap(mips[j], (u[sl] + 0.5) / 2 ** j - 0.5,
+                          (v[sl] + 0.5) / 2 ** j - 0.5, interp,
+                          borderMode=cv2.BORDER_WRAP)
+                for j in (q, q + 1))
+        out[sl] = a + (b - a) * np.clip(lod[sl] - q, 0, 1)
+        start = i
+    return out
+
+
+def sea(img, far, layer=0.35, size=0.5, billow=0.5, detail=1.0,
+        soft=0.1, amount=0.5, density=1.0, warmth=0.0, sun=None,
+        res=960.0, seed=0, recul=0.0, visible=0.0, fov=60.0):
+    """Mer de nuages pleine vue d'en haut : couche opaque posée sur le
+    plan du sol jusqu'à layer (0 sol .. 1 œil), dessus en dômes, tours
+    de cumulus qui en sortent par endroits. Marche de rayons par pixel
+    en tranches de hauteur (« steep parallax ») : ce qui est plus
+    proche que la nappe (mur, arbres, collines au-dessus) en sort.
+    img float RGB 0..1, far 0..1. Retourne l'image, ou None (pas de
+    sol trouvé)."""
     H, W = far.shape
     s = min(1.0, res / max(H, W))
     rh, rw = max(16, int(H * s)), max(16, int(W * s))
     f = cv2.resize(far.astype(np.float32), (rw, rh),
                    interpolation=cv2.INTER_AREA)
-    zsc = np.exp(f * math.log(80.0))
     skym = sky_mask(f)
-    zsc = np.where(skym, 1e4, zsc)
+    zsc = np.where(skym, 1e4, np.exp(f * math.log(80.0))).astype(
+        np.float32)
     foc = 0.5 * rw / math.tan(math.radians(fov) / 2)
     yy, xx = np.mgrid[0:rh, 0:rw].astype(np.float32)
-    X = (xx - rw / 2) / foc * zsc
-    Y = -(yy - rh / 2) / foc * zsc
+    xn = (xx - rw / 2) / foc
+    yn = -(yy - rh / 2) / foc
     land = ~skym
     if land.sum() < 50:
         return None
-    A = np.stack([X[land], zsc[land], np.ones(int(land.sum()))], 1)
-    yv = Y[land]
+    # Plan du sol : enveloppe basse des points 3D de la scène.
+    A = np.stack([(xn * zsc)[land], zsc[land],
+                  np.ones(int(land.sum()))], 1)
+    yv = (yn * zsc)[land]
     keep = np.ones(len(yv), bool)
     coef = np.array([0.0, 0.0, -1.0])
     for _ in range(4):
@@ -164,247 +224,179 @@ def render(img, far, layer=0.4, size=0.5, billow=0.6, detail=1.0,
         keep = yv <= A @ coef
         if keep.sum() < 20:
             break
-    cam = -coef[2]  # hauteur de l'œil au-dessus du sol (plan)
+    cam = float(-coef[2])  # hauteur de l'œil au-dessus du sol
     if cam <= 1e-3:
         return None
-    # Hauteur progressive : le bas du slider garde la brume au sol.
-    layer = float(np.clip(layer, 0, 1)) ** 3
-    # Dessus de la nappe : layer 0 = sol, 1 = œil.
-    base = coef[2] + cam * float(np.clip(layer, 0, 0.97))
-    dh = -base  # œil au-dessus de la nappe
-    th = cam * float(np.clip(layer, 0, 0.97))  # nappe au-dessus du sol
-    levels, r0, n = _texture(int(seed), float(detail))
-    # Taille des volutes (rayon de la plus grosse) en unités monde.
-    R = cam * (0.03 + 0.42 * size ** 1.5)
-    # Hauteur des tours, jamais au-dessus de l'œil.
-    amp = min(R * 1.2, 0.7 * dh) * (0.25 + 0.75 * billow)
-    tw = R * n / r0  # taille monde de la texture
-    # Soleil : position des Rayons (% du cadre) sinon haut à gauche,
-    # derrière les nuages.
-    if sun is None:
-        sx, sy = -0.3, -0.25
-    else:
-        sx, sy = sun[0] / 100.0 - 0.5, sun[1] / 100.0 - 0.5
-    lv = np.array([sx * 2 * math.tan(math.radians(fov) / 2) * rw / rh,
-                   max(0.15, -sy * 2 * math.tan(math.radians(fov) / 2))
-                   + 0.25, 1.0])
-    lv /= np.linalg.norm(lv)
-    # Ombres portées pré-calculées en espace texture, niveau 1.
-    lh = math.hypot(lv[0], lv[2]) + 1e-6
-    ldir = (lv[0] / lh, lv[2] / lh, lv[1] / lh * tw / n / amp)
-    shadow = _shadow_tex(levels[1], ldir, 1.0)
-    shadows = [_wblur(shadow, 2 ** i * 0.5) if i else shadow
-               for i in range(len(levels))]
-    grads = [_wgrad(lv_) for lv_ in levels]
-    gx_l = [g[0] for g in grads]
-    gy_l = [g[1] for g in grads]
+    mips, r0, N, fmin, fmax = _sea_texture(int(seed))
+    th = cam * (0.1 + 0.8 * float(np.clip(layer, 0, 1)) ** 0.6)
+    gap = cam - th  # œil au-dessus de la nappe
+    # Rayon des grosses volutes (monde) ; taille 0,5 .. 2.
+    R = gap * (0.08 + 0.12 * float(np.clip(size, 0.5, 2.0)))
+    tw = R * N / r0  # taille monde de la texture
+    # Dômes ronds à 0,5 ; ni volute ni tour au-dessus de l'œil.
+    amp = min(R * (0.5 + float(np.clip(billow, 0, 1))),
+              0.95 * gap / fmax)
+    ymax, ymin = th + amp * fmax, th + amp * fmin
+    # Détail : 0 = dômes lissés, 1 = toutes les petites volutes.
+    blur = 0.3 + 1.5 * (1 - float(np.clip(detail, 0, 1)))
+    rng = np.random.default_rng(77 + int(seed))
+    ou, ov = rng.uniform(0, N, 2)
 
-    acc = np.zeros((rh, rw), np.float32)
-    att = {k: np.zeros((rh, rw), np.float32)
-           for k in ("z", "h", "gx", "gz", "sh", "edge")}
-    y_hz = rh / 2 - coef[1] * foc
-    zmin = max(0.05, dh * foc / max(1.0, rh - y_hz + amp / dh * foc) * 0.5)
-    zs = np.geomspace(zmin, 600.0, 420)
-    cols = np.arange(rw, dtype=np.float32)
-    rows = np.arange(rh, dtype=np.float32)[:, None]
-    soft_px = 0.8 + 3.0 * soft
-    ratio = zs[1] / zs[0]
-    # Recul 0 : l'œil est dans le nuage, les volutes passent au-dessus
-    # de lui (et de l'horizon) ; en reculant il en sort.
-    rc = float(np.clip(recul, 0, 1))
-    ceil = 0.92 + 2.0 * (1 - rc)
-    kpen = 6.0 * max(density * strength, 0.02)
-    sig = (0.3 + 2.0 * density ** 2) / R
-    wmu = float(levels[-1].mean())
-    wsd = float(levels[-1].std()) + 1e-4
-    sig = density * 6.0 / R
-    # Relief de la scène vu de dessus (tranche x colonne) : hauteur des
-    # objets au-dessus du plan du sol. La nappe monte contre les arbres
-    # et les murets, se creuse dans les vallées.
-    hp = Y - (coef[0] * X + coef[1] * zsc + coef[2])
-    idx = np.clip(np.searchsorted(zs, zsc), 0, len(zs) - 1)
-    ok = ~skym
-    G = np.full((len(zs), rw), -1e9, np.float32)
-    np.maximum.at(G, (idx[ok], np.broadcast_to(cols, (rh, rw))[ok]
-                      .astype(int)), hp[ok].astype(np.float32))
-    Wt = (G > -1e8).astype(np.float32)
-    G = np.where(Wt > 0, np.clip(G, -cam, 3 * cam), 0).astype(np.float32)
-    sgx = max(2.0, rw / 30)
-    num = cv2.GaussianBlur(G * Wt, (0, 0), sgx, sigmaY=8)
-    den = cv2.GaussianBlur(Wt, (0, 0), sgx, sigmaY=8)
-    G = num / np.maximum(den, 1e-3) * np.clip(den * 4, 0, 1)
-    for i, z in enumerate(zs):
-        Xw = (cols - rw / 2) / foc * z
-        # Mip : taille d'un pixel écran en pixels de texture.
-        fp = max(z / foc, 0.35 * z * (ratio - 1)) / tw * n
-        lvl = int(np.clip(math.log2(max(fp, 1e-6)) + 1, 0, len(levels) - 1))
-        uu = Xw / tw * n
-        vv = np.full_like(uu, z / tw * n + 0.5 * n)
-        u, v = uu % n, vv % n
-        mx, my = u[None, :].astype(np.float32), v[None, :].astype(np.float32)
+    def surface(X, Z, lod, interp=cv2.INTER_LINEAR):
+        """Hauteur du dessus de la nappe en (X, Z) monde."""
+        u = ((X / tw * N + ou) % N).astype(np.float32)
+        v = ((Z / tw * N + ov) % N).astype(np.float32)
+        return th + amp * _by_lod(mips, u, v, lod + blur, interp)
 
-        def samp(t):
-            return cv2.remap(t, mx, my, cv2.INTER_LINEAR,
-                             borderMode=cv2.BORDER_WRAP)[0]
-        hgt = samp(levels[lvl])
-        # Détail fin au premier plan : la texture répétée 7x plus petite.
-        fd = fp * 7.3 * 2
-        if fd < 4:
-            ld = int(np.clip(math.log2(max(fd, 1e-6)) + 1, 0,
-                             len(levels) - 1))
-            dmx, dmy = (uu[None] * 7.3) % n, (vv[None] * 7.3) % n
-            det = cv2.remap(levels[ld], dmx.astype(np.float32),
-                            dmy.astype(np.float32), cv2.INTER_LINEAR,
-                            borderMode=cv2.BORDER_WRAP)[0]
-            hgt = hgt + 0.12 * (det - 0.4) * min(1.0, (4 - fd) / 2) \
-                * np.clip(hgt * 3, 0, 1)
-        # Houle à grande échelle (deux octaves bien plus larges que les
-        # volutes) : bancs hauts aux grosses tours, creux plus bas et
-        # plus calmes ; la nappe n'est plus un plan.
-        wv = 0.0
-        for k, wt in ((5.3, 0.65), (2.1, 0.35)):
-            wm = cv2.remap(levels[-1],
-                           ((uu[None] / k) % n).astype(np.float32),
-                           ((vv[None] / k + 97 * k) % n).astype(np.float32),
-                           cv2.INTER_LINEAR, borderMode=cv2.BORDER_WRAP)[0]
-            wv = wv + wt * (wm - wmu) / wsd
-        wv = np.clip(wv, -2.5, 2.5)
-        loc = amp * np.clip(1 + 0.7 * waves * wv, 0.2, 2.6)
-        # Plan du sol complet : pente avant-arrière et latérale (roulis).
-        top_w = coef[0] * Xw + coef[1] * z + base + loc * (hgt - 0.15) \
-            + waves * 1.4 * amp * wv
-        # Comme une rivière : obstacle plus bas que la nappe, elle passe
-        # dessus en bombant ; trop haut, elle s'en écarte (creux autour)
-        # et s'accumule sur les côtés.
-        gp = np.maximum(G[i], 0)
-        em = np.clip((gp - 0.8 * th) / (0.4 * th + 1e-6), 0, 1)
-        em = em * em * (3 - 2 * em)
-        en = cv2.GaussianBlur(em[None], (0, 0), max(1.5, rw / 60))[0]
-        ew = cv2.GaussianBlur(em[None], (0, 0), max(3.0, rw / 18))[0]
-        en = np.clip(en * 1.6, 0, 1)
-        top_w = top_w + follow * (
-            0.8 * np.clip(G[i], -2 * R, 0)
-            + 0.6 * np.minimum(gp, th) * (1 - en)
-            - 0.6 * th * en
-            + 0.5 * th * np.clip(ew * 1.6 - en, 0, 1))
-        top_w = np.minimum(top_w, coef[0] * Xw + coef[1] * z
-                           + coef[2] + ceil * cam)
-        ytop = rh / 2 - foc * top_w / z
-        y0 = int(max(0, math.floor(ytop.min() - 3 * foc * dh / z)))
-        if y0 >= rh:
-            continue
-        sl = slice(y0, rh)
-        sp = max(soft_px, 1.5 * foc * dh / z * (1 - 1 / ratio))
-        a = np.clip((rows[sl] - ytop[None, :]) / sp + 0.5, 0, 1)
-        # Translucidité : chaque tranche ne bouche qu'une partie de la
-        # vue (Beer-Lambert sur son épaisseur), le fond transparaît
-        # à travers les sommets minces.
-        a = a * (1 - math.exp(-sig * z * (ratio - 1)))
-        # Épaisseur : le rayon qui frôle le sommet ne traverse que peu
-        # de nuage, il ne s'opacifie qu'en s'enfonçant sous la crête.
-        pen = np.maximum(rows[sl] - ytop[None, :], 0) * (z / foc / amp)
-        a = a * (1 - np.exp(-kpen * pen))
-        free = (1 - acc[sl]) * a
-        if not free.any():
-            continue
-        vals = {"z": z, "h": hgt, "gx": samp(gx_l[lvl]),
-                "gz": samp(gy_l[lvl]), "sh": samp(shadows[lvl]),
-                "edge": np.clip((rows[sl] - ytop[None, :]) /
-                                (soft_px * 6 + foc * amp * 0.3 / z), 0, 1)}
-        for k, val in vals.items():
-            vv = val if np.ndim(val) == 2 else (
-                val[None, :] if np.ndim(val) else val)
-            att[k][sl] += free * vv
-        acc[sl] += free
-    m = np.maximum(acc, 1e-4)
-    for k in att:
-        att[k] = att[k] / m
-    # Flancs des volutes (sous le sommet) : sans ça chaque colonne
-    # recopie la normale du sommet en traînée verticale ; on les lisse
-    # et on les tourne vers l'œil.
-    e = att["edge"]
-    for k in ("gx", "gz", "h", "sh"):
-        sm = cv2.GaussianBlur(att[k], (0, 0), 6, sigmaY=2)
-        att[k] = att[k] + (sm - att[k]) * e * e
-    att["gz"] = att["gz"] + 0.15 * e * e
-    # Couleurs : ciel de la photo pour l'ambiant, soleil chaud.
-    sky = img[: max(1, H // 4)].reshape(-1, 3).mean(0)
-    sky = np.clip(sky / max(1e-3, sky.max()), 0.3, 1.0)
-    sun_c = np.array([1.0, 0.96 + 0.02 * warmth, 0.9 - 0.08 * warmth],
-                     np.float32)
-    amb = (0.5 * sky + 0.3).astype(np.float32)
-    # Normale du champ de hauteur (y vers le haut).
-    gs = amp / tw * n
-    nx, nz = -att["gx"] * gs, -att["gz"] * gs
+    def lod_of(fp):
+        return np.log2(np.maximum(fp / tw * N, 1e-6))
+
+    # Rayon : hauteur au-dessus du sol cam + g z ; descend si g < 0.
+    g = yn - coef[0] * xn - coef[1]
+    rows = np.nonzero((g < -1e-5).any(axis=1))[0]
+    zmax = 1e4
+    if not len(rows):
+        return None
+    r_a = int(rows[0])
+    gs = np.minimum(g[r_a:], -1e-6)
+    xs, zs = xn[r_a:], zsc[r_a:]
+    mh = rh - r_a
+    steps = 64
+    thick = np.zeros((mh, rw), np.float32)
+    zhit = np.full((mh, rw), zmax, np.float32)
+    hit = np.zeros((mh, rw), bool)
+    zp = dp = None
+    zlo = np.zeros((mh, rw), np.float32)
+    zhi = np.zeros((mh, rw), np.float32)
+    lgs = (-np.log2(-gs)).astype(np.float32)
+    for y in np.linspace(ymax, ymin, steps):
+        z = np.minimum((y - cam) / gs, zmax)
+        # Détail à la taille du pixel ou du pas, sans log par pixel.
+        fp = max((cam - y) / foc, 0.2 * (ymax - ymin) / (steps - 1))
+        S = surface(xs * z, z, lgs + math.log2(fp * N / tw))
+        d = S - y
+        if zp is not None:
+            seg = np.maximum(z - zp, 1e-6)
+            vis = np.clip((np.minimum(z, zs) - zp) / seg, 0, 1)
+            fin = np.where(d > 0, np.where(dp > 0, 1.0, d / (d - dp)),
+                           np.where(dp > 0, dp / (dp - d), 0.0))
+            thick += (fin * vis * seg).astype(np.float32)
+            zc = zp + seg * np.clip(-dp / (d - dp + 1e-9), 0, 1)
+            new = ~hit & (d > 0) & (zc < zs)
+            zhit = np.where(new, zc, zhit)
+            zlo = np.where(new, zp, zlo)
+            zhi = np.where(new, z, zhi)
+            hit |= new
+        zp, dp = z, d
+    # Point d'entrée affiné par dichotomie (pas de courbes de niveau
+    # sur les grands flancs).
+    for _ in range(5):
+        zm = np.where(hit, 0.5 * (zlo + zhi), 1.0)
+        inside = surface(xs * zm, zm, lod_of(zm / foc)) > cam + gs * zm
+        zhi = np.where(hit & inside, zm, zhi)
+        zlo = np.where(hit & ~inside, zm, zlo)
+    zhit = np.where(hit, np.minimum(0.5 * (zlo + zhi), zs), zhit)
+    # Sous la dernière tranche tout est nuage : la couche est pleine.
+    rest = np.clip(zs - zp, 0, None)
+    thick += rest
+    new = ~hit & (rest > 0)
+    zhit = np.where(new, zp, zhit)
+    hit |= new
+    # Attributs au point touché, détail à la taille du pixel.
+    lod = lod_of(zhit / foc)
+    X0 = xs * zhit
+    cub = cv2.INTER_CUBIC  # pas de facettes de près
+    Sh = surface(X0, zhit, lod, cub)
+    # Normale lissée (le nuage diffuse : forme large, pas de facettes) ;
+    # le petit relief passe par les creux plus bas.
+    ln = lod + 2.0
+    e = np.maximum(0.25 * R, 4 * zhit / foc)
+    nx = -(surface(X0 + e, zhit, ln, cub)
+           - surface(X0 - e, zhit, ln, cub)) / (2 * e)
+    nz = -(surface(X0, zhit + e, ln, cub)
+           - surface(X0, zhit - e, ln, cub)) / (2 * e)
     nn = np.sqrt(nx * nx + nz * nz + 1)
     nx, ny, nz = nx / nn, 1 / nn, nz / nn
-    ndl = nx * lv[0] + ny * lv[1] - nz * lv[2]
-    diff = np.clip(ndl * 0.75 + 0.25, 0, 1) ** 1.5
-    sh = att["sh"] ** 1.5
-    ao = 0.45 + 0.55 * np.clip(att["h"] / 0.9, 0, 1) ** 0.8
-    # Beer-Powder : bord fin (edge bas) plus sombre face à la lumière,
-    # liseré clair en contre-jour (phase à deux lobes, Hillaire).
-    e = att["edge"]
-    powder = 1 - np.exp(-6 * e)
-    back = max(0.0, -lv[2])
-    rim = (1 - e) * back * 0.8
-    lit = diff * sh * (0.6 + 0.4 * powder) + rim
-    # Diffusion multiple : l'ombre d'un nuage reste claire et bleutée.
-    shade = np.clip(0.22 + 0.85 * lit, 0, 1.3) * (0.75 + 0.25 * ao)
-    col = amb[None, None, :] * (1 - np.clip(shade, 0, 1))[..., None] \
-        + sun_c[None, None, :] * shade[..., None]
-    col = col * 0.97
-    # Perspective atmosphérique : le lointain se fond dans le ciel.
-    hz = img[int(np.clip(y_hz / s, 0, H - 1))].mean(0) if 0 < y_hz < rh \
-        else sky
-    fog = 1 - np.exp(-att["z"] / (dh * 25))
-    col = col * (1 - fog[..., None] * 0.8) + hz * fog[..., None] * 0.8
-    # Le nuage ne passe que devant ce qui est plus loin que lui.
-    occ = np.clip((zsc - att["z"]) / (0.1 * att["z"] + 1e-3) + 0.5, 0, 1)
-    # Sommets minces translucides : la scène transparaît sous le voile.
-    thin = 0.45 + 0.55 * np.clip(att["edge"] * 1.5, 0, 1) ** 0.7
-    # Près de l'œil on est dans le voile : diffus, jamais un mur
-    # opaque ; il s'épaissit avec la distance.
-    near = 1 - np.exp(-att["z"] / (6 * dh * rc + 1e-3))
-    alpha = np.clip(acc * occ * thin * near, 0, 0.92).astype(np.float32)
-    alpha = cv2.GaussianBlur(alpha, (0, 0), 0.6)
-    up = (lambda a: cv2.resize(a, (W, H), interpolation=cv2.INTER_LINEAR))
-    # Lissé : la marche par couches laisse des stries fines dans
-    # l'éclairage, qu'on ne veut pas voir en ombre colorée.
-    lt = np.clip((shade - 0.2) / 0.95, 0, 1).astype(np.float32)
-    lt = up(cv2.GaussianBlur(lt, (0, 0), 2.5, sigmaY=4))
-    aoc = up((0.75 + 0.25 * ao).astype(np.float32))
-    fogu = up(fog.astype(np.float32))[..., None]
-    # Lumière tirée de la photo (planche de Charles) : côté éclairé =
-    # tons les plus clairs de l'image (le soleil de la scène), ombre =
-    # couleur locale assombrie et refroidie vers le ciel, base plus
-    # sombre (occlusion). Pas de blanc pur posé dessus.
-    sm = cv2.resize(img, (max(1, W // 16), max(1, H // 16)),
-                    interpolation=cv2.INTER_AREA)
-    sm = cv2.GaussianBlur(sm, (0, 0), max(sm.shape[:2]) / 8)
-    loc = cv2.resize(sm, (W, H), interpolation=cv2.INTER_LINEAR)
-    lum_all = img.mean(axis=2)
-    hi = img[lum_all >= np.percentile(lum_all, 97)].mean(0)
-    hi = np.clip(hi * sun_c / max(1e-3, hi.max()), 0, 1) * 0.97
-    cool = np.array([0.92, 0.97, 1.08], np.float32) * (0.6 + 0.4 * sky)
-    shd = np.clip(loc * 0.55 + 0.25 * loc.mean() * cool, 0, 1)
-    shd = shd * aoc[..., None]
-    t = lt[..., None]
-    col = shd + (hi[None, None, :] - shd) * (t * t * (3 - 2 * t))
-    # Le lointain reste fondu dans l'horizon.
-    col = col * (1 - fogu * 0.8) + hz * fogu * 0.8
-    alpha = up(alpha)
-    # Ce qui dépasse la nappe en sort : le voile de profondeur ne
-    # s'y pose pas non plus (pas de brume autour du drapeau).
-    # Hauteur de brume jusqu'à 3x l'œil : au-delà de l'œil la nappe
-    # n'est plus vue de dessus, seul le voile recouvre l'obstacle.
-    tu = cam * 3.0 * float(np.clip(layer, 0, 1))
-    under = np.clip((tu - hp) / (0.3 * tu + 1e-6), 0, 1)
-    under = np.where(skym, 0, under * under * (3 - 2 * under))
-    under = cv2.GaussianBlur(under.astype(np.float32), (0, 0), 1.5)
-    # Derrière un voile mince la scène reste visible, mais diffuse.
-    back = cv2.GaussianBlur(img, (0, 0), max(1.0, W / 400))
-    k = np.clip(alpha * 2.5, 0, 1)[..., None]
-    back = img + (back - img) * k
-    return (back * (1 - alpha[..., None]) + col * alpha[..., None],
-            up(under), alpha)
+    # Soleil : position des Rayons, sinon haut et un peu à gauche.
+    if sun is None:
+        sx, sy = -0.25, -0.45
+    else:
+        sx, sy = sun[0] / 100.0 - 0.5, sun[1] / 100.0 - 0.5
+    ld = np.array([sx * 2.0, 0.25 + 0.5 * max(0.0, -sy), 0.25])
+    ld /= np.linalg.norm(ld)
+    # Lumière enveloppante : le nuage diffuse, terminateur doux.
+    dif = np.clip((nx * ld[0] + ny * ld[1] + nz * ld[2] + 0.25) / 1.25,
+                  0, 1)
+    # Ombre portée des volutes et des tours (pas vers le soleil).
+    tau = np.zeros_like(Sh)
+    for i in range(1, 9):
+        t = i * 0.6 * R
+        Ss = surface(X0 + ld[0] * t, zhit + ld[2] * t, lod + 1)
+        tau += np.clip(Ss - (Sh + ld[1] * t), 0, None)
+    shad = np.exp(-tau / (1.5 * amp))
+    # Creux (plus bas que leur voisinage) et bases plus sombres.
+    cav = np.clip(1 + 1.5 * (Sh - surface(X0, zhit, lod + 3)) / amp,
+                  0.45, 1.1)
+    hl = np.clip((Sh - th - amp * fmin) / (amp * (fmax - fmin)), 0, 1)
+    lum = (0.18 + 0.3 * hl ** 0.7) * cav + 0.85 * dif ** 1.5 * shad
+    # Couleurs de la photo : tons les plus clairs = soleil, ombre
+    # froide tirée du ciel.
+    sm = cv2.resize(img, (rw, rh), interpolation=cv2.INTER_AREA)
+    la = sm.mean(axis=2)
+    hi = sm[la >= np.percentile(la, 98)].mean(0)
+    hi = hi / max(1e-3, float(hi.max()))
+    sun_c = np.array([1.0, 0.97 + 0.02 * warmth, 0.93 - 0.08 * warmth])
+    lit = np.clip(0.55 * hi + 0.45, 0, 1) * sun_c
+    sky = sm[: max(1, rh // 4)].reshape(-1, 3).mean(0)
+    cool = np.array([0.80, 0.86, 0.96]) * (0.7 + 0.3 * sky / max(
+        1e-3, float(sky.max())))
+    t = np.clip(lum / 0.95, 0, 1.05)[..., None]
+    col = cool * 0.5 + (lit - cool * 0.5) * t
+    # Perspective atmosphérique vers la couleur de l'horizon.
+    y_hz = rh / 2 - coef[1] * foc
+    ri = int(np.clip(y_hz, 0, rh - 1))
+    hz = sm[max(0, ri - 2): ri + 3].reshape(-1, 3).mean(0)
+    fog = (0.8 * (1 - np.exp(-zhit / (12 * gap))))[..., None]
+    col = col * (1 - fog) + hz * fog
+    # Opacité : épaisseur traversée (bords des tours plus fins), plafond.
+    lam = R * (0.03 + 0.6 * float(np.clip(soft, 0, 1)))
+    a = 1 - np.exp(-thick / lam)
+    a *= (1 - math.exp(-6.0 * max(amount, 0.0) * density))
+    a *= 1 - 0.7 * float(np.clip(visible, 0, 1))
+    if recul > 0:
+        # Éloignement : la mer s'efface devant, reste au fond.
+        fh = np.clip(np.log(np.maximum(zhit, 1)) / math.log(80.0), 0, 1)
+        e = 1.3 + max(0.0, recul - 1.0) * 3.0
+        dd = min(1.0, recul)
+        a *= (1 - dd) + dd * fh ** e
+    a = np.where(hit, a, 0).astype(np.float32)
+
+    def full(x):
+        p = np.zeros((rh,) + x.shape[1:], np.float32)
+        p[r_a:] = x
+        return cv2.resize(p, (W, H), interpolation=cv2.INTER_LINEAR)
+    af = full(a)
+    colf = full(col.astype(np.float32))
+    # Bords nets des objets proches : profondeur pleine résolution.
+    zf = full(np.where(hit, zhit, 0)) / np.maximum(
+        full(hit.astype(np.float32)), 1e-3)
+    zsf = np.exp(far.astype(np.float32) * np.float32(math.log(80.0)))
+    zsf[sky_mask(far)] = 1e4
+    occ = np.clip((zsf - zf) / (0.08 * zf + 1e-3) + 0.5, 0, 1)
+    af = np.clip(af * occ, 0, 1)[..., None]
+    del zf, zsf, occ
+    # Derrière un voile mince la scène reste visible, mais diffuse
+    # (flou calculé en petit : rapide en pleine résolution).
+    k = 8 if W > 1600 else 1
+    back = cv2.resize(img, (max(1, W // k), max(1, H // k)),
+                      interpolation=cv2.INTER_AREA)
+    back = cv2.GaussianBlur(back, (0, 0), max(1.0, W / 400 / k))
+    back = cv2.resize(back, (W, H), interpolation=cv2.INTER_LINEAR)
+    back -= img
+    back *= np.clip(af * 2.5, 0, 1)
+    back += img
+    # back * (1 - af) + colf * af
+    colf -= back
+    colf *= af
+    colf += back
+    return colf
