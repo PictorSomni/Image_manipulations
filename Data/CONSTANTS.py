@@ -1049,12 +1049,12 @@ MYSTIQUE_AMOUNT = 0.5
 MYSTIQUE_SOFTNESS = 8
 MYSTIQUE_SHADOWS = 0.3
 BRUME_ENABLED = False
-BRUME_AMOUNT = 0.5
+BRUME_AMOUNT = 1.0
 BRUME_DEPTH = 0.0  # 0 uniforme · 1 fond · 2 fond seul
 BRUME_WARMTH = 0.0
 BRUME_CLOUDS = 0.5  # 0 voile uni · 1 nappes marquées
 BRUME_CLOUD_SIZE = 30
-BRUME_BUMPS = 0.5  # taille des volutes, 0,5 .. 2
+BRUME_BUMPS = 1.0  # taille des volutes, 0,5 .. 2
 BRUME_CONTRAST = 0.5  # écarts de densité des nappes
 BRUME_EDGE = 0.10  # fondu des boules : bas = net (près), haut = doux
 BRUME_DISTORT = 0.5  # flou derrière la brume
