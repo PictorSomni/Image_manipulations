@@ -1478,12 +1478,24 @@ def guided_upsample(mask_small, guide_rgb, factor):
     h, w = guide_rgb.shape[:2]
     up = cv2.resize(mask_small, (w, h), interpolation=cv2.INTER_LINEAR)
     radius = max(2, round(factor * 1.5))
-    if hasattr(cv2, "ximgproc"):
-        guide = guide_rgb.astype(np.float32) / 255.0
-        src = up.astype(np.float32) / 255.0
-        out = cv2.ximgproc.guidedFilter(guide, src, radius, 1e-3)
-        return np.clip(out * 255.0 + 0.5, 0, 255).astype(np.uint8)
-    return cv2.GaussianBlur(up, (0, 0), radius / 2)
+    guide = cv2.cvtColor(guide_rgb, cv2.COLOR_RGB2GRAY)
+    out = _guided_filter(guide.astype(np.float32) / 255.0,
+                         up.astype(np.float32) / 255.0, radius, 1e-3)
+    return np.clip(out * 255.0 + 0.5, 0, 255).astype(np.uint8)
+
+
+def _guided_filter(i, p, r, eps):
+    """Filtre guidé (He et al.) en boxFilter : pas besoin
+    d'opencv-contrib."""
+    k = (2 * r + 1, 2 * r + 1)
+
+    def box(x):
+        return cv2.boxFilter(x, -1, k)
+
+    mi, mp = box(i), box(p)
+    a = (box(i * p) - mi * mp) / (box(i * i) - mi * mi + eps)
+    b = mp - a * mi
+    return box(a) * i + box(b)
 
 
 def grabcut_mask(rgb, prior, keep_hint, remove_hint, *, iters=4):
