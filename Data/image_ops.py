@@ -1465,7 +1465,8 @@ def stroke_layer(shape, points, radius, scale):
 
 
 def apply_stroke(mask, layer, keep):
-    """Ajouter : force le sujet ; Soustraire : force le fond."""
+    """`keep` (Soustraire, efface le rouge) : force le sujet ; sinon
+    (Ajouter, étend le rouge) : force le fond."""
     if keep:
         return np.maximum(mask, layer)
     return np.minimum(mask, 255 - layer)
@@ -1654,15 +1655,15 @@ def grabcut_mask(rgb, prior, keep_hint, remove_hint, *, iters=4):
 def mask_overlay(image: Image.Image) -> Image.Image:
     """Vue de contrôle du masque : le fond retiré est assombri, désaturé
     et teinté de rouge (lisible même sur un vêtement rouge), le sujet
-    reste intact."""
-    arr = np.asarray(image.convert("RGBA")).astype(np.float32)
-    rgb = arr[..., :3]
-    k = 0.6 * (1.0 - arr[..., 3:] / 255.0)
-    tint = rgb.mean(axis=2, keepdims=True) * 0.5 + np.float32(
-        [120, 0, 0])
-    out = rgb * (1.0 - k) + tint * k
-    return Image.fromarray(np.clip(out + 0.5, 0, 255).astype(np.uint8),
-                           mode="RGB")
+    reste intact. Opérations PIL seulement (≈ 10× plus rapide que numpy
+    en flottants) : rejouée à chaque trait de pinceau."""
+    image = image.convert("RGBA")
+    half = image.convert("L").point(lambda v: v // 2)
+    tint = Image.merge("RGB", (half.point(lambda v: v + 120), half, half))
+    # Poids de la teinte : 60 % sur le fond retiré, 0 sur le sujet.
+    weight = image.getchannel("A").point(
+        lambda a: (153 * (255 - a) + 127) // 255)
+    return Image.composite(tint, image.convert("RGB"), weight)
 
 
 class MaskEditor:
@@ -1765,7 +1766,18 @@ class MaskEditor:
             wsize = _fit_size(crop.size, STROKE_AI_PX)
             if wsize != crop.size:
                 crop = crop.resize(wsize, Image.Resampling.BILINEAR)
-            cand = np.ascontiguousarray(segment(crop), dtype=np.uint8)
+            cand = np.array(segment(crop), dtype=np.uint8)
+            # Cœur du trait certain du côté demandé, comme Instantané :
+            # sans lui, un trait que le modèle contredit disparaissait
+            # entièrement au relâchement.
+            ww, wh = wsize
+            core = stroke_layer((wh, ww), op["points"] - (x0, y0),
+                                op["radius"] * STROKE_CORE,
+                                (ww / (x1 - x0), wh / (y1 - y0)))
+            if op["keep"]:
+                np.maximum(cand, core, out=cand)
+            else:
+                np.minimum(cand, 255 - core, out=cand)
         op["bbox"] = bbox
         op["cand"] = cand
         self._render_cache = {}
@@ -1851,7 +1863,7 @@ class MaskEditor:
                                      op["radius"], scale)
                 return apply_stroke(mask, layer, op["keep"])
             # Trait raffiné : le résultat ne remplace le masque que sous
-            # le trait (Ajouter = max, Soustraire = min).
+            # le trait (sujet = max, fond = min).
             (bx0, by0, bx1, by1), cand = self._stroke_cand_at(op, size)
             layer = stroke_layer(
                 (by1 - by0, bx1 - bx0),
@@ -1899,9 +1911,9 @@ class MaskEditor:
     def compose(self, size=None, live=None) -> Image.Image:
         """Image RGBA : pixels d'origine + masque retouché."""
         size = tuple(size or self.size)
-        rgb = self.rgb_at(size)
-        alpha = self.render(size, live)
-        return Image.fromarray(np.dstack([rgb, alpha]), mode="RGBA")
+        image = Image.fromarray(self.rgb_at(size), mode="RGB")
+        image.putalpha(Image.fromarray(self.render(size, live), mode="L"))
+        return image
 
     def grabcut(self, *, work_px: int = GRABCUT_WORK_PX,
                 iters: int = 4) -> bool:

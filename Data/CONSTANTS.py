@@ -345,7 +345,7 @@ RECADRAGE_REMBG_BG_WHITE  = True    # Fond blanc après suppression IA (vs flou)
 # l'impression (retour user).
 RECADRAGE_REMBG_BG_GRAY   = (160, 160, 160, 255)
 RECADRAGE_REMBG_HUMAN_SEG = True    # Segmentation humain (vs généraliste)
-RECADRAGE_REMBG_MODE      = 2       # 0 = rapide (u2net), 1 = précis (birefnet), 2 = instantané (flood, sans IA)
+RECADRAGE_REMBG_MODE      = 2       # sélection de départ : 0 = rapide (u2net), 2 = instantané (flood, sans IA)
 RECADRAGE_FLOOD_TOLERANCE = 40      # Mode instantané : distance couleur max (RGB, 0-441) au point cliqué — cf. image_ops.flood_background_mask
 # Mode instantané : lancer une passe depuis les coins/bords dès l'activation,
 # sans attendre un clic. Taillé pour la photo d'identité sur fond quasi blanc

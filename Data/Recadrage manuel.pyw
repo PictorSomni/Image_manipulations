@@ -790,7 +790,9 @@ class PhotoCropper:
         # 0 = fond blanc, 1 = fond gris clair, 2 = fond flou
         self.rembg_bg_mode = 0 if CONSTANTS.RECADRAGE_REMBG_BG_WHITE else 2
         self.rembg_human_seg = CONSTANTS.RECADRAGE_REMBG_HUMAN_SEG
-        self.rembg_mode = CONSTANTS.RECADRAGE_REMBG_MODE  # 0=rapide(u2net) 1=précis(birefnet) 2=instantané(flood)
+        # Sélection de départ : 0 = rapide (u2net), 2 = instantané (flood,
+        # sans IA). Le précis (birefnet) ne sert plus qu'à la finition.
+        self.rembg_mode = 2 if CONSTANTS.RECADRAGE_REMBG_MODE == 2 else 0
         def _seg(labels, index, on_change, width, tooltip=None, visible=True):
             # Même style que Retouche photo (onglet IA) : curseur bleu sur
             # fond sombre, libellé sélectionné en sombre.
@@ -818,10 +820,12 @@ class PhotoCropper:
         self.rembg_model_btn = _seg(["Humain", "Général"],
                                     0 if self.rembg_human_seg else 1,
                                     self.on_rembg_model_change, 130,
-                                    "Portrait / Généraliste" if REMBG_AVAILABLE else "")
-        self.rembg_precise_btn = _seg(["Rapide", "Précis", "Instantané"], self.rembg_mode,
-                                      self.on_rembg_precise_change, None,
-                                      "Rapide (u2net) / Précis (birefnet) / Instantané (fond uni, sans IA)")
+                                    "Modèle IA" if REMBG_AVAILABLE else "")
+        # Sélection : Instantané (index 0) | Rapide (index 1).
+        self.rembg_precise_btn = _seg(
+            ["Instantané", "Rapide"], 0 if self.rembg_mode == 2 else 1,
+            self.on_rembg_precise_change, None, "Sélection de départ")
+        self.rembg_precise_btn.expand = True
 
 
 
@@ -892,13 +896,15 @@ class PhotoCropper:
         # naît à la première retouche et meurt avec le détourage.
         self._mask_editor = None
         self._mask_baked = None      # (éditeur, version, RGBA pleine rés.)
-        self._mask_tool = 0  # 0 = déplacer, 1 = ajouter, 2 = soustraire
+        # 0 = déplacer, 1 = ajouter (étend le rouge, retire de l'image),
+        # 2 = soustraire (efface le rouge, rend au sujet).
+        self._mask_tool = 0
         self._mask_overlay = False
         self._brush_px = 24          # rayon du pinceau, pixels écran
-        self._stroke = None          # [ajouter, rayon image, [(x, y)…]]
-        # Moteur du pinceau (cf. image_ops.STROKE_ENGINES), indépendant
-        # du détourage de départ ; Instantané par défaut (sans IA).
-        self._brush_engine = 1
+        self._stroke = None          # [sujet, rayon image, [(x, y)…]]
+        # Finition des traits : modèle IA sur la zone du trait, calculé
+        # au relâchement (cf. image_ops.STROKE_ENGINES).
+        self._brush_engine = "rapide"
         self._stroke_busy = False    # trait en cours de raffinement
         self._stroke_sessions = {}   # sessions rembg du pinceau
         self._blur_bg_cache = None   # (clé, fond flou à taille d'aperçu)
@@ -906,13 +912,13 @@ class PhotoCropper:
             ["Déplacer", "Ajouter", "Soustraire"], 0,
             self.on_mask_tool_change, None, "Pinceaux du masque")
         self.brush_engine_btn = _seg(
-            ["Brut", "Instantané", "Rapide", "Précis"], self._brush_engine,
-            self.on_brush_engine_change, None, "Moteur du pinceau")
+            ["Rapide", "Précis"], 0, self.on_brush_engine_change, None,
+            "Finition des traits")
         self.brush_engine_btn.thumb_color = VIOLET
-        self.brush_engine_btn.proportional_width = True  # « Instantané »
+        self.brush_engine_btn.expand = True
         self.brush_size_slider = ft.Slider(
             value=self._brush_px, min=4, max=120, divisions=29,
-            label="{value}", active_color=GREEN,
+            label="{value}", active_color=RED,
             on_change=self.on_brush_size_change, expand=True,
         )
         self.mask_overlay_btn = ft.IconButton(
@@ -2233,6 +2239,17 @@ class PhotoCropper:
         if update_histogram and self.show_histogram:
             self._render_histogram(preview_image)
 
+    async def _render_preview_async(self) -> None:
+        """`_render_preview` calculé hors du fil UI (après un traitement
+        long, sous le voile) : l'interface ne gèle pas pendant le rendu."""
+        payload = await asyncio.to_thread(self._compute_preview_payload)
+        if payload is None:
+            return
+        self.image_display.src = payload[0]
+        self.image_display.update()
+        if self.show_histogram:
+            self._render_histogram(payload[1])
+
     def _preview_max_px(self):
         """Résolution cible de l'aperçu, en px (côté le plus long).
 
@@ -2382,6 +2399,17 @@ class PhotoCropper:
                 self._rembg_composite_cache = (composite_cache_key, preview_image.copy())
         else:
             preview_image = preview_image.convert("RGB")
+
+        if (getattr(self, '_mask_overlay', False)
+                and "rembg_alpha" in preview_image.info):
+            # Vue masque : contrôle du détourage, pas de l'image. Ni
+            # réglages, ni netteté, ni conversions ICC (≈ 2 s sur un Pi,
+            # à chaque trait) : le masque suit le pinceau sans attendre.
+            jpeg_buffer = io.BytesIO()
+            preview_image.save(jpeg_buffer, format="JPEG", quality=70)
+            preview_src = ("data:image/jpeg;base64,"
+                           + base64.b64encode(jpeg_buffer.getvalue()).decode())
+            return preview_src, preview_image
 
         # Noir et blanc
         if self.is_bw:
@@ -2964,10 +2992,10 @@ class PhotoCropper:
 
 
     def on_rembg_precise_change(self, e):
-        """Rapide (u2net) / précis (birefnet) / instantané (flood)."""
+        """Sélection de départ : instantané (flood) / rapide (u2net)."""
 
         self._pipette_cancel()
-        self.rembg_mode = int(e.control.selected_index)
+        self.rembg_mode = 2 if int(e.control.selected_index) == 0 else 0
         self.pipette_sign_btn.visible = self.rembg_mode == 2
         self.pipette_sign_btn.update()
 
@@ -3144,7 +3172,9 @@ class PhotoCropper:
         # Rayon fixé en pixels écran : même taille apparente quel que
         # soit le zoom, plus fin en zoomant pour les détails.
         radius = self._brush_px / max(1e-6, self.base_scale * self.scale)
-        self._stroke = [self._mask_tool == 1, radius,
+        # Les pinceaux agissent sur le rouge (fond retiré) : Ajouter
+        # l'étend, Soustraire le rend au sujet (keep).
+        self._stroke = [self._mask_tool == 2, radius,
                         [self._canvas_to_image_f(px, py)]]
         self._brush_ring_move(px, py)
         self._live_preview_tick()
@@ -3162,7 +3192,7 @@ class PhotoCropper:
         editor = self._mask_editor
         if stroke is None or editor is None:
             return
-        engine = image_ops.STROKE_ENGINES[self._brush_engine]
+        engine = self._brush_engine
         op = editor.add_stroke(stroke[0], stroke[1], stroke[2], engine)
         self._mask_baked = None
         # Rendu final par le fil d'aperçu live : il est peut-être encore
@@ -3191,10 +3221,11 @@ class PhotoCropper:
         return alpha
 
     async def _stroke_refine(self, editor, op) -> None:
-        """Raffine le trait qui vient d'être posé (cf.
-        MaskEditor.refine_stroke) : GrabCut local, ou modèle IA sur la
-        seule zone du trait, sous le voile."""
+        """Finition du trait qui vient d'être posé (cf.
+        MaskEditor.refine_stroke) : modèle IA sur la seule zone du trait,
+        sous le voile, aperçu rendu avant qu'il se lève."""
         engine = op["engine"]
+        veil_text = self.load_veil.content.controls[1]
         try:
             if engine == "instant":
                 await asyncio.to_thread(editor.refine_stroke, op)
@@ -3204,18 +3235,19 @@ class PhotoCropper:
             else:
                 segment = functools.partial(self._stroke_segment,
                                             engine == "precis")
-                veil_text = self.load_veil.content.controls[1]
                 veil_text.value = "Retouche du masque…"
-                try:
-                    async with ui_helpers.slow_veil(
-                            self.page, self.load_veil, delay=0):
-                        await asyncio.to_thread(editor.refine_stroke, op,
-                                                segment)
-                finally:
-                    veil_text.value = "Chargement de l'image…"
+                async with ui_helpers.slow_veil(
+                        self.page, self.load_veil, delay=0):
+                    await asyncio.to_thread(editor.refine_stroke, op,
+                                            segment)
+                    if editor is self._mask_editor:
+                        self._mask_baked = None
+                        await self._render_preview_async()
+                return
         except Exception as ex:
             self._set_status(f"[ERREUR] pinceau : {ex}")
         finally:
+            veil_text.value = "Chargement de l'image…"
             self._stroke_busy = False
         if editor is self._mask_editor:
             self._mask_baked = None
@@ -3227,7 +3259,7 @@ class PhotoCropper:
         ring.width = ring.height = 2 * r
         ring.left, ring.top = px - r, py - r
         ring.border = ft.Border.all(
-            2, GREEN if self._mask_tool == 1 else RED)
+            2, RED if self._mask_tool == 1 else GREEN)
         ring.visible = True
         try:
             ring.update()
@@ -3254,26 +3286,30 @@ class PhotoCropper:
         peint au lieu de déplacer l'image (la molette zoome toujours)."""
         tool = int(e.control.selected_index)
         self._mask_tool = tool
-        e.control.thumb_color = (BLUE, GREEN, RED)[tool]
+        e.control.thumb_color = (BLUE, RED, GREEN)[tool]
         e.control.update()
-        self.brush_size_slider.active_color = RED if tool == 2 else GREEN
+        self.brush_size_slider.active_color = GREEN if tool == 2 else RED
         self.brush_size_slider.update()
         if tool:
             self._pipette_cancel()
             self.gesture_detector.mouse_cursor = ft.MouseCursor.PRECISE
-            if not self._mask_overlay:
-                self._set_mask_overlay(True)
-                self._render_preview()
         else:
             self.gesture_detector.mouse_cursor = ft.MouseCursor.MOVE
             self._brush_ring_hide()
+        # Vue masque avec les pinceaux, vue normale avec Déplacer ; le
+        # bouton de vue reste libre entre-temps. Rendu hors du fil UI.
+        if self._mask_overlay != bool(tool):
+            self._set_mask_overlay(bool(tool))
+            self._live_preview_tick()
         self.page.update()
 
     def on_brush_size_change(self, e):
         self._brush_px = int(e.control.value)
 
     def on_brush_engine_change(self, e):
-        self._brush_engine = int(e.control.selected_index)
+        """Finition des traits : rapide (u2net) / précis (birefnet)."""
+        self._brush_engine = ("rapide", "precis")[
+            int(e.control.selected_index)]
 
     def _set_mask_overlay(self, on: bool) -> None:
         self._mask_overlay = on
@@ -3284,8 +3320,8 @@ class PhotoCropper:
 
     def on_mask_overlay_toggle(self, e):
         self._set_mask_overlay(not self._mask_overlay)
-        self._render_preview()
         self.page.update()
+        self._live_preview_tick()
 
     def on_mask_undo(self, e):
         editor = self._mask_editor
@@ -3294,8 +3330,8 @@ class PhotoCropper:
             return
         self._mask_baked = None
         self._set_status("Retouche du masque annulée")
-        self._render_preview()
         self.page.update()
+        self._live_preview_tick()
 
     async def on_mask_recalc(self, e):
         """GrabCut guidé par les traits Ajouter/Soustraire (≈ 1 s, thread)."""
@@ -3308,8 +3344,10 @@ class PhotoCropper:
         try:
             async with ui_helpers.slow_veil(self.page, self.load_veil):
                 done = await asyncio.to_thread(editor.grabcut)
+                if done:
+                    self._mask_baked = None
+                    await self._render_preview_async()
             if done:
-                self._mask_baked = None
                 self._set_status("[OK] Masque recalculé — Ctrl+Z pour "
                                  "annuler")
             else:
@@ -3320,7 +3358,6 @@ class PhotoCropper:
         finally:
             veil_text.value = "Chargement de l'image…"
             self.mask_recalc_btn.disabled = False
-            self._render_preview()
             self.page.update()
 
     async def _pipette_live_preview(self, ix: int, iy: int, tolerance: int) -> None:
@@ -3406,7 +3443,7 @@ class PhotoCropper:
         except Exception as ex:
             self._set_status(f"[ERREUR] détourage : {ex}")
         finally:
-            self._render_preview()
+            await self._render_preview_async()
             self.page.update()
 
 
@@ -3423,8 +3460,8 @@ class PhotoCropper:
     async def on_rembg(self, e):
         """
         Bouton toggle de suppression du fond (``self.rembg_mode`` :
-        0 = rapide/u2net, 1 = précis/birefnet, 2 = instantané/flood fill
-        sans IA — pour fond studio quasi uniforme, cf. ``on_rembg_precise_toggle``).
+        0 = rapide/u2net, 2 = instantané/flood fill sans IA — pour fond
+        studio quasi uniforme, cf. ``on_rembg_precise_change``).
 
         Comportement toggle
         -------------------
@@ -3449,15 +3486,15 @@ class PhotoCropper:
 
         Modèle IA
         ---------
-        ``birefnet-portrait`` — modèle spécialisé sujets humains, téléchargé
-        automatiquement dans ``~/.u2net/`` (~450 Mo) à la première utilisation.
-        La session est mise en cache dans ``self._rembg_session[0]`` pour
-        éviter de recharger le modèle à chaque clic.
+        ``u2net_human_seg`` (Humain) ou ``u2net`` (Général), téléchargé
+        automatiquement dans ``~/.u2net/`` à la première utilisation. La
+        session est mise en cache dans ``self._rembg_session_u2net[0]``
+        pour éviter de recharger le modèle à chaque clic.
 
-        Mode précis / instantané
-        ------------------------
-        Voir ``on_rembg_precise_toggle`` pour le détail des 3 modes
-        (``self.rembg_mode``).
+        Sélection rapide / instantanée
+        ------------------------------
+        Voir ``on_rembg_precise_change`` (``self.rembg_mode``). Le modèle
+        précis (birefnet) ne sert qu'à la finition des traits.
 
         Fond de remplacement
         --------------------
@@ -3542,18 +3579,13 @@ class PhotoCropper:
             except Exception:
                 pass
             from rembg import remove as _rembg_remove, new_session as _rembg_new_session
-            if self.rembg_mode == 1:
-                # Mode précis : birefnet
-                if self._rembg_session[0] is None:
-                    model_name = "birefnet-portrait" if self.rembg_human_seg else "birefnet-general"
-                    self._rembg_session[0] = _rembg_new_session(model_name)
-                sess = self._rembg_session[0]
-            else:
-                # Mode rapide : u2net
-                if self._rembg_session_u2net[0] is None:
-                    model_name = "u2net_human_seg" if self.rembg_human_seg else "u2net"
-                    self._rembg_session_u2net[0] = _rembg_new_session(model_name)
-                sess = self._rembg_session_u2net[0]
+            # Sélection rapide : u2net (birefnet ne sert qu'à la finition
+            # des traits, cf. _stroke_segment).
+            if self._rembg_session_u2net[0] is None:
+                model_name = ("u2net_human_seg" if self.rembg_human_seg
+                              else "u2net")
+                self._rembg_session_u2net[0] = _rembg_new_session(model_name)
+            sess = self._rembg_session_u2net[0]
             source_rgb = self.current_pil_image.convert("RGB")
             with contextlib.redirect_stderr(io.StringIO()):
                 result = _rembg_remove(source_rgb, session=sess)
@@ -3568,17 +3600,20 @@ class PhotoCropper:
         try:
             async with ui_helpers.slow_veil(self.page, self.load_veil):
                 result = await asyncio.to_thread(_do_rembg)
-            self._rembg_original = self.current_pil_image
-            self.current_pil_image = result
-            self._mask_reset()
+                self._rembg_original = self.current_pil_image
+                self.current_pil_image = result
+                self._mask_reset()
+                # Aperçu rendu sous le voile : le détourage est affiché
+                # dès qu'il se lève.
+                await self._render_preview_async()
             self.rembg_btn.selected = True
             self._set_status("[OK] Fond supprimé — recliquer pour restaurer")
         except Exception as ex:
             self._set_status(f"[ERREUR] rembg : {ex}")
+            self._render_preview()
         finally:
             veil_text.value = "Chargement de l'image…"
             self.rembg_btn.disabled = False
-            self._render_preview()
             self.page.update()
 
 
@@ -6143,8 +6178,12 @@ def main(page: ft.Page):
                             content=ft.Column([
                                 ft.Text("FOND IA", size=10, color=VIOLET, weight=ft.FontWeight.BOLD),
                                 app.rembg_bg_btn,
+                                ft.Row([
+                                    ft.Text("Sélection", size=11,
+                                            color=LIGHT_GREY),
+                                    app.rembg_precise_btn,
+                                ], spacing=6, vertical_alignment=_vcenter),
                                 app.rembg_btn,
-                                app.rembg_precise_btn,
                                 ft.Row([
                                     app.rembg_model_btn, app.pipette_sign_btn,
                                     app._rembg_tolerance_label,
@@ -6159,9 +6198,14 @@ def main(page: ft.Page):
                                     app.rembg_feather_slider,
                                 ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                                 app.mask_tool_btn,
-                                app.brush_engine_btn,
                                 ft.Row([
-                                    ft.Text("Pin.", size=11, color=LIGHT_GREY),
+                                    ft.Text("Finition", size=11,
+                                            color=LIGHT_GREY),
+                                    app.brush_engine_btn,
+                                ], spacing=6, vertical_alignment=_vcenter),
+                                ft.Row([
+                                    ft.Text("Taille", size=11,
+                                            color=LIGHT_GREY),
                                     app.brush_size_slider,
                                 ], spacing=2,
                                     vertical_alignment=_vcenter),

@@ -2437,9 +2437,10 @@ async def main(page: ft.Page) -> None:
     rembg_progress = ft.ProgressBar(color=BLUE, bgcolor=GREY, visible=False)
     rembg_status   = ft.Text("", size=11, color=LIGHT_GREY)
 
-    # 0 = rapide (u2net), 1 = précis (birefnet), 2 = instantané (pipette
+    # Sélection de départ : 0 = rapide (u2net), 2 = instantané (pipette
     # flood fill, sans IA — cf. Recadrage manuel.pyw, logique partagée
-    # via image_ops.FloodPipette).
+    # via image_ops.FloodPipette). Le précis (birefnet) ne sert plus
+    # qu'à la finition des traits.
     _rembg_mode    = [2]
     _rembg_human   = [True]    # True = portrait/human_seg, False = general
     _rembg_sessions: dict = {}
@@ -2450,10 +2451,9 @@ async def main(page: ft.Page) -> None:
 
     # Boutons glissants (retour user) ; valeurs = indices de _rembg_mode.
     rembg_precise_btn = _seg(
-        [(0, "Rapide"), (1, "Précis"), (2, "Instantané")], 2, width=245,
+        [(2, "Instantané"), (0, "Rapide")], 2, expand=True,
         on_change=lambda e: on_rembg_precise_toggle(e),
-        tooltip="Rapide : u2net · Précis : birefnet · "
-                "Instantané : fond uni sans IA")
+        tooltip="Sélection de départ")
     rembg_model_btn = _seg(
         [(True, "Humain"), (False, "Général")], True, width=130,
         on_change=lambda e: on_rembg_model_toggle(e),
@@ -2489,27 +2489,30 @@ async def main(page: ft.Page) -> None:
     _mask: dict = {
         "editor":  None,   # image_ops.MaskEditor, créé au premier trait
         "base_of": None,   # rembg_rgba dont vient le masque de départ
-        "tool":    0,      # 0 = déplacer, 1 = ajouter, 2 = soustraire
+        # 0 = déplacer, 1 = ajouter (étend le rouge, retire de l'image),
+        # 2 = soustraire (efface le rouge, rend au sujet).
+        "tool":    0,
         "overlay": False,  # vue de contrôle (fond teinté de rouge)
         "brush":   24,     # rayon du pinceau, pixels écran
-        "stroke":  None,   # [ajouter, rayon image, [(x, y)…]]
-        "engine":  "instant",  # cf. image_ops.STROKE_ENGINES
+        "stroke":  None,   # [sujet, rayon image, [(x, y)…]]
+        "engine":  "rapide",  # finition, cf. image_ops.STROKE_ENGINES
         "busy":    False,  # trait en cours de raffinement
     }
     mask_tool_btn = _seg(
         [(0, "Déplacer"), (1, "Ajouter"), (2, "Soustraire")], 0,
         on_change=lambda e: on_mask_tool_change(e),
         tooltip="Pinceaux du masque")
-    # Moteur du pinceau, indépendant du détourage de départ.
+    # Finition des traits : modèle IA sur la zone du trait, calculé au
+    # relâchement.
     brush_engine_btn = _seg(
-        [("brut", "Brut"), ("instant", "Instantané"), ("rapide", "Rapide"),
-         ("precis", "Précis")], _mask["engine"], VIOLET,
+        [("rapide", "Rapide"), ("precis", "Précis")], _mask["engine"],
+        VIOLET, expand=True,
         on_change=lambda e: _mask.update(
             engine=_seg_value(brush_engine_btn)),
-        tooltip="Moteur du pinceau", proportional_width=True)
+        tooltip="Finition des traits")
     brush_size_slider = ft.Slider(
         value=_mask["brush"], min=4, max=120, divisions=29,
-        label="{value}", active_color=GREEN, expand=True,
+        label="{value}", active_color=RED, expand=True,
         on_change=lambda e: _mask.update(brush=int(e.control.value)),
     )
     mask_overlay_btn = ft.IconButton(
@@ -2706,6 +2709,15 @@ async def main(page: ft.Page) -> None:
                                refs=(snap["rgba"], snap["before"], editor))
         return _rembg_prev["img"], scale
 
+    def _prewarm_preview() -> None:
+        """Aperçu du détourage rendu et encodé d'avance (thread, sous le
+        voile) : l'affichage qui suit ne fait que le reprendre."""
+        base, _ = _rembg_preview()
+        if _preview_b64_cache["src"] is not base:
+            _preview_b64_cache.update(
+                src=base,
+                b64=image_to_b64(image_ops.compensate_for_display(base)))
+
     _bake_gen = [0]
 
     async def _bake_later(gen: int) -> None:
@@ -2811,7 +2823,7 @@ async def main(page: ft.Page) -> None:
         brush_ring.width = brush_ring.height = 2 * r
         brush_ring.left, brush_ring.top = cx - r, cy - r
         brush_ring.border = ft.Border.all(
-            2, GREEN if _mask["tool"] == 1 else RED)
+            2, RED if _mask["tool"] == 1 else GREEN)
         brush_ring.opacity = 1
         brush_ring.update()
 
@@ -2839,6 +2851,8 @@ async def main(page: ft.Page) -> None:
 
                 def work():
                     base, _ = _rembg_preview(live)
+                    if _preview_b64_cache["src"] is base:
+                        return base, _preview_b64_cache["b64"]
                     return base, image_to_b64(
                         image_ops.compensate_for_display(base))
                 base, b64 = await asyncio.to_thread(work)
@@ -2859,7 +2873,9 @@ async def main(page: ft.Page) -> None:
             return
         # Rayon fixé en pixels écran (vue non zoomée en mode pinceau).
         sx = state["render_info"][4]
-        _mask["stroke"] = [_mask["tool"] == 1,
+        # Les pinceaux agissent sur le rouge (fond retiré) : Ajouter
+        # l'étend, Soustraire le rend au sujet (keep).
+        _mask["stroke"] = [_mask["tool"] == 2,
                            _mask["brush"] / max(1e-6, sx),
                            [_brush_point(cx, cy)]]
         _ring_move(cx, cy)
@@ -2909,9 +2925,11 @@ async def main(page: ft.Page) -> None:
             else:
                 segment = functools.partial(_stroke_segment,
                                             engine == "precis")
-                async with _veiled("Retouche du masque…"):
+                async with _veiled("Retouche du masque…", delay=0):
                     await asyncio.to_thread(editor.refine_stroke, op,
                                             segment)
+                    if editor is _mask["editor"]:
+                        await asyncio.to_thread(_prewarm_preview)
         except Exception as ex:
             rembg_status.value = f"[ERREUR] pinceau : {ex}"
         finally:
@@ -2921,15 +2939,26 @@ async def main(page: ft.Page) -> None:
             _live_tick()
         rembg_status.update()
 
-    def _mask_tool_set(tool: int) -> None:
+    def _mask_tool_set(tool: int) -> bool:
+        """Outil du masque ; vue masque avec les pinceaux, vue normale
+        avec Déplacer. True si la vue a changé (aperçu à refaire)."""
         _mask["tool"] = tool
         mask_tool_btn.selected_index = tool
-        mask_tool_btn.thumb_color = (BLUE, GREEN, RED)[tool]
+        mask_tool_btn.thumb_color = (BLUE, RED, GREEN)[tool]
         for i, t in enumerate(mask_tool_btn.controls):
             t.color = DARK if i == tool else WHITE
-        brush_size_slider.active_color = RED if tool == 2 else GREEN
+        brush_size_slider.active_color = GREEN if tool == 2 else RED
         if not tool:
             _ring_hide()
+        if _mask["overlay"] == bool(tool):
+            return False
+        _set_mask_overlay(bool(tool))
+        return True
+
+    def _mask_view_refresh() -> None:
+        """Aperçu du détourage refait hors du fil UI (vue changée)."""
+        if state["rembg_active"] and state.derived:
+            _live_tick()
 
     def _leave_sel_mode() -> None:
         if not state["sel_mode"]:
@@ -2946,7 +2975,7 @@ async def main(page: ft.Page) -> None:
         """Déplacer / Ajouter / Soustraire : en mode pinceau, le glissé
         peint au lieu de déplacer l'image."""
         tool = _seg_value(mask_tool_btn)
-        _mask_tool_set(tool)
+        view_changed = _mask_tool_set(tool)
         if tool:
             _bg_pick_cancel()
             _leave_sel_mode()
@@ -2954,14 +2983,12 @@ async def main(page: ft.Page) -> None:
             image_gesture.mouse_cursor = ft.MouseCursor.PRECISE
             preview_viewer.pan_enabled = False
             page.run_task(preview_viewer.reset)
-            if not _mask["overlay"]:
-                _set_mask_overlay(True)
-                if state["rembg_active"] and state.derived:
-                    _render_preview()
         elif not state["sel_mode"] and not state["bg_pick_active"]:
             image_gesture.visible = False
             preview_viewer.pan_enabled = True
         page.update()
+        if view_changed:
+            _mask_view_refresh()
 
     def _set_mask_overlay(on: bool) -> None:
         _mask["overlay"] = on
@@ -2972,9 +2999,8 @@ async def main(page: ft.Page) -> None:
 
     def on_mask_overlay_toggle(e) -> None:
         _set_mask_overlay(not _mask["overlay"])
-        if state.peek("work_img") is not None:
-            _render_preview()
         page.update()
+        _mask_view_refresh()
 
     def _mask_can_undo() -> bool:
         editor = _mask["editor"]
@@ -3000,6 +3026,8 @@ async def main(page: ft.Page) -> None:
         try:
             async with _veiled("Recalcul du masque…"):
                 done = await asyncio.to_thread(editor.grabcut)
+                if done:
+                    await asyncio.to_thread(_prewarm_preview)
             if done:
                 state["modified"] = True
                 _rembg_apply_composite()
@@ -3155,10 +3183,9 @@ async def main(page: ft.Page) -> None:
             except Exception:
                 pass
             import rembg as _rembg
-            if _rembg_mode[0] == 1:
-                model = "birefnet-portrait" if _rembg_human[0] else "birefnet-general"
-            else:
-                model = "u2net_human_seg" if _rembg_human[0] else "u2net"
+            # Sélection rapide : u2net (birefnet ne sert qu'à la finition
+            # des traits, cf. _stroke_segment).
+            model = "u2net_human_seg" if _rembg_human[0] else "u2net"
             if model not in _rembg_sessions:
                 _rembg_sessions[model] = _rembg.new_session(model)
             cut = _rembg.remove(base.convert("RGB"),
@@ -3172,11 +3199,13 @@ async def main(page: ft.Page) -> None:
         try:
             async with _veiled("Détourage en cours…"):
                 rgba = await asyncio.to_thread(_do_rembg)
-            _mask_reset()
-            state["rembg_before"] = base
-            state["rembg_rgba"]   = rgba
-            state["rembg_active"] = True
-            _rembg_apply_composite()
+                _mask_reset()
+                state["rembg_before"] = base
+                state["rembg_rgba"] = rgba
+                state["rembg_active"] = True
+                _rembg_apply_composite()
+                # Aperçu préparé sous le voile : affiché dès qu'il se lève.
+                await asyncio.to_thread(_prewarm_preview)
             state["modified"]       = True
             undo_btn.disabled       = False
             save_btn.disabled       = False
@@ -3256,12 +3285,12 @@ async def main(page: ft.Page) -> None:
     load_veil = ui_helpers.busy_veil("Chargement de l'image…", BLUE)
 
     @contextlib.asynccontextmanager
-    async def _veiled(message):
+    async def _veiled(message, delay=0.5):
         """Voile sur l'aperçu pendant un traitement long (IA, DeJPG,
         détourage), texte adapté puis remis à « Chargement »."""
         load_veil.content.controls[1].value = message
         try:
-            async with ui_helpers.slow_veil(page, load_veil):
+            async with ui_helpers.slow_veil(page, load_veil, delay=delay):
                 yield
         finally:
             load_veil.content.controls[1].value = "Chargement de l'image…"
@@ -3285,7 +3314,8 @@ async def main(page: ft.Page) -> None:
     async def on_inpaint_btn(_) -> None:
         state["sel_mode"] = not state["sel_mode"]
         if state["sel_mode"]:
-            _mask_tool_set(0)
+            if _mask_tool_set(0):
+                _mask_view_refresh()
             mask_tool_btn.update()
             inpaint_btn.content           = "Annuler sélection"
             inpaint_btn.icon           = ft.Icons.CROP_FREE
@@ -3421,8 +3451,10 @@ async def main(page: ft.Page) -> None:
             ]),
             _zone("Suppression de fond", BLUE, [
                 rembg_dropdown,
+                ft.Row([ft.Text("Sélection", size=11, color=LIGHT_GREY),
+                        rembg_precise_btn], spacing=6,
+                       vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 rembg_apply_btn,
-                rembg_precise_btn,
                 ft.Row([rembg_model_btn, pipette_sign_btn,
                         _pipette_tolerance_label], spacing=6, wrap=True),
                 ft.Row([ft.Text("Ér.", size=11, color=LIGHT_GREY),
@@ -3432,8 +3464,10 @@ async def main(page: ft.Page) -> None:
                         rembg_feather_slider], spacing=2,
                        vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 mask_tool_btn,
-                brush_engine_btn,
-                ft.Row([ft.Text("Pin.", size=11, color=LIGHT_GREY),
+                ft.Row([ft.Text("Finition", size=11, color=LIGHT_GREY),
+                        brush_engine_btn], spacing=6,
+                       vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                ft.Row([ft.Text("Taille", size=11, color=LIGHT_GREY),
                         brush_size_slider], spacing=2,
                        vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 ft.Row([mask_overlay_btn, mask_undo_btn, mask_recalc_btn],
