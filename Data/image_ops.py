@@ -1465,10 +1465,78 @@ def stroke_layer(shape, points, radius, scale):
 
 
 def apply_stroke(mask, layer, keep):
-    """Garder : force le sujet ; Enlever : force le fond."""
+    """Ajouter : force le sujet ; Soustraire : force le fond."""
     if keep:
         return np.maximum(mask, layer)
     return np.minimum(mask, 255 - layer)
+
+
+# Moteurs du pinceau, indépendants du détourage de départ :
+# brut = trait appliqué tel quel ; instant = GrabCut local sur la zone
+# du trait, bord recollé à l'image (sans IA) ; rapide / precis = u2net /
+# birefnet sur le seul recadrage autour du trait.
+STROKE_ENGINES = ("brut", "instant", "rapide", "precis")
+# Côté long (px) du recadrage autour d'un trait : GrabCut local, et
+# entrée des modèles (ils réduisent de toute façon à 320 / 1024 px).
+STROKE_SNAP_PX = 480
+STROKE_AI_PX = 1280
+# Instantané : part du rayon où le trait est pris tel quel.
+STROKE_CORE = 0.25
+
+
+def stroke_bbox(size, points, radius, pad_ratio=0.35):
+    """Rectangle (x0, y0, x1, y1) pleine résolution autour d'un trait,
+    avec une marge de contexte pour le modèle, borné à l'image ; None
+    si le trait tombe hors de l'image."""
+    w, h = size
+    pts = np.asarray(points, dtype=np.float64).reshape(-1, 2)
+    lo = pts.min(axis=0) - radius
+    hi = pts.max(axis=0) + radius
+    pad = max(16.0, 2.0 * radius, pad_ratio * float((hi - lo).max()))
+    x0 = max(0, math.floor(lo[0] - pad))
+    y0 = max(0, math.floor(lo[1] - pad))
+    x1 = min(w, math.ceil(hi[0] + pad))
+    y1 = min(h, math.ceil(hi[1] + pad))
+    if x1 - x0 < 2 or y1 - y0 < 2:
+        return None
+    return x0, y0, x1, y1
+
+
+def snap_stroke_mask(rgb, prior, layer, core, keep, *, iters=3):
+    """Raffinement local d'un trait, sans IA (GrabCut sur le recadrage).
+
+    Hors du trait, le masque courant `prior` donne sujet et fond
+    certains ; le cœur du trait (`core`, trait aminci) est certain du
+    côté demandé (sujet pour Ajouter, fond pour Soustraire) ; le reste
+    du trait est « probable » et GrabCut tranche d'après les couleurs.
+    Sans ce cœur, des cheveux bruns sur un fond rouge sombre partaient
+    entiers dans le fond. Renvoie un masque uint8 0/255 à la taille du
+    recadrage, ou None si GrabCut n'a pas les deux couleurs."""
+    labels = np.where(prior >= 128, cv2.GC_FGD,
+                      cv2.GC_BGD).astype(np.uint8)
+    zone = layer >= 64
+    if not zone.any():
+        return None
+    labels[zone] = cv2.GC_PR_FGD if keep else cv2.GC_PR_BGD
+    labels[core >= 128] = cv2.GC_FGD if keep else cv2.GC_BGD
+    fg = np.isin(labels, (cv2.GC_FGD, cv2.GC_PR_FGD))
+    if fg.all() or not fg.any():
+        return None
+    bgd = np.zeros((1, 65), np.float64)
+    fgd = np.zeros((1, 65), np.float64)
+    img = np.ascontiguousarray(rgb[..., ::-1])
+    cv2.grabCut(img, labels, None, bgd, fgd, iters,
+                cv2.GC_INIT_WITH_MASK)
+    out = np.isin(labels, (cv2.GC_FGD, cv2.GC_PR_FGD))
+    return (out * 255).astype(np.uint8)
+
+
+def rembg_alpha(image: Image.Image, *, precise: bool, human: bool,
+                session_cache: dict) -> np.ndarray:
+    """Alpha uint8 de rembg sur `image` (recadrage d'un trait)."""
+    cut = run_rembg(image.convert("RGB"), precise=precise, human=human,
+                    session_cache=session_cache)
+    return np.asarray(cut.getchannel("A"))
 
 
 def guided_upsample(mask_small, guide_rgb, factor):
@@ -1503,8 +1571,8 @@ def grabcut_mask(rgb, prior, keep_hint, remove_hint, *, iters=4):
 
     `rgb` : image de travail (h, w, 3) uint8 ; `prior` : masque courant
     uint8 à la même taille, ou None (initialisation par rectangle) ;
-    `keep_hint` / `remove_hint` : booléens des traits Garder / Enlever,
-    imposés comme sujet / fond certains.
+    `keep_hint` / `remove_hint` : booléens des traits Ajouter /
+    Soustraire, imposés comme sujet / fond certains.
 
     Avec un masque existant, seul le voisinage des traits qui le
     contredisent peut changer : ailleurs, le détourage IA est gardé tel
@@ -1525,8 +1593,8 @@ def grabcut_mask(rgb, prior, keep_hint, remove_hint, *, iters=4):
         region = np.ones((h, w), dtype=bool)
     else:
         sure = prior >= 128
-        # Seuls les traits qui CONTREDISENT le masque (Enlever sur du
-        # sujet, Garder sur du fond) ouvrent leur voisinage au recalcul :
+        # Seuls les traits qui CONTREDISENT le masque (Soustraire sur du
+        # sujet, Ajouter sur du fond) ouvrent leur voisinage au recalcul :
         # ailleurs le détourage est gardé tel quel. Laisser GrabCut
         # rebattre tout le contour, ou le voisinage d'un trait posé là
         # où le masque était déjà juste, rognait des cheveux de couleur
@@ -1545,7 +1613,7 @@ def grabcut_mask(rgb, prior, keep_hint, remove_hint, *, iters=4):
         region = np.minimum(d_add, d_cut) < 0.08 * big
         labels[:] = np.where(sure, cv2.GC_FGD, cv2.GC_BGD)
         # Autour d'un trait, la zone part du côté qu'il réclame (sujet
-        # près d'un Garder, fond près d'un Enlever) : partir du masque
+        # près d'un Ajouter, fond près d'un Soustraire) : partir du masque
         # faisait apprendre la couleur de l'objet visé au mauvais modèle,
         # et GrabCut ne bougeait presque pas (lampe, coin de meuble).
         labels[region] = np.where(d_add[region] < d_cut[region],
@@ -1602,7 +1670,7 @@ class MaskEditor:
 
     Le masque de départ (`base`, alpha IA/pipette pleine résolution, ou
     None = tout sujet) n'est jamais modifié : les retouches sont une
-    liste d'opérations (traits Garder/Enlever, recalculs GrabCut) que
+    liste d'opérations (traits Ajouter/Soustraire, recalculs GrabCut) que
     `render` rejoue à la taille demandée — taille d'affichage pendant
     l'édition, pleine résolution à l'export. Annuler = retirer la
     dernière opération.
@@ -1631,13 +1699,78 @@ class MaskEditor:
         self._render_cache = {}
         self.version += 1
 
-    def add_stroke(self, keep: bool, radius: float, points) -> None:
+    def add_stroke(self, keep: bool, radius: float, points,
+                   engine: str = "brut") -> dict | None:
+        """Ajoute un trait ; `engine` (cf. STROKE_ENGINES) dit comment
+        le raffiner, une fois pour toutes, avec `refine_stroke`."""
         pts = np.asarray(points, dtype=np.float64).reshape(-1, 2)
         if not len(pts):
-            return
-        self.ops.append({"kind": "stroke", "keep": bool(keep),
-                         "radius": float(radius), "points": pts})
+            return None
+        op = {"kind": "stroke", "keep": bool(keep),
+              "radius": float(radius), "points": pts, "engine": engine}
+        self.ops.append(op)
         self.version += 1
+        return op
+
+    def refine_stroke(self, op, segment=None, *,
+                      prior_px: int = 2000) -> bool:
+        """Calcule, une seule fois, le masque de la zone d'un trait
+        (gardé dans l'opération : annuler et rejouer l'aperçu ne le
+        recalculent pas). Appelable depuis un thread.
+
+        Instantané : GrabCut local (cf. snap_stroke_mask). Rapide /
+        Précis : `segment(image PIL RGB) -> alpha uint8`, le modèle ne
+        voit que le recadrage autour du trait. Le résultat ne compte que
+        sous le trait (cf. `_apply`). False si rien n'a été calculé : le
+        trait reste brut."""
+        engine = op.get("engine", "brut")
+        if engine == "brut" or "cand" in op:
+            return False
+        bbox = stroke_bbox(self.size, op["points"], op["radius"])
+        if bbox is None:
+            return False
+        x0, y0, x1, y1 = bbox
+        crop = self.source.crop(bbox).convert("RGB")
+        if engine == "instant":
+            wsize = _fit_size(crop.size, STROKE_SNAP_PX)
+            if wsize != crop.size:
+                crop = crop.resize(wsize, Image.Resampling.BILINEAR)
+            ww, wh = wsize
+            # Masque SANS ce trait (ni les suivants), réduit, recadré.
+            psize = _fit_size(self.size, prior_px)
+            ops = list(self.ops)
+            # Recherche par identité : comparer des dicts contenant des
+            # tableaux numpy lèverait une erreur.
+            end = next((i for i, o in enumerate(ops) if o is op),
+                       len(ops))
+            prior = self._base_at(psize)
+            for other in ops[:end]:
+                prior = self._apply(prior, other, psize)
+            ps = psize[0] / self.size[0]
+            px0, py0 = math.floor(x0 * ps), math.floor(y0 * ps)
+            px1 = max(px0 + 1, math.ceil(x1 * ps))
+            py1 = max(py0 + 1, math.ceil(y1 * ps))
+            prior = _resize_u8(prior[py0:py1, px0:px1], wsize,
+                               cv2.INTER_NEAREST)
+            pts = op["points"] - (x0, y0)
+            scale = (ww / (x1 - x0), wh / (y1 - y0))
+            layer = stroke_layer((wh, ww), pts, op["radius"], scale)
+            core = stroke_layer((wh, ww), pts,
+                                op["radius"] * STROKE_CORE, scale)
+            cand = snap_stroke_mask(np.asarray(crop), prior, layer, core,
+                                    op["keep"])
+        else:
+            if segment is None:
+                return False
+            wsize = _fit_size(crop.size, STROKE_AI_PX)
+            if wsize != crop.size:
+                crop = crop.resize(wsize, Image.Resampling.BILINEAR)
+            cand = np.ascontiguousarray(segment(crop), dtype=np.uint8)
+        op["bbox"] = bbox
+        op["cand"] = cand
+        self._render_cache = {}
+        self.version += 1
+        return cand is not None
 
     def undo(self) -> bool:
         if not self.ops:
@@ -1687,12 +1820,52 @@ class MaskEditor:
             hit = cache[size] = (soft, weight)
         return hit
 
+    def _stroke_cand_at(self, op, size):
+        """Masque raffiné d'un trait à `size` : (fenêtre, masque)."""
+        cache = op.setdefault("cache", {})
+        hit = cache.get(size)
+        if hit is None:
+            sx, sy = size[0] / self.size[0], size[1] / self.size[1]
+            x0, y0, x1, y1 = op["bbox"]
+            bx0, by0 = math.floor(x0 * sx), math.floor(y0 * sy)
+            bx1 = min(size[0], max(bx0 + 1, math.ceil(x1 * sx)))
+            by1 = min(size[1], max(by0 + 1, math.ceil(y1 * sy)))
+            cand = op["cand"]
+            if op["engine"] == "instant":
+                # Bord recollé à celui de l'image (filtre guidé).
+                rgb = self.rgb_at(size)[by0:by1, bx0:bx1]
+                cand = guided_upsample(cand, rgb,
+                                       (bx1 - bx0) / cand.shape[1])
+            else:
+                cand = _resize_u8(cand, (bx1 - bx0, by1 - by0))
+            if len(cache) > 2:
+                cache.clear()
+            hit = cache[size] = ((bx0, by0, bx1, by1), cand)
+        return hit
+
     def _apply(self, mask, op, size):
         if op["kind"] == "stroke":
             scale = (size[0] / self.size[0], size[1] / self.size[1])
-            layer = stroke_layer(mask.shape, op["points"], op["radius"],
-                                 scale)
-            return apply_stroke(mask, layer, op["keep"])
+            if op.get("cand") is None:
+                layer = stroke_layer(mask.shape, op["points"],
+                                     op["radius"], scale)
+                return apply_stroke(mask, layer, op["keep"])
+            # Trait raffiné : le résultat ne remplace le masque que sous
+            # le trait (Ajouter = max, Soustraire = min).
+            (bx0, by0, bx1, by1), cand = self._stroke_cand_at(op, size)
+            layer = stroke_layer(
+                (by1 - by0, bx1 - bx0),
+                op["points"] - (bx0 / scale[0], by0 / scale[1]),
+                op["radius"], scale).astype(np.uint16)
+            mask = mask.copy()
+            sub = mask[by0:by1, bx0:bx1]
+            if op["keep"]:
+                eff = (layer * cand + 127) // 255
+                np.maximum(sub, eff.astype(np.uint8), out=sub)
+            else:
+                eff = (layer * (255 - cand.astype(np.uint16)) + 127) // 255
+                np.minimum(sub, (255 - eff).astype(np.uint8), out=sub)
+            return mask
         soft, weight = self._grabcut_at(op, size)
         w = weight.astype(np.float32) / 255.0
         mixed = soft * w + mask * (1.0 - w)

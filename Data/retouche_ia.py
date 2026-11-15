@@ -42,6 +42,7 @@ import io
 import base64
 import asyncio
 import contextlib
+import functools
 import importlib.util
 import json
 import threading
@@ -997,6 +998,22 @@ async def main(page: ft.Page) -> None:
         cx, cy = float(e.local_position.x), float(e.local_position.y)
         _pipette_start[0] = (cx, cy)
         _pipette.start_drag()
+        # Aperçu dès l'appui, à la tolérance courante : sans ça, rien ne
+        # s'affichait avant le premier mouvement (retour user).
+        _pipette_drag_tick(_pipette.live_tolerance())
+
+    def _pipette_drag_tick(tol: int) -> None:
+        """Tolérance affichée + aperçu throttlé (cf.
+        `_pipette_live_preview`)."""
+        _pipette_tolerance_label.value = f"Tol. {tol}"
+        _pipette_tolerance_label.update()
+        if _pipette.try_start_live():
+            cx, cy = _pipette_start[0]
+            ix, iy = _display_to_image(cx, cy)
+            if ix is not None and iy is not None:
+                page.run_task(_pipette_live_preview, ix, iy, tol)
+            else:
+                _pipette.live_busy = False  # clic hors image
 
     def _on_pan_start(e) -> None:
         if not state["sel_mode"] or state["orig_img"] is None or state["working"]:
@@ -1012,16 +1029,7 @@ async def main(page: ft.Page) -> None:
             return
         if state["bg_pick_active"]:
             if _pipette_start[0] is not None:
-                tol = _pipette.drag(e.local_delta.x)
-                _pipette_tolerance_label.value = f"Tol. {tol}"
-                _pipette_tolerance_label.update()
-                if _pipette.try_start_live():
-                    cx, cy = _pipette_start[0]
-                    ix, iy = _display_to_image(cx, cy)
-                    if ix is not None and iy is not None:
-                        page.run_task(_pipette_live_preview, ix, iy, tol)
-                    else:
-                        _pipette.live_busy = False  # clic hors image : rien à calculer
+                _pipette_drag_tick(_pipette.drag(e.local_delta.x))
             return
         if not state["sel_mode"] or state["drag_start"] is None or state["working"]:
             return
@@ -1156,9 +1164,14 @@ async def main(page: ft.Page) -> None:
 
     def _on_pan_cancel(e) -> None:
         # Clic sans mouvement : pan_down puis pan_cancel (pas pan_end) —
-        # un trait d'un point, à valider aussi.
+        # un trait d'un point, ou un pick pipette à la tolérance
+        # courante, à valider aussi (la pipette ignorait ce cas : il
+        # fallait bouger la souris pour voir le résultat, retour user).
         if _mask["tool"]:
             _stroke_end()
+            return
+        if state["bg_pick_active"] and _pipette_start[0] is not None:
+            _on_pan_end(e)
             return
         _pipette_start[0]      = None
         state["drag_start"]   = None
@@ -2467,7 +2480,7 @@ async def main(page: ft.Page) -> None:
         active_color=BLUE, expand=True,
     )
 
-    # ── Retouche du masque (pinceaux Garder/Enlever, GrabCut guidé) ──
+    # ── Retouche du masque (pinceaux Ajouter/Soustraire, GrabCut) ──
     # Même moteur que Recadrage manuel (image_ops.MaskEditor) : l'aperçu
     # rejoue les retouches à taille réduite, la pleine résolution est
     # calculée en tâche de fond (cf. _LazyState, _bake_later).
@@ -2476,15 +2489,24 @@ async def main(page: ft.Page) -> None:
     _mask: dict = {
         "editor":  None,   # image_ops.MaskEditor, créé au premier trait
         "base_of": None,   # rembg_rgba dont vient le masque de départ
-        "tool":    0,      # 0 = déplacer, 1 = garder, 2 = enlever
+        "tool":    0,      # 0 = déplacer, 1 = ajouter, 2 = soustraire
         "overlay": False,  # vue de contrôle (fond teinté de rouge)
         "brush":   24,     # rayon du pinceau, pixels écran
-        "stroke":  None,   # [garder, rayon image, [(x, y)…]]
+        "stroke":  None,   # [ajouter, rayon image, [(x, y)…]]
+        "engine":  "instant",  # cf. image_ops.STROKE_ENGINES
+        "busy":    False,  # trait en cours de raffinement
     }
     mask_tool_btn = _seg(
-        [(0, "Déplacer"), (1, "Garder"), (2, "Enlever")], 0,
+        [(0, "Déplacer"), (1, "Ajouter"), (2, "Soustraire")], 0,
         on_change=lambda e: on_mask_tool_change(e),
         tooltip="Pinceaux du masque")
+    # Moteur du pinceau, indépendant du détourage de départ.
+    brush_engine_btn = _seg(
+        [("brut", "Brut"), ("instant", "Instantané"), ("rapide", "Rapide"),
+         ("precis", "Précis")], _mask["engine"], VIOLET,
+        on_change=lambda e: _mask.update(
+            engine=_seg_value(brush_engine_btn)),
+        tooltip="Moteur du pinceau", proportional_width=True)
     brush_size_slider = ft.Slider(
         value=_mask["brush"], min=4, max=120, divisions=29,
         label="{value}", active_color=GREEN, expand=True,
@@ -2749,7 +2771,7 @@ async def main(page: ft.Page) -> None:
     def _mask_get_editor():
         """Éditeur du masque courant, créé à la première retouche. Sans
         détourage préalable, toute l'image est sujet : les traits
-        Enlever ou Recalculer font le détourage."""
+        Soustraire ou Recalculer font le détourage."""
         editor = _mask["editor"]
         if editor is not None:
             return editor
@@ -2831,6 +2853,8 @@ async def main(page: ft.Page) -> None:
             _live["busy"] = False
 
     def _stroke_begin(cx: float, cy: float) -> None:
+        if _mask["busy"]:
+            return  # trait précédent encore en calcul
         if state["render_info"] is None or _mask_get_editor() is None:
             return
         # Rayon fixé en pixels écran (vue non zoomée en mode pinceau).
@@ -2854,12 +2878,48 @@ async def main(page: ft.Page) -> None:
         editor = _mask["editor"]
         if stroke is None or editor is None:
             return
-        editor.add_stroke(stroke[0], stroke[1], stroke[2])
+        engine = _mask["engine"]
+        op = editor.add_stroke(stroke[0], stroke[1], stroke[2], engine)
         state["modified"] = True
         save_btn.disabled = False
         save_btn.update()
         _rembg_apply_composite()
         _live_tick()
+        if op is not None and engine != "brut":
+            _mask["busy"] = True
+            page.run_task(_stroke_refine, editor, op)
+
+    def _stroke_segment(precise: bool, image):
+        """Modèle rembg sur le recadrage d'un trait (thread)."""
+        return image_ops.rembg_alpha(
+            image, precise=precise, human=_rembg_human[0],
+            session_cache=_rembg_sessions)
+
+    async def _stroke_refine(editor, op) -> None:
+        """Raffine le trait qui vient d'être posé (cf.
+        MaskEditor.refine_stroke) : GrabCut local, ou modèle IA sur la
+        seule zone du trait, sous le voile."""
+        engine = op["engine"]
+        try:
+            if engine == "instant":
+                await asyncio.to_thread(editor.refine_stroke, op)
+            elif not REMBG_AVAILABLE:
+                rembg_status.value = ("[ERREUR] rembg non installé — "
+                                      "trait appliqué brut")
+            else:
+                segment = functools.partial(_stroke_segment,
+                                            engine == "precis")
+                async with _veiled("Retouche du masque…"):
+                    await asyncio.to_thread(editor.refine_stroke, op,
+                                            segment)
+        except Exception as ex:
+            rembg_status.value = f"[ERREUR] pinceau : {ex}"
+        finally:
+            _mask["busy"] = False
+        if editor is _mask["editor"]:
+            _rembg_apply_composite()
+            _live_tick()
+        rembg_status.update()
 
     def _mask_tool_set(tool: int) -> None:
         _mask["tool"] = tool
@@ -2883,7 +2943,7 @@ async def main(page: ft.Page) -> None:
         _update_sel_canvas()
 
     def on_mask_tool_change(e) -> None:
-        """Déplacer / Garder / Enlever : en mode pinceau, le glissé
+        """Déplacer / Ajouter / Soustraire : en mode pinceau, le glissé
         peint au lieu de déplacer l'image."""
         tool = _seg_value(mask_tool_btn)
         _mask_tool_set(tool)
@@ -2919,7 +2979,7 @@ async def main(page: ft.Page) -> None:
     def _mask_can_undo() -> bool:
         editor = _mask["editor"]
         return (editor is not None and editor.has_edits and state.derived
-                and _mask["stroke"] is None)
+                and _mask["stroke"] is None and not _mask["busy"])
 
     def on_mask_undo(e) -> None:
         if not _mask_can_undo():
@@ -2931,9 +2991,9 @@ async def main(page: ft.Page) -> None:
         _render_preview()
 
     async def on_mask_recalc(e) -> None:
-        """GrabCut guidé par les traits Garder/Enlever (≈ 1 s, thread)."""
+        """GrabCut guidé par les traits Ajouter/Soustraire (≈ 1 s)."""
         editor = _mask_get_editor()
-        if editor is None:
+        if editor is None or _mask["busy"]:
             return
         mask_recalc_btn.disabled = True
         page.update()
@@ -2972,6 +3032,9 @@ async def main(page: ft.Page) -> None:
             new_mask = await asyncio.to_thread(
                 image_ops.flood_background_mask, source, (ix, iy),
                 tolerance=tolerance, max_px=1500)
+            # L'aperçu reste affiché pendant le calcul ; s'il est encore
+            # en vol, il ne doit plus repasser par-dessus le résultat.
+            _pipette.live_gen += 1
             bg_mask = _pipette.commit(new_mask)
             state["rembg_before"] = source
             if bg_mask is not None:
@@ -3369,6 +3432,7 @@ async def main(page: ft.Page) -> None:
                         rembg_feather_slider], spacing=2,
                        vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 mask_tool_btn,
+                brush_engine_btn,
                 ft.Row([ft.Text("Pin.", size=11, color=LIGHT_GREY),
                         brush_size_slider], spacing=2,
                        vertical_alignment=ft.CrossAxisAlignment.CENTER),

@@ -95,6 +95,7 @@ import datetime
 from PIL import Image, ImageOps, ImageFilter, ImageEnhance, ImageCms, ImageDraw
 import asyncio
 import contextlib
+import functools
 import math
 import io
 import base64
@@ -662,7 +663,7 @@ class PhotoCropper:
         ]
 
         # Stack : image + grille en overlay fixe
-        # Anneau du pinceau Garder/Enlever, suit la souris au survol.
+        # Anneau du pinceau Ajouter/Soustraire, suit la souris au survol.
         self._brush_ring = ft.Container(
             width=0, height=0, left=0, top=0, visible=False,
             border=ft.Border.all(2, GREEN), border_radius=999,
@@ -886,19 +887,29 @@ class PhotoCropper:
             height=CONSTANTS.TOUCH_TARGET,
         )
 
-        # Retouche du masque : pinceaux Garder / Enlever, recalcul
+        # Retouche du masque : pinceaux Ajouter / Soustraire, recalcul
         # GrabCut, vue de contrôle (cf. image_ops.MaskEditor). L'éditeur
         # naît à la première retouche et meurt avec le détourage.
         self._mask_editor = None
         self._mask_baked = None      # (éditeur, version, RGBA pleine rés.)
-        self._mask_tool = 0          # 0 = déplacer, 1 = garder, 2 = enlever
+        self._mask_tool = 0  # 0 = déplacer, 1 = ajouter, 2 = soustraire
         self._mask_overlay = False
         self._brush_px = 24          # rayon du pinceau, pixels écran
-        self._stroke = None          # [garder, rayon image, [(x, y)…]]
+        self._stroke = None          # [ajouter, rayon image, [(x, y)…]]
+        # Moteur du pinceau (cf. image_ops.STROKE_ENGINES), indépendant
+        # du détourage de départ ; Instantané par défaut (sans IA).
+        self._brush_engine = 1
+        self._stroke_busy = False    # trait en cours de raffinement
+        self._stroke_sessions = {}   # sessions rembg du pinceau
         self._blur_bg_cache = None   # (clé, fond flou à taille d'aperçu)
         self.mask_tool_btn = _seg(
-            ["Déplacer", "Garder", "Enlever"], 0, self.on_mask_tool_change,
-            None, "Pinceaux du masque")
+            ["Déplacer", "Ajouter", "Soustraire"], 0,
+            self.on_mask_tool_change, None, "Pinceaux du masque")
+        self.brush_engine_btn = _seg(
+            ["Brut", "Instantané", "Rapide", "Précis"], self._brush_engine,
+            self.on_brush_engine_change, None, "Moteur du pinceau")
+        self.brush_engine_btn.thumb_color = VIOLET
+        self.brush_engine_btn.proportional_width = True  # « Instantané »
         self.brush_size_slider = ft.Slider(
             value=self._brush_px, min=4, max=120, divisions=29,
             label="{value}", active_color=GREEN,
@@ -2498,6 +2509,9 @@ class PhotoCropper:
             return
         self._pipette_start = (e.local_position.x, e.local_position.y)
         self._pipette.start_drag()
+        # Aperçu dès l'appui, à la tolérance courante : sans ça, rien ne
+        # s'affichait avant le premier mouvement (retour user).
+        self._pipette_drag_tick(self._pipette.live_tolerance())
 
     def _pipette_drag_tick(self, tol: int) -> None:
         """Commun aux glissés gauche/droit : affiche la tolérance live et
@@ -2529,7 +2543,7 @@ class PhotoCropper:
         self._clamp_offsets()
         self._update_transform()
 
-    def on_pan_end(self, e):
+    def on_pan_end(self, e=None):
         """Relâchement du clic-glissé pipette : fixe la graine (point de
         clic) et la tolérance (distance du glissé, +/- 50 % par 100 px),
         applique le résultat définitivement (ajoute ou retire selon
@@ -2551,9 +2565,11 @@ class PhotoCropper:
     def on_pan_cancel(self, e):
         """Clic sans mouvement : Flutter envoie pan_down puis
         pan_cancel (pas pan_end) — un simple clic au pinceau est un
-        trait d'un point, à valider aussi."""
-        if self._mask_tool:
-            self._stroke_end()
+        trait d'un point, et un simple clic pipette un pick à la
+        tolérance courante : tous deux à valider comme un relâchement.
+        La pipette ignorait ce cas : un clic seul n'appliquait rien, il
+        fallait bouger un peu la souris (retour user)."""
+        self.on_pan_end(e)
 
     def on_gesture_scroll(self, e):
         """
@@ -3067,7 +3083,7 @@ class PhotoCropper:
 
     def _mask_get_editor(self):
         """Éditeur du masque courant, créé à la première retouche. Sans
-        détourage préalable, toute l'image est sujet : les traits Enlever
+        détourage préalable, toute l'image est sujet : les traits Soustraire
         ou Recalculer font le détourage."""
         editor = self._mask_editor
         if editor is not None:
@@ -3121,6 +3137,8 @@ class PhotoCropper:
     def _stroke_begin(self, px: float, py: float) -> None:
         if not self.image_paths or not hasattr(self, 'original_width'):
             return
+        if self._stroke_busy:
+            return  # trait précédent encore en calcul
         if self._mask_get_editor() is None:
             return
         # Rayon fixé en pixels écran : même taille apparente quel que
@@ -3144,11 +3162,64 @@ class PhotoCropper:
         editor = self._mask_editor
         if stroke is None or editor is None:
             return
-        editor.add_stroke(stroke[0], stroke[1], stroke[2])
+        engine = image_ops.STROKE_ENGINES[self._brush_engine]
+        op = editor.add_stroke(stroke[0], stroke[1], stroke[2], engine)
         self._mask_baked = None
         # Rendu final par le fil d'aperçu live : il est peut-être encore
         # en train de rendre le trait en cours, le dernier rendu gagne.
         self._live_preview_tick()
+        if op is not None and engine != "brut":
+            self._stroke_busy = True
+            self.page.run_task(self._stroke_refine, editor, op)
+
+    def _stroke_segment(self, precise: bool, image):
+        """Modèle rembg sur le recadrage d'un trait (thread). Reprend
+        la session du détourage si elle est déjà chargée."""
+        key = ("precise" if precise else "fast",
+               "human" if self.rembg_human_seg else "general")
+        name = image_ops._REMBG_MODEL_ALIASES[key]
+        holder = (self._rembg_session if precise
+                  else self._rembg_session_u2net)
+        cache = self._stroke_sessions
+        if holder[0] is not None:
+            cache[name] = holder[0]
+        with contextlib.redirect_stderr(io.StringIO()):
+            alpha = image_ops.rembg_alpha(
+                image, precise=precise, human=self.rembg_human_seg,
+                session_cache=cache)
+        holder[0] = cache[name]
+        return alpha
+
+    async def _stroke_refine(self, editor, op) -> None:
+        """Raffine le trait qui vient d'être posé (cf.
+        MaskEditor.refine_stroke) : GrabCut local, ou modèle IA sur la
+        seule zone du trait, sous le voile."""
+        engine = op["engine"]
+        try:
+            if engine == "instant":
+                await asyncio.to_thread(editor.refine_stroke, op)
+            elif not REMBG_AVAILABLE:
+                self._set_status("[ERREUR] rembg non installé — trait "
+                                 "appliqué brut")
+            else:
+                segment = functools.partial(self._stroke_segment,
+                                            engine == "precis")
+                veil_text = self.load_veil.content.controls[1]
+                veil_text.value = "Retouche du masque…"
+                try:
+                    async with ui_helpers.slow_veil(
+                            self.page, self.load_veil, delay=0):
+                        await asyncio.to_thread(editor.refine_stroke, op,
+                                                segment)
+                finally:
+                    veil_text.value = "Chargement de l'image…"
+        except Exception as ex:
+            self._set_status(f"[ERREUR] pinceau : {ex}")
+        finally:
+            self._stroke_busy = False
+        if editor is self._mask_editor:
+            self._mask_baked = None
+            self._live_preview_tick()
 
     def _brush_ring_move(self, px: float, py: float) -> None:
         ring = self._brush_ring
@@ -3179,7 +3250,7 @@ class PhotoCropper:
         self._brush_ring_hide()
 
     def on_mask_tool_change(self, e):
-        """Déplacer / Garder / Enlever : en mode pinceau, le glissé
+        """Déplacer / Ajouter / Soustraire : en mode pinceau, le glissé
         peint au lieu de déplacer l'image (la molette zoome toujours)."""
         tool = int(e.control.selected_index)
         self._mask_tool = tool
@@ -3201,6 +3272,9 @@ class PhotoCropper:
     def on_brush_size_change(self, e):
         self._brush_px = int(e.control.value)
 
+    def on_brush_engine_change(self, e):
+        self._brush_engine = int(e.control.selected_index)
+
     def _set_mask_overlay(self, on: bool) -> None:
         self._mask_overlay = on
         btn = self.mask_overlay_btn
@@ -3215,7 +3289,8 @@ class PhotoCropper:
 
     def on_mask_undo(self, e):
         editor = self._mask_editor
-        if editor is None or self._stroke is not None or not editor.undo():
+        if (editor is None or self._stroke is not None
+                or self._stroke_busy or not editor.undo()):
             return
         self._mask_baked = None
         self._set_status("Retouche du masque annulée")
@@ -3223,9 +3298,9 @@ class PhotoCropper:
         self.page.update()
 
     async def on_mask_recalc(self, e):
-        """GrabCut guidé par les traits Garder/Enlever (≈ 1 s, thread)."""
+        """GrabCut guidé par les traits Ajouter/Soustraire (≈ 1 s, thread)."""
         editor = self._mask_get_editor()
-        if editor is None:
+        if editor is None or self._stroke_busy:
             return
         self.mask_recalc_btn.disabled = True
         veil_text = self.load_veil.content.controls[1]
@@ -3296,6 +3371,9 @@ class PhotoCropper:
             new_mask = await asyncio.to_thread(
                 image_ops.flood_background_mask, source, seed,
                 tolerance=tolerance, max_px=1500)
+            # L'aperçu reste affiché pendant le calcul ; s'il est encore
+            # en vol, il ne doit plus repasser par-dessus le résultat.
+            self._pipette.live_gen += 1
             bg_mask = self._pipette.commit(new_mask)
             self._rembg_original = source
             if bg_mask is not None:
@@ -3481,7 +3559,7 @@ class PhotoCropper:
                 result = _rembg_remove(source_rgb, session=sess)
             # Pixels d'origine + alpha IA : la découpe de rembg met le
             # fond à noir, qui réapparaissait en élargissant le masque
-            # ou au pinceau Garder.
+            # ou au pinceau Ajouter.
             source_rgb.putalpha(result.getchannel("A"))
             return source_rgb
 
@@ -6081,6 +6159,7 @@ def main(page: ft.Page):
                                     app.rembg_feather_slider,
                                 ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                                 app.mask_tool_btn,
+                                app.brush_engine_btn,
                                 ft.Row([
                                     ft.Text("Pin.", size=11, color=LIGHT_GREY),
                                     app.brush_size_slider,
