@@ -2766,6 +2766,11 @@ async def main(page: ft.Page) -> None:
         frozen = (editor.snapshot()
                   if editor is not None and editor.has_edits else None)
         snap = _rembg_snap(frozen)
+        # Nouveau composite (fond, érosion, masque…) = retouche à
+        # transmettre : sans ça, changer le fond APRÈS un premier envoi
+        # (fin du calcul pleine résolution) laissait l'hôte sur l'ancien
+        # composite — onglet Réglages et export restaient en Blanc.
+        state["modified"] = True
 
         def bake():
             return _rembg_render(snap)

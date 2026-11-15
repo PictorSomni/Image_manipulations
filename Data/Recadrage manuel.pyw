@@ -5444,7 +5444,17 @@ class PhotoCropper:
 
     def _embed_key(self):
         snap = self._snapshot_current()
-        return tuple(snap[k] for k in self._EMBED_KEYS)
+        key = tuple(snap[k] for k in self._EMBED_KEYS)
+        if snap["rembg_active"]:
+            # Fond (Blanc/Gris/Flou), bords et retouches du masque :
+            # en changer seul doit aussi renvoyer le résultat à l'hôte.
+            editor = self._mask_editor
+            key += (getattr(self, 'rembg_bg_mode', 0),
+                    getattr(self, 'rembg_erosion_pct', 0.0),
+                    getattr(self, 'rembg_feather_pct', 0.0),
+                    id(self._rembg_original), id(editor),
+                    editor.version if editor is not None else -1)
+        return key
 
     def _real_dims(self):
         """(petit côté, grand côté) en pixels de la photo courante :
@@ -5485,7 +5495,7 @@ class PhotoCropper:
             return None
         self._embed_base = key
         if (self.current_format_label == _REAL_KEY and self.scale <= 1.0
-                and not self.rotation):
+                and not self.rotation and not self.rembg_btn.selected):
             return None  # image entière, intacte : rien à valider
         # Préfixe du fichier validé (« 13x18_ »), comme Recadrage manuel.
         short = (self.current_format_label or "").split(" ")[0]
