@@ -191,7 +191,7 @@ def _by_lod(mips, u, v, lod, interp=cv2.INTER_LINEAR):
 def sea(img, far, layer=0.35, size=0.5, billow=0.5, detail=1.0,
         soft=0.1, amount=0.5, density=1.0, warmth=0.0, sun=None,
         res=960.0, seed=0, recul=0.0, visible=0.0, fov=60.0):
-    """Mer de nuages pleine vue d'en haut : couche opaque posée sur le
+    """Mer de nuages pleine vue d'en haut : couche posée sur le
     plan du sol jusqu'à layer (0 sol .. 1 œil), dessus en dômes, tours
     de cumulus qui en sortent par endroits. Marche de rayons par pixel
     en tranches de hauteur (« steep parallax ») : ce qui est plus
@@ -224,11 +224,30 @@ def sea(img, far, layer=0.35, size=0.5, billow=0.5, detail=1.0,
         keep = yv <= A @ coef
         if keep.sum() < 20:
             break
+    # L'horizon du plan ne peut pas être sous la ligne de ciel (le
+    # relief cache l'horizon, jamais l'inverse) : sinon pente forcée.
+    top = skym[0]
+    if top.sum() > 0.2 * rw:
+        yb = float(np.median(np.argmax(~skym[:, top], axis=0)))
+        if 0 < yb < 0.9 * rh and rh / 2 - coef[1] * foc > yb + 0.015 * rh:
+            c1 = (rh / 2 - yb) / foc
+            B = A[:, [0, 2]]
+            yr = yv - c1 * A[:, 1]
+            keep = np.ones(len(yr), bool)
+            for _ in range(4):
+                c02 = np.linalg.lstsq(B[keep], yr[keep], rcond=None)[0]
+                keep = yr <= B @ c02
+                if keep.sum() < 20:
+                    break
+            coef = np.array([c02[0], c1, c02[1]])
     cam = float(-coef[2])  # hauteur de l'œil au-dessus du sol
     if cam <= 1e-3:
         return None
     mips, r0, N, fmin, fmax = _sea_texture(int(seed))
-    th = cam * (0.1 + 0.8 * float(np.clip(layer, 0, 1)) ** 0.6)
+    # Hauteur 0 : pas de nappe ; elle monte et s'épaissit avec layer.
+    th = cam * 0.9 * float(np.clip(layer, 0, 1)) ** 0.6
+    if th <= 1e-4 * cam:
+        return img.copy()
     gap = cam - th  # œil au-dessus de la nappe
     # Rayon des grosses volutes (monde) ; taille 0,5 .. 2.
     R = gap * (0.08 + 0.12 * float(np.clip(size, 0.5, 2.0)))
@@ -241,6 +260,15 @@ def sea(img, far, layer=0.35, size=0.5, billow=0.5, detail=1.0,
     blur = 0.3 + 1.5 * (1 - float(np.clip(detail, 0, 1)))
     rng = np.random.default_rng(77 + int(seed))
     ou, ov = rng.uniform(0, N, 2)
+    # Densité : vapeur au ras du dessus, de plus en plus dense en
+    # profondeur (bords et dômes fins translucides, couche épaisse
+    # quasi opaque). Fondu des bords = profondeur de la transition.
+    # Indépendante de la taille des volutes.
+    dd = min(amp, 0.14 * gap * (0.5 + float(np.clip(billow, 0, 1)))) * (
+        1.0 + 1.5 * float(np.clip(soft, 0, 1)))
+
+    def rho(dep):
+        return 1 - np.exp(-np.maximum(dep, 0) / dd)
 
     def surface(X, Z, lod, interp=cv2.INTER_LINEAR):
         """Hauteur du dessus de la nappe en (X, Z) monde."""
@@ -280,7 +308,9 @@ def sea(img, far, layer=0.35, size=0.5, billow=0.5, detail=1.0,
             vis = np.clip((np.minimum(z, zs) - zp) / seg, 0, 1)
             fin = np.where(d > 0, np.where(dp > 0, 1.0, d / (d - dp)),
                            np.where(dp > 0, dp / (dp - d), 0.0))
-            thick += (fin * vis * seg).astype(np.float32)
+            dm = 0.5 * (np.maximum(d, 0) + np.maximum(dp, 0)) / (
+                fin + 1e-6)
+            thick += (rho(dm) * fin * vis * seg).astype(np.float32)
             zc = zp + seg * np.clip(-dp / (d - dp + 1e-9), 0, 1)
             new = ~hit & (d > 0) & (zc < zs)
             zhit = np.where(new, zc, zhit)
@@ -298,7 +328,7 @@ def sea(img, far, layer=0.35, size=0.5, billow=0.5, detail=1.0,
     zhit = np.where(hit, np.minimum(0.5 * (zlo + zhi), zs), zhit)
     # Sous la dernière tranche tout est nuage : la couche est pleine.
     rest = np.clip(zs - zp, 0, None)
-    thick += rest
+    thick += rest * rho(np.maximum(dp, 0) - 0.5 * gs * rest)
     new = ~hit & (rest > 0)
     zhit = np.where(new, zp, zhit)
     hit |= new
@@ -339,29 +369,42 @@ def sea(img, far, layer=0.35, size=0.5, billow=0.5, detail=1.0,
                   0.45, 1.1)
     hl = np.clip((Sh - th - amp * fmin) / (amp * (fmax - fmin)), 0, 1)
     lum = (0.18 + 0.3 * hl ** 0.7) * cav + 0.85 * dif ** 1.5 * shad
-    # Couleurs de la photo : tons les plus clairs = soleil, ombre
-    # froide tirée du ciel.
+    # Blanc du nuage = blanc réel de la scène (tons hauts, vrais
+    # nuages de préférence), sans points lumineux ni spéculaires.
     sm = cv2.resize(img, (rw, rh), interpolation=cv2.INTER_AREA)
-    la = sm.mean(axis=2)
-    hi = sm[la >= np.percentile(la, 98)].mean(0)
-    hi = hi / max(1e-3, float(hi.max()))
-    sun_c = np.array([1.0, 0.97 + 0.02 * warmth, 0.93 - 0.08 * warmth])
-    lit = np.clip(0.55 * hi + 0.45, 0, 1) * sun_c
-    sky = sm[: max(1, rh // 4)].reshape(-1, 3).mean(0)
-    cool = np.array([0.80, 0.86, 0.96]) * (0.7 + 0.3 * sky / max(
-        1e-3, float(sky.max())))
-    t = np.clip(lum / 0.95, 0, 1.05)[..., None]
-    col = cool * 0.5 + (lit - cool * 0.5) * t
+    k_op = max(5, rw // 30) | 1  # plus grand qu'un soleil ou un reflet
+    la = cv2.morphologyEx(sm.mean(axis=2).astype(np.float32),
+                          cv2.MORPH_OPEN, cv2.getStructuringElement(
+                              cv2.MORPH_ELLIPSE, (k_op, k_op)))
+    pool = skym if skym.sum() > 0.02 * skym.size else np.ones_like(skym)
+    lo, up = np.percentile(la[pool], [98.0, 99.7])
+    sel = pool & (la >= lo) & (la <= up)
+    if sel.sum() < 10:
+        sel = pool
+    white = sm[sel].reshape(-1, 3).mean(0)
+    if pool is skym and float(white.mean()) < 0.8 * float(
+            np.percentile(la, 99.5)):
+        # Ciel sombre : le blanc vient du reste de l'image.
+        lo, up = np.percentile(la, [98.5, 99.7])
+        white = sm[(la >= lo) & (la <= up)].reshape(-1, 3).mean(0)
+    sun_c = np.array([1.0, 1.0 - 0.02 * warmth, 1.0 - 0.08 * warmth])
+    lit = np.clip(white * sun_c, 0, 1)
+    sky = sm[skym].mean(0) if skym.any() else sm[: max(
+        1, rh // 4)].reshape(-1, 3).mean(0)
+    tint = np.clip(sky / max(1e-3, float(sky.max())), 0.6, 1)
+    cool = lit * 0.6 * tint ** 0.6
+    t = np.clip(lum / 0.95, 0, 1)[..., None]
+    col = cool + (lit - cool) * t
     # Perspective atmosphérique vers la couleur de l'horizon.
     y_hz = rh / 2 - coef[1] * foc
     ri = int(np.clip(y_hz, 0, rh - 1))
     hz = sm[max(0, ri - 2): ri + 3].reshape(-1, 3).mean(0)
     fog = (0.8 * (1 - np.exp(-zhit / (12 * gap))))[..., None]
     col = col * (1 - fog) + hz * fog
-    # Opacité : épaisseur traversée (bords des tours plus fins), plafond.
-    lam = R * (0.03 + 0.6 * float(np.clip(soft, 0, 1)))
-    a = 1 - np.exp(-thick / lam)
-    a *= (1 - math.exp(-6.0 * max(amount, 0.0) * density))
+    # Opacité de Beer-Lambert sur l'épaisseur pondérée par la densité :
+    # bords et volutes fines vaporeux, couche épaisse quasi opaque.
+    sig = 2.1 * max(amount, 0.0) * max(density, 0.0) / gap
+    a = 1 - np.exp(-sig * thick)
     a *= 1 - 0.7 * float(np.clip(visible, 0, 1))
     if recul > 0:
         # Éloignement : la mer s'efface devant, reste au fond.
@@ -370,6 +413,9 @@ def sea(img, far, layer=0.35, size=0.5, billow=0.5, detail=1.0,
         dd = min(1.0, recul)
         a *= (1 - dd) + dd * fh ** e
     a = np.where(hit, a, 0).astype(np.float32)
+    # Vapeur fine : lumière diffusée, peu de modelé.
+    va = np.sqrt(a)[..., None]
+    col = col * va + (0.85 * lit * (1 - fog) + hz * fog) * (1 - va)
 
     def full(x):
         p = np.zeros((rh,) + x.shape[1:], np.float32)

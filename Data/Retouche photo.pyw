@@ -2039,6 +2039,9 @@ def main(page: ft.Page):
                     idx = e.control.selected_index
                 e.control.selected_index = idx
                 sub["volume"] = idx + 1
+                if state["base"] is not None:
+                    # Mode retenu pour les photos pas encore réglées.
+                    state["base"]["grain"]["brume"]["volume"] = idx + 1
                 _seg_ink(e.control)
                 e.control.update()
                 live_preview_tick()
@@ -2046,6 +2049,7 @@ def main(page: ft.Page):
                                 (state["live_req"],)).start()
             vm.on_change = _mode
             _seg_ink(vm)
+            reset_registry.setdefault("modes", []).append((vm, sub))
             rows.insert(1, ft.Row([vm], expand=True))
         rows = [*head, *rows, *extra]
         return _make_section(label, color, icon, sub, rows)
@@ -2423,6 +2427,10 @@ def main(page: ft.Page):
             lv.selected_index = min(1, int(dct["precise"]))
             _seg_ink(lv)
             lv.update()
+        for vm, dct in reset_registry.get("modes", []):
+            vm.selected_index = max(0, int(dct["volume"]) - 1)
+            _seg_ink(vm)
+            vm.update()
         for sw, dct, key in reset_registry.get("toggles", []):
             sw.value = dct[key]
             sw.update()
