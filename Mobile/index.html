@@ -524,8 +524,11 @@ function searchMails() {
             ic("add_task"), " Tâche")));
         return h("div", {}, h("div", {class: "slot", onclick: () =>
           full.style.display = full.style.display ? "" : "none"},
-          h("i", {class: "bar2", style: {background: C.blue}}),
-          h("div", {class: "tx"}, m.name,
+          h("i", {class: "bar2", style: {background: m.sent ? C.green
+            : C.blue}}),
+          h("div", {class: "tx"}, h("span", {class: "ms", style: {color:
+            m.sent ? C.green : C.blue, marginRight: "4px"}},
+            m.sent ? "call_made" : "call_received"), m.name,
             m.files_id ? [" ", ic("attach_file")] : null,
             h("div", {class: "muted"},
             m.date.slice(0, 10) + " · " + m.subject))), full);
