@@ -1476,7 +1476,9 @@ def apply_stroke(mask, layer, keep):
 # brut = trait appliqué tel quel ; instant = GrabCut local sur la zone
 # du trait, bord recollé à l'image (sans IA) ; rapide / precis = u2net /
 # birefnet sur le seul recadrage autour du trait.
-STROKE_ENGINES = ("brut", "instant", "rapide", "precis")
+STROKE_ENGINES = ("brut", "instant", "rapide", "precis", "cheveux")
+# « cheveux » : pinceau Cheveux, matting (pymatting, forme close) sous
+# le trait, le reste du masque sert de certitude ; léger en mémoire.
 # Côté long (px) du recadrage autour d'un trait : GrabCut local, et
 # entrée des modèles (ils réduisent de toute façon à 320 / 1024 px).
 STROKE_SNAP_PX = 480
@@ -1530,6 +1532,38 @@ def snap_stroke_mask(rgb, prior, layer, core, keep, *, iters=3):
                 cv2.GC_INIT_WITH_MASK)
     out = np.isin(labels, (cv2.GC_FGD, cv2.GC_PR_FGD))
     return (out * 255).astype(np.uint8)
+
+
+STROKE_MATTE_PX = 700
+# Demi-largeur de la bande inconnue, en part du recadrage.
+STROKE_MATTE_BAND = 0.025
+
+
+def matte_stroke_mask(rgb, prior, layer):
+    """Alpha uint8 d'un recadrage par matting : sous le trait, zone
+    inconnue ; ailleurs, le masque actuel (seuil 128) fait foi. Mèches
+    et cheveux fins, sans modèle IA (~3 s sur le Pi à 700 px)."""
+    from pymatting import estimate_alpha_cf
+    hard = (prior >= 128).astype(np.uint8)
+    tri = hard.astype(np.float64)
+    # Inconnu : sous le trait ET près du bord actuel (une bande large
+    # laissait le matting inventer des halos de fond).
+    band = max(2, int(STROKE_MATTE_BAND * min(rgb.shape[:2])))
+    near = (cv2.dilate(hard, np.ones((3, 3), np.uint8), iterations=band)
+            != cv2.erode(hard, np.ones((3, 3), np.uint8), iterations=band))
+    unknown = (layer >= 32) & near
+    if unknown.all() or not unknown.any():
+        return prior.copy()
+    tri[unknown] = 0.5
+    known = tri[~unknown]
+    if known.min() == known.max():
+        # Pas de sujet ou pas de fond connu autour : rien à apprendre.
+        return prior.copy()
+    alpha = estimate_alpha_cf(rgb.astype(np.float64) / 255.0, tri)
+    out = prior.copy()
+    out[unknown] = (np.clip(alpha[unknown], 0, 1) * 255 + 0.5
+                    ).astype(np.uint8)
+    return out
 
 
 def rembg_alpha(image: Image.Image, *, precise: bool, human: bool,
@@ -1732,8 +1766,9 @@ class MaskEditor:
             return False
         x0, y0, x1, y1 = bbox
         crop = self.source.crop(bbox).convert("RGB")
-        if engine == "instant":
-            wsize = _fit_size(crop.size, STROKE_SNAP_PX)
+        if engine in ("instant", "cheveux"):
+            wsize = _fit_size(crop.size, STROKE_SNAP_PX
+                              if engine == "instant" else STROKE_MATTE_PX)
             if wsize != crop.size:
                 crop = crop.resize(wsize, Image.Resampling.BILINEAR)
             ww, wh = wsize
@@ -1758,8 +1793,11 @@ class MaskEditor:
             layer = stroke_layer((wh, ww), pts, op["radius"], scale)
             core = stroke_layer((wh, ww), pts,
                                 op["radius"] * STROKE_CORE, scale)
-            cand = snap_stroke_mask(np.asarray(crop), prior, layer, core,
-                                    op["keep"])
+            if engine == "cheveux":
+                cand = matte_stroke_mask(np.asarray(crop), prior, layer)
+            else:
+                cand = snap_stroke_mask(np.asarray(crop), prior, layer,
+                                        core, op["keep"])
         else:
             if segment is None:
                 return False
@@ -1843,7 +1881,7 @@ class MaskEditor:
             bx1 = min(size[0], max(bx0 + 1, math.ceil(x1 * sx)))
             by1 = min(size[1], max(by0 + 1, math.ceil(y1 * sy)))
             cand = op["cand"]
-            if op["engine"] == "instant":
+            if op["engine"] in ("instant", "cheveux"):
                 # Bord recollé à celui de l'image (filtre guidé).
                 rgb = self.rgb_at(size)[by0:by1, bx0:bx1]
                 cand = guided_upsample(cand, rgb,
@@ -1859,6 +1897,8 @@ class MaskEditor:
         if op["kind"] == "stroke":
             scale = (size[0] / self.size[0], size[1] / self.size[1])
             if op.get("cand") is None:
+                if op["engine"] == "cheveux":
+                    return mask  # pas encore calculé
                 layer = stroke_layer(mask.shape, op["points"],
                                      op["radius"], scale)
                 return apply_stroke(mask, layer, op["keep"])
@@ -1871,7 +1911,11 @@ class MaskEditor:
                 op["radius"], scale).astype(np.uint16)
             mask = mask.copy()
             sub = mask[by0:by1, bx0:bx1]
-            if op["keep"]:
+            if op["engine"] == "cheveux":
+                # Le modèle remplace le masque sous le trait.
+                mix = (layer * cand + (255 - layer) * sub + 127) // 255
+                sub[...] = mix.astype(np.uint8)
+            elif op["keep"]:
                 eff = (layer * cand + 127) // 255
                 np.maximum(sub, eff.astype(np.uint8), out=sub)
             else:

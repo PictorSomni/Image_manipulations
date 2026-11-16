@@ -2495,21 +2495,13 @@ async def main(page: ft.Page) -> None:
         "overlay": False,  # vue de contrôle (fond teinté de rouge)
         "brush":   24,     # rayon du pinceau, pixels écran
         "stroke":  None,   # [sujet, rayon image, [(x, y)…]]
-        "engine":  "rapide",  # finition, cf. image_ops.STROKE_ENGINES
         "busy":    False,  # trait en cours de raffinement
     }
     mask_tool_btn = _seg(
-        [(0, "Déplacer"), (1, "Ajouter"), (2, "Soustraire")], 0,
+        [(0, "Déplacer"), (1, "Ajouter"), (2, "Soustraire"),
+         (3, "Cheveux")], 0,
         on_change=lambda e: on_mask_tool_change(e),
         tooltip="Pinceaux du masque")
-    # Finition des traits : modèle IA sur la zone du trait, calculé au
-    # relâchement.
-    brush_engine_btn = _seg(
-        [("rapide", "Rapide"), ("precis", "Précis")], _mask["engine"],
-        VIOLET, expand=True,
-        on_change=lambda e: _mask.update(
-            engine=_seg_value(brush_engine_btn)),
-        tooltip="Finition des traits")
     brush_size_slider = ft.Slider(
         value=_mask["brush"], min=4, max=120, divisions=29,
         label="{value}", active_color=RED, expand=True,
@@ -2828,7 +2820,7 @@ async def main(page: ft.Page) -> None:
         brush_ring.width = brush_ring.height = 2 * r
         brush_ring.left, brush_ring.top = cx - r, cy - r
         brush_ring.border = ft.Border.all(
-            2, RED if _mask["tool"] == 1 else GREEN)
+            2, (RED, RED, GREEN, VIOLET)[_mask["tool"]])
         brush_ring.opacity = 1
         brush_ring.update()
 
@@ -2852,7 +2844,7 @@ async def main(page: ft.Page) -> None:
                 _live["dirty"] = False
                 stroke = _mask["stroke"]
                 live = ((stroke[0], stroke[1], list(stroke[2]))
-                        if stroke else None)
+                        if stroke and _mask["tool"] != 3 else None)
 
                 def work():
                     base, _ = _rembg_preview(live)
@@ -2899,7 +2891,9 @@ async def main(page: ft.Page) -> None:
         editor = _mask["editor"]
         if stroke is None or editor is None:
             return
-        engine = _mask["engine"]
+        # Ajouter / Soustraire : GrabCut local, sans attente. Cheveux :
+        # modèle précis sur la seule zone peinte.
+        engine = "cheveux" if _mask["tool"] == 3 else "instant"
         op = editor.add_stroke(stroke[0], stroke[1], stroke[2], engine)
         state["modified"] = True
         save_btn.disabled = False
@@ -2922,7 +2916,10 @@ async def main(page: ft.Page) -> None:
         seule zone du trait, sous le voile."""
         engine = op["engine"]
         try:
-            if engine == "instant":
+            if engine == "cheveux":
+                async with _veiled("Cheveux…", delay=0.4):
+                    await asyncio.to_thread(editor.refine_stroke, op)
+            elif engine == "instant":
                 await asyncio.to_thread(editor.refine_stroke, op)
             elif not REMBG_AVAILABLE:
                 rembg_status.value = ("[ERREUR] rembg non installé — "
@@ -2949,10 +2946,10 @@ async def main(page: ft.Page) -> None:
         avec Déplacer. True si la vue a changé (aperçu à refaire)."""
         _mask["tool"] = tool
         mask_tool_btn.selected_index = tool
-        mask_tool_btn.thumb_color = (BLUE, RED, GREEN)[tool]
+        mask_tool_btn.thumb_color = (BLUE, RED, GREEN, VIOLET)[tool]
         for i, t in enumerate(mask_tool_btn.controls):
             t.color = DARK if i == tool else WHITE
-        brush_size_slider.active_color = GREEN if tool == 2 else RED
+        brush_size_slider.active_color = (RED, RED, GREEN, VIOLET)[tool]
         if not tool:
             _ring_hide()
         if _mask["overlay"] == bool(tool):
@@ -3469,9 +3466,6 @@ async def main(page: ft.Page) -> None:
                         rembg_feather_slider], spacing=2,
                        vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 mask_tool_btn,
-                ft.Row([ft.Text("Finition", size=11, color=LIGHT_GREY),
-                        brush_engine_btn], spacing=6,
-                       vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 ft.Row([ft.Text("Taille", size=11, color=LIGHT_GREY),
                         brush_size_slider], spacing=2,
                        vertical_alignment=ft.CrossAxisAlignment.CENTER),
