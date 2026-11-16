@@ -917,7 +917,8 @@ class PhotoCropper:
         self.mask_tool_btn = ui_helpers.seg_grid(
             ["Déplacer", "Ajouter", "Soustraire", "Affiner"], 0,
             (BLUE, RED, GREEN, VIOLET), self.on_mask_tool_change,
-            dark=DARK, light=WHITE, tooltip="Pinceaux du masque")
+            dark=DARK, light=WHITE, order=(0, 3, 1, 2), border=LIGHT_GREY,
+            tooltip="Pinceaux du masque")
         self.brush_size_slider = ft.Slider(
             value=self._brush_px, min=4, max=120, divisions=29,
             label="{value}", active_color=RED,

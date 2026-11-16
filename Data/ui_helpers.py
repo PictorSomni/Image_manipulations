@@ -395,7 +395,7 @@ def centered_slider(slider, color, track=None, inset=8):
 
 
 def seg_grid(labels, index, colors, on_change, cols=2, dark="#1E1E1E",
-             light="#FFFFFF", tooltip=None):
+             light="#FFFFFF", tooltip=None, order=None, border=None):
     """Choix exclusif en grille (cols par ligne) quand un segmenté
     serait trop large. on_change(i) ; état dans grid.data["index"]."""
     cells = []
@@ -413,11 +413,14 @@ def seg_grid(labels, index, colors, on_change, cols=2, dark="#1E1E1E",
             alignment=ft.Alignment.CENTER, expand=True, border_radius=7,
             padding=ft.Padding.symmetric(horizontal=2, vertical=5),
             on_click=_click(i)))
-    rows = [ft.Row(cells[k:k + cols], spacing=2)
-            for k in range(0, len(cells), cols)]
+    # order : indices dans l'ordre d'affichage (lecture ligne par ligne).
+    shown = [cells[i] for i in (order or range(len(cells)))]
+    rows = [ft.Row(shown[k:k + cols], spacing=2)
+            for k in range(0, len(shown), cols)]
     grid = ft.Container(
         content=ft.Column(rows, spacing=2), bgcolor=dark, border_radius=9,
-        padding=2, tooltip=tooltip,
+        padding=4, tooltip=tooltip,
+        border=ft.Border.all(1.5, border) if border else None,
         data={"index": index, "colors": colors, "cells": cells,
               "dark": dark, "light": light})
     seg_grid_set(grid, index)

@@ -2441,7 +2441,7 @@ async def main(page: ft.Page) -> None:
     # flood fill, sans IA — cf. Recadrage manuel.pyw, logique partagée
     # via image_ops.FloodPipette). Le précis (birefnet) ne sert plus
     # qu'à la finition des traits.
-    _rembg_mode    = [2]
+    _rembg_mode    = [2 if CONSTANTS.RECADRAGE_REMBG_MODE == 2 else 0]
     _rembg_human   = [True]    # True = portrait/human_seg, False = general
     _rembg_sessions: dict = {}
     _rembg_erosion_pct = [0.0]
@@ -2451,7 +2451,7 @@ async def main(page: ft.Page) -> None:
 
     # Boutons glissants (retour user) ; valeurs = indices de _rembg_mode.
     rembg_precise_btn = _seg(
-        [(2, "Instantané"), (0, "Rapide")], 2, expand=True,
+        [(2, "Instantané"), (0, "Rapide")], _rembg_mode[0], expand=True,
         on_change=lambda e: on_rembg_precise_toggle(e),
         tooltip="Sélection de départ")
     rembg_model_btn = _seg(
@@ -2500,7 +2500,7 @@ async def main(page: ft.Page) -> None:
     mask_tool_btn = ui_helpers.seg_grid(
         ["Déplacer", "Ajouter", "Soustraire", "Affiner"], 0,
         (BLUE, RED, GREEN, VIOLET), lambda i: on_mask_tool_change(i),
-        dark=DARK, light=WHITE, tooltip="Pinceaux du masque")
+        dark=DARK, light=WHITE, order=(0, 3, 1, 2), border=LIGHT_GREY, tooltip="Pinceaux du masque")
     brush_size_slider = ft.Slider(
         value=_mask["brush"], min=4, max=120, divisions=29,
         label="{value}", active_color=RED, expand=True,
