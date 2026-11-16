@@ -902,20 +902,12 @@ class PhotoCropper:
         self._mask_overlay = False
         self._brush_px = 24          # rayon du pinceau, pixels écran
         self._stroke = None          # [sujet, rayon image, [(x, y)…]]
-        # Finition des traits : modèle IA sur la zone du trait, calculé
-        # au relâchement (cf. image_ops.STROKE_ENGINES).
-        self._brush_engine = "rapide"
         self._stroke_busy = False    # trait en cours de raffinement
         self._stroke_sessions = {}   # sessions rembg du pinceau
         self._blur_bg_cache = None   # (clé, fond flou à taille d'aperçu)
         self.mask_tool_btn = _seg(
-            ["Déplacer", "Ajouter", "Soustraire"], 0,
+            ["Déplacer", "Ajouter", "Soustraire", "Affiner"], 0,
             self.on_mask_tool_change, None, "Pinceaux du masque")
-        self.brush_engine_btn = _seg(
-            ["Rapide", "Précis"], 0, self.on_brush_engine_change, None,
-            "Finition des traits")
-        self.brush_engine_btn.thumb_color = VIOLET
-        self.brush_engine_btn.expand = True
         self.brush_size_slider = ft.Slider(
             value=self._brush_px, min=4, max=120, divisions=29,
             label="{value}", active_color=RED,
@@ -2293,7 +2285,8 @@ class PhotoCropper:
             # opérations directement à la taille d'aperçu (rendu mis en
             # cache), plus le trait en cours de tracé.
             live = None
-            if stroke is not None and stroke[2]:
+            if (stroke is not None and stroke[2]
+                    and self._mask_tool != 3):
                 live = (stroke[0], stroke[1], list(stroke[2]))
             ratio = min(max_px / self.original_width,
                         max_px / self.original_height, 1.0)
@@ -3192,7 +3185,9 @@ class PhotoCropper:
         editor = self._mask_editor
         if stroke is None or editor is None:
             return
-        engine = self._brush_engine
+        # Ajouter / Soustraire : GrabCut local, sans attente. Affiner :
+        # modèle précis sur la seule zone peinte.
+        engine = "cheveux" if self._mask_tool == 3 else "instant"
         op = editor.add_stroke(stroke[0], stroke[1], stroke[2], engine)
         self._mask_baked = None
         # Rendu final par le fil d'aperçu live : il est peut-être encore
@@ -3229,6 +3224,19 @@ class PhotoCropper:
         try:
             if engine == "instant":
                 await asyncio.to_thread(editor.refine_stroke, op)
+            elif engine == "cheveux":
+                segment = (functools.partial(self._stroke_segment, True)
+                           if REMBG_AVAILABLE and image_ops.big_model_ok()
+                           else None)
+                veil_text.value = "Affinage…"
+                async with ui_helpers.slow_veil(
+                        self.page, self.load_veil, delay=0.4):
+                    await asyncio.to_thread(editor.refine_stroke, op,
+                                            segment)
+                    if editor is self._mask_editor:
+                        self._mask_baked = None
+                        await self._render_preview_async()
+                return
             elif not REMBG_AVAILABLE:
                 self._set_status("[ERREUR] rembg non installé — trait "
                                  "appliqué brut")
@@ -3259,7 +3267,7 @@ class PhotoCropper:
         ring.width = ring.height = 2 * r
         ring.left, ring.top = px - r, py - r
         ring.border = ft.Border.all(
-            2, RED if self._mask_tool == 1 else GREEN)
+            2, (RED, RED, GREEN, VIOLET)[self._mask_tool])
         ring.visible = True
         try:
             ring.update()
@@ -3286,9 +3294,10 @@ class PhotoCropper:
         peint au lieu de déplacer l'image (la molette zoome toujours)."""
         tool = int(e.control.selected_index)
         self._mask_tool = tool
-        e.control.thumb_color = (BLUE, RED, GREEN)[tool]
+        e.control.thumb_color = (BLUE, RED, GREEN, VIOLET)[tool]
         e.control.update()
-        self.brush_size_slider.active_color = GREEN if tool == 2 else RED
+        self.brush_size_slider.active_color = (RED, RED, GREEN,
+                                               VIOLET)[tool]
         self.brush_size_slider.update()
         if tool:
             self._pipette_cancel()
@@ -3305,11 +3314,6 @@ class PhotoCropper:
 
     def on_brush_size_change(self, e):
         self._brush_px = int(e.control.value)
-
-    def on_brush_engine_change(self, e):
-        """Finition des traits : rapide (u2net) / précis (birefnet)."""
-        self._brush_engine = ("rapide", "precis")[
-            int(e.control.selected_index)]
 
     def _set_mask_overlay(self, on: bool) -> None:
         self._mask_overlay = on
@@ -6208,11 +6212,6 @@ def main(page: ft.Page):
                                     app.rembg_feather_slider,
                                 ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                                 app.mask_tool_btn,
-                                ft.Row([
-                                    ft.Text("Finition", size=11,
-                                            color=LIGHT_GREY),
-                                    app.brush_engine_btn,
-                                ], spacing=6, vertical_alignment=_vcenter),
                                 ft.Row([
                                     ft.Text("Taille", size=11,
                                             color=LIGHT_GREY),
