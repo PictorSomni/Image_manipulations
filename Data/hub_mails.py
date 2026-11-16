@@ -193,8 +193,12 @@ def build(ui):
             "notes": body,
             "files_id": m.get("files_id", "")})
 
-    def open_reply(m, on_done=None):
+    def open_reply(m, on_done=None, on_dismiss=None):
         box = {}
+
+        def _retire(e):
+            _close(box["dlg"])
+            on_dismiss(m)
 
         def _to_task(e):
             _close(box["dlg"])
@@ -210,9 +214,11 @@ def build(ui):
                     ft.Text(m.get("body", ""), color=WHITE,
                             selectable=True),
                     *([_mail_files(m)] if m.get("files_id") else [])],
-            extra_actions=[_dlg_btn("Tâche", color=ui.ORANGE,
-                                    on_click=_to_task)]
-            if "new_task" in hooks else [],
+            extra_actions=[
+                *([_dlg_btn("Retirer", color=RED, on_click=_retire)]
+                  if on_dismiss else []),
+                *([_dlg_btn("Tâche", color=ui.ORANGE, on_click=_to_task)]
+                  if "new_task" in hooks else [])],
             on_sent=(lambda: on_done(m)) if on_done else None)
 
     # ── Recherche dans toute la boîte (reçus + envoyés) ──────────────────
@@ -524,7 +530,8 @@ def build(ui):
                             tooltip="Retirer",
                             on_click=lambda e, m=m: _dismiss(m))],
                         tight=True, spacing=0),
-                    on_click=lambda e, m=m: open_reply(m, _answered))
+                    on_click=lambda e, m=m: open_reply(
+                        m, _answered, _dismiss))
                 for m in mails], new_btn))
         if b.get("quiz"):
             cards.append(_quiz_card(b["quiz"]))
