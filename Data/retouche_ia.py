@@ -2497,11 +2497,10 @@ async def main(page: ft.Page) -> None:
         "stroke":  None,   # [sujet, rayon image, [(x, y)…]]
         "busy":    False,  # trait en cours de raffinement
     }
-    mask_tool_btn = _seg(
-        [(0, "Déplacer"), (1, "Ajouter"), (2, "Soustraire"),
-         (3, "Affiner")], 0,
-        on_change=lambda e: on_mask_tool_change(e),
-        tooltip="Pinceaux du masque")
+    mask_tool_btn = ui_helpers.seg_grid(
+        ["Déplacer", "Ajouter", "Soustraire", "Affiner"], 0,
+        (BLUE, RED, GREEN, VIOLET), lambda i: on_mask_tool_change(i),
+        dark=DARK, light=WHITE, tooltip="Pinceaux du masque")
     brush_size_slider = ft.Slider(
         value=_mask["brush"], min=4, max=120, divisions=29,
         label="{value}", active_color=RED, expand=True,
@@ -2949,10 +2948,7 @@ async def main(page: ft.Page) -> None:
         """Outil du masque ; vue masque avec les pinceaux, vue normale
         avec Déplacer. True si la vue a changé (aperçu à refaire)."""
         _mask["tool"] = tool
-        mask_tool_btn.selected_index = tool
-        mask_tool_btn.thumb_color = (BLUE, RED, GREEN, VIOLET)[tool]
-        for i, t in enumerate(mask_tool_btn.controls):
-            t.color = DARK if i == tool else WHITE
+        ui_helpers.seg_grid_set(mask_tool_btn, tool)
         brush_size_slider.active_color = (RED, RED, GREEN, VIOLET)[tool]
         if not tool:
             _ring_hide()
@@ -2977,10 +2973,9 @@ async def main(page: ft.Page) -> None:
         inpaint_btn.bgcolor   = VIOLET
         _update_sel_canvas()
 
-    def on_mask_tool_change(e) -> None:
+    def on_mask_tool_change(tool: int) -> None:
         """Déplacer / Ajouter / Soustraire : en mode pinceau, le glissé
         peint au lieu de déplacer l'image."""
-        tool = _seg_value(mask_tool_btn)
         view_changed = _mask_tool_set(tool)
         if tool:
             _bg_pick_cancel()

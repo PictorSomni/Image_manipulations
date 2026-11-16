@@ -392,3 +392,43 @@ def centered_slider(slider, color, track=None, inset=8):
     return ft.Stack([band, slider], alignment=ft.Alignment.CENTER,
                     expand=slider.expand, width=slider.width,
                     data=_refresh)
+
+
+def seg_grid(labels, index, colors, on_change, cols=2, dark="#1E1E1E",
+             light="#FFFFFF", tooltip=None):
+    """Choix exclusif en grille (cols par ligne) quand un segmenté
+    serait trop large. on_change(i) ; état dans grid.data["index"]."""
+    cells = []
+
+    def _click(i):
+        def handler(_e):
+            seg_grid_set(grid, i)
+            grid.update()
+            on_change(i)
+        return handler
+
+    for i, label in enumerate(labels):
+        cells.append(ft.Container(
+            content=ft.Text(label, size=12, text_align=ft.TextAlign.CENTER),
+            alignment=ft.Alignment.CENTER, expand=True, border_radius=7,
+            padding=ft.Padding.symmetric(horizontal=2, vertical=5),
+            on_click=_click(i)))
+    rows = [ft.Row(cells[k:k + cols], spacing=2)
+            for k in range(0, len(cells), cols)]
+    grid = ft.Container(
+        content=ft.Column(rows, spacing=2), bgcolor=dark, border_radius=9,
+        padding=2, tooltip=tooltip,
+        data={"index": index, "colors": colors, "cells": cells,
+              "dark": dark, "light": light})
+    seg_grid_set(grid, index)
+    return grid
+
+
+def seg_grid_set(grid, index):
+    """Sélectionne la case index (sans update ni callback)."""
+    d = grid.data
+    d["index"] = index
+    for i, c in enumerate(d["cells"]):
+        on = i == index
+        c.bgcolor = d["colors"][i] if on else None
+        c.content.color = d["dark"] if on else d["light"]

@@ -905,9 +905,10 @@ class PhotoCropper:
         self._stroke_busy = False    # trait en cours de raffinement
         self._stroke_sessions = {}   # sessions rembg du pinceau
         self._blur_bg_cache = None   # (clé, fond flou à taille d'aperçu)
-        self.mask_tool_btn = _seg(
+        self.mask_tool_btn = ui_helpers.seg_grid(
             ["Déplacer", "Ajouter", "Soustraire", "Affiner"], 0,
-            self.on_mask_tool_change, None, "Pinceaux du masque")
+            (BLUE, RED, GREEN, VIOLET), self.on_mask_tool_change,
+            dark=DARK, light=WHITE, tooltip="Pinceaux du masque")
         self.brush_size_slider = ft.Slider(
             value=self._brush_px, min=4, max=120, divisions=29,
             label="{value}", active_color=RED,
@@ -3289,13 +3290,10 @@ class PhotoCropper:
     def on_canvas_exit(self, e):
         self._brush_ring_hide()
 
-    def on_mask_tool_change(self, e):
+    def on_mask_tool_change(self, tool: int):
         """Déplacer / Ajouter / Soustraire : en mode pinceau, le glissé
         peint au lieu de déplacer l'image (la molette zoome toujours)."""
-        tool = int(e.control.selected_index)
         self._mask_tool = tool
-        e.control.thumb_color = (BLUE, RED, GREEN, VIOLET)[tool]
-        e.control.update()
         self.brush_size_slider.active_color = (RED, RED, GREEN,
                                                VIOLET)[tool]
         self.brush_size_slider.update()
