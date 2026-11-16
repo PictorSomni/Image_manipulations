@@ -178,9 +178,18 @@ def search(q, limit=30):
             imap.select(folder, readonly=True)
             arg = '"' + q + '"'
             # Un critère à la fois : le OR imbriqué rate chez OVH Exchange.
-            nums = sorted({n for key in ("FROM", "TO", "SUBJECT")
-                           for n in imap.search(None, key, arg)[1][0].split()},
-                          key=int)
+            nums = {n for key in ("FROM", "TO", "SUBJECT")
+                    for n in imap.search(None, key, arg)[1][0].split()}
+            if sent:
+                # Un envoi ne porte souvent que l'adresse (« À : x@y »),
+                # sans le nom cherché : on prend les adresses des reçus
+                # trouvés et on cherche aussi les envois à ces adresses.
+                for addr in {email.utils.parseaddr(m["from"])[1]
+                             for m in found}:
+                    if addr:
+                        nums |= set(imap.search(
+                            None, "TO", '"' + addr + '"')[1][0].split())
+            nums = sorted(nums, key=int)
             if not nums:
                 _, data = imap.search(None, "TEXT", arg)
                 nums = data[0].split()
