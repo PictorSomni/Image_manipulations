@@ -2523,6 +2523,10 @@ async def main(page: ft.Page) -> None:
         on_click=lambda e: page.run_task(on_mask_recalc, e),
         style=ft.ButtonStyle(padding=ft.Padding.symmetric(horizontal=6)),
     )
+    affine_ok_btn = ft.FilledButton(
+        "OK", icon=ft.Icons.CHECK, bgcolor=VIOLET, color=WHITE,
+        right=12, bottom=12, visible=False,
+        on_click=lambda e: page.run_task(_affine_ok))
     brush_ring = ft.Container(
         width=0, height=0, left=0, top=0, opacity=0,
         border=ft.Border.all(2, GREEN), border_radius=999,
@@ -2901,9 +2905,42 @@ async def main(page: ft.Page) -> None:
         save_btn.update()
         _rembg_apply_composite()
         _live_tick()
-        if op is not None and engine != "brut":
+        if op is not None and engine == "cheveux":
+            _affine_ok_show()
+        elif op is not None and engine != "brut":
             _mask["busy"] = True
             page.run_task(_stroke_refine, editor, op)
+
+    def _affine_ok_show() -> None:
+        editor = _mask["editor"]
+        on = bool(editor is not None and editor.pending_affine())
+        if affine_ok_btn.visible != on:
+            affine_ok_btn.visible = on
+            affine_ok_btn.update()
+
+    async def _affine_ok() -> None:
+        """Calcule tous les traits Affiner en attente, sous un voile."""
+        editor = _mask["editor"]
+        if editor is None or _mask["busy"]:
+            return
+        ops = editor.pending_affine()
+        segment = (functools.partial(_stroke_segment, True)
+                   if REMBG_AVAILABLE and image_ops.big_model_ok()
+                   else None)
+        _mask["busy"] = True
+        try:
+            async with _veiled("Affinage…", delay=0.4):
+                for op in ops:
+                    await asyncio.to_thread(editor.refine_stroke, op,
+                                            segment)
+        except Exception as ex:
+            rembg_status.value = f"[ERREUR] affinage : {ex}"
+        finally:
+            _mask["busy"] = False
+        _affine_ok_show()
+        if editor is _mask["editor"]:
+            _rembg_apply_composite()
+            _live_tick()
 
     def _stroke_segment(precise: bool, image):
         """Modèle rembg sur le recadrage d'un trait (thread)."""
@@ -3015,6 +3052,7 @@ async def main(page: ft.Page) -> None:
             return
         _mask["editor"].undo()
         state["modified"] = True
+        _affine_ok_show()
         _rembg_apply_composite()
         rembg_status.value = "Retouche du masque annulée"
         _render_preview()
@@ -3300,7 +3338,7 @@ async def main(page: ft.Page) -> None:
 
     inner_container = ft.Container(
         content=ft.Stack([preview_img, sel_canvas, brush_ring,
-                          image_gesture, busy_ring_wrap]),
+                          image_gesture, busy_ring_wrap, affine_ok_btn]),
         width=_vw,
         height=_vh,
         bgcolor=DARK,  # même fond que les autres onglets (retour user)

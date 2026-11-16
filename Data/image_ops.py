@@ -1476,6 +1476,7 @@ def apply_stroke(mask, layer, keep):
 # brut = trait appliqué tel quel ; instant = GrabCut local sur la zone
 # du trait, bord recollé à l'image (sans IA) ; rapide / precis = u2net /
 # birefnet sur le seul recadrage autour du trait.
+AFFINE_TINT = (160, 90, 230)  # voile des traits Affiner
 STROKE_ENGINES = ("brut", "instant", "rapide", "precis", "cheveux")
 # « cheveux » : pinceau Affiner, BiRefNet si assez de mémoire, sinon
 # matting (pymatting, forme close) sous
@@ -1967,18 +1968,30 @@ class MaskEditor:
             mask = apply_stroke(mask, layer, keep)
         return mask
 
+    def pending_affine(self) -> list:
+        """Traits Affiner pas encore calculés (attendent OK)."""
+        return [o for o in list(self.ops) if o.get("kind") == "stroke"
+                and o.get("engine") == "cheveux" and "cand" not in o]
+
     def compose(self, size=None, live=None) -> Image.Image:
         """Image RGBA : pixels d'origine + masque retouché."""
         size = tuple(size or self.size)
         rgb = self.rgb_at(size)
         mask = self.render(size, live)
+        # Traits Affiner en attente du bouton OK (et celui en cours) :
+        # simple voile coloré, le masque n'est pas encore recalculé.
+        veils = [(o["radius"], o["points"]) for o in self.pending_affine()]
+        tint = AFFINE_TINT
         if live is not None and len(live) > 3 and len(live[2]):
-            # Trait Affiner en cours : simple voile coloré, le masque
-            # n'est recalculé qu'au relâchement.
-            _keep, radius, points, tint = live
+            veils.append((live[1], live[2]))
+            tint = live[3]
+        if veils:
             scale = (size[0] / self.size[0], size[1] / self.size[1])
-            a = stroke_layer(mask.shape, points, radius, scale
-                             ).astype(np.uint16) * 140 // 255
+            layer = np.zeros(mask.shape, np.uint8)
+            for radius, points in veils:
+                layer = np.maximum(layer, stroke_layer(
+                    mask.shape, points, radius, scale))
+            a = layer.astype(np.uint16) * 140 // 255
             rgb = ((rgb.astype(np.uint16) * (255 - a[..., None])
                     + np.array(tint, np.uint16) * a[..., None]) // 255
                    ).astype(np.uint8)

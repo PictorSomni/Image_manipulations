@@ -668,9 +668,15 @@ class PhotoCropper:
             width=0, height=0, left=0, top=0, visible=False,
             border=ft.Border.all(2, GREEN), border_radius=999,
         )
+        # OK des traits Affiner : calcul groupé quand on confirme.
+        self.affine_ok_btn = ft.FilledButton(
+            "OK", icon=ft.Icons.CHECK, bgcolor=VIOLET, color=WHITE,
+            right=12, bottom=12, visible=False,
+            on_click=lambda e: self.page.run_task(self._affine_ok))
         self.image_stack = ft.Stack(
             controls=[self.image_container, *self._grid_lines,
-                      self._usa_guide, self._brush_ring],
+                      self._usa_guide, self._brush_ring,
+                      self.affine_ok_btn],
             width=self.canvas_w,
             height=self.canvas_h,
         )
@@ -3195,9 +3201,49 @@ class PhotoCropper:
         # Rendu final par le fil d'aperçu live : il est peut-être encore
         # en train de rendre le trait en cours, le dernier rendu gagne.
         self._live_preview_tick()
-        if op is not None and engine != "brut":
+        if op is not None and engine == "cheveux":
+            self._affine_ok_show()
+        elif op is not None and engine != "brut":
             self._stroke_busy = True
             self.page.run_task(self._stroke_refine, editor, op)
+
+    def _affine_ok_show(self) -> None:
+        editor = self._mask_editor
+        on = bool(editor is not None and editor.pending_affine())
+        if self.affine_ok_btn.visible != on:
+            self.affine_ok_btn.visible = on
+            self.affine_ok_btn.update()
+
+    async def _affine_ok(self) -> None:
+        """Calcule tous les traits Affiner en attente, sous un voile."""
+        editor = self._mask_editor
+        if editor is None or self._stroke_busy:
+            return
+        ops = editor.pending_affine()
+        segment = (functools.partial(self._stroke_segment, True)
+                   if REMBG_AVAILABLE and image_ops.big_model_ok()
+                   else None)
+        veil_text = self.load_veil.content.controls[1]
+        self._stroke_busy = True
+        try:
+            veil_text.value = "Affinage…"
+            async with ui_helpers.slow_veil(
+                    self.page, self.load_veil, delay=0.4):
+                for op in ops:
+                    await asyncio.to_thread(editor.refine_stroke, op,
+                                            segment)
+                if editor is self._mask_editor:
+                    self._mask_baked = None
+                    await self._render_preview_async()
+        except Exception as ex:
+            self._set_status(f"[ERREUR] affinage : {ex}")
+        finally:
+            veil_text.value = "Chargement de l'image…"
+            self._stroke_busy = False
+        self._affine_ok_show()
+        if editor is self._mask_editor:
+            self._mask_baked = None
+            self._live_preview_tick()
 
     def _stroke_segment(self, precise: bool, image):
         """Modèle rembg sur le recadrage d'un trait (thread). Reprend
@@ -3333,6 +3379,7 @@ class PhotoCropper:
             return
         self._mask_baked = None
         self._set_status("Retouche du masque annulée")
+        self._affine_ok_show()
         self.page.update()
         self._live_preview_tick()
 
