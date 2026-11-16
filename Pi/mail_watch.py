@@ -330,4 +330,4 @@ def loop():
                 run()
             except Exception as exc:
                 print(f"[Veille mails] {exc}", flush=True)
-        time.sleep(1800)
+        time.sleep(900)  # 15 min : projets de remerciements urgents
