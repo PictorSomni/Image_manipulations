@@ -322,10 +322,42 @@ def run():
     os.replace(mail_reply.MAILS + ".tmp", mail_reply.MAILS)
 
 
+def _easter(year):
+    """Dimanche de Pâques (calendrier grégorien)."""
+    a, b, c = year % 19, year // 100, year % 100
+    d, e = divmod(b, 4)
+    g = (8 * b + 13) // 25
+    h = (19 * a + b - d - g + 15) % 30
+    i, k = divmod(c, 4)
+    l_ = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * l_) // 451
+    month, day = divmod(h + l_ - 7 * m + 114, 31)
+    return datetime.date(year, month, day + 1)
+
+
+def _holiday(day):
+    """Jour férié légal en Belgique."""
+    if (day.month, day.day) in ((1, 1), (5, 1), (7, 21), (8, 15),
+                                (11, 1), (11, 11), (12, 25)):
+        return True
+    easter = _easter(day.year)
+    return any(day == easter + datetime.timedelta(days=n)
+               for n in (1, 39, 50))  # Pâques, Ascension, Pentecôte
+
+
+def shop_open(now=None):
+    """Heures du magasin : 9 h 30 – 18 h, fermé mardi, dimanche et
+    jours fériés belges."""
+    now = now or datetime.datetime.now()
+    if now.weekday() in (1, 6) or _holiday(now.date()):
+        return False
+    return datetime.time(9, 30) <= now.time() <= datetime.time(18, 0)
+
+
 def loop():
     time.sleep(90)
     while True:
-        if 9 <= datetime.datetime.now().hour < 19:
+        if shop_open():
             try:
                 run()
             except Exception as exc:
