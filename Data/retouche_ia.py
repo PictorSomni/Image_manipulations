@@ -2499,7 +2499,7 @@ async def main(page: ft.Page) -> None:
     }
     mask_tool_btn = _seg(
         [(0, "Déplacer"), (1, "Ajouter"), (2, "Soustraire"),
-         (3, "Cheveux")], 0,
+         (3, "Affiner")], 0,
         on_change=lambda e: on_mask_tool_change(e),
         tooltip="Pinceaux du masque")
     brush_size_slider = ft.Slider(
@@ -2891,7 +2891,7 @@ async def main(page: ft.Page) -> None:
         editor = _mask["editor"]
         if stroke is None or editor is None:
             return
-        # Ajouter / Soustraire : GrabCut local, sans attente. Cheveux :
+        # Ajouter / Soustraire : GrabCut local, sans attente. Affiner :
         # modèle précis sur la seule zone peinte.
         engine = "cheveux" if _mask["tool"] == 3 else "instant"
         op = editor.add_stroke(stroke[0], stroke[1], stroke[2], engine)
@@ -2917,8 +2917,12 @@ async def main(page: ft.Page) -> None:
         engine = op["engine"]
         try:
             if engine == "cheveux":
-                async with _veiled("Cheveux…", delay=0.4):
-                    await asyncio.to_thread(editor.refine_stroke, op)
+                segment = (functools.partial(_stroke_segment, True)
+                           if REMBG_AVAILABLE and image_ops.big_model_ok()
+                           else None)
+                async with _veiled("Affinage…", delay=0.4):
+                    await asyncio.to_thread(editor.refine_stroke, op,
+                                            segment)
             elif engine == "instant":
                 await asyncio.to_thread(editor.refine_stroke, op)
             elif not REMBG_AVAILABLE:

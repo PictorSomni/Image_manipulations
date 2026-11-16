@@ -1477,7 +1477,8 @@ def apply_stroke(mask, layer, keep):
 # du trait, bord recollé à l'image (sans IA) ; rapide / precis = u2net /
 # birefnet sur le seul recadrage autour du trait.
 STROKE_ENGINES = ("brut", "instant", "rapide", "precis", "cheveux")
-# « cheveux » : pinceau Cheveux, matting (pymatting, forme close) sous
+# « cheveux » : pinceau Affiner, BiRefNet si assez de mémoire, sinon
+# matting (pymatting, forme close) sous
 # le trait, le reste du masque sert de certitude ; léger en mémoire.
 # Côté long (px) du recadrage autour d'un trait : GrabCut local, et
 # entrée des modèles (ils réduisent de toute façon à 320 / 1024 px).
@@ -1537,6 +1538,15 @@ def snap_stroke_mask(rgb, prior, layer, core, keep, *, iters=3):
 STROKE_MATTE_PX = 700
 # Demi-largeur de la bande inconnue, en part du recadrage.
 STROKE_MATTE_BAND = 0.025
+
+
+def big_model_ok(min_gb: float = 10.0) -> bool:
+    """Assez de mémoire pour BiRefNet (~5 Go) ? Sinon matting."""
+    try:
+        return (os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+                / 2 ** 30) >= min_gb
+    except (ValueError, OSError, AttributeError):
+        return True  # Windows : pas de sysconf, machines confortables
 
 
 def matte_stroke_mask(rgb, prior, layer):
@@ -1793,7 +1803,12 @@ class MaskEditor:
             layer = stroke_layer((wh, ww), pts, op["radius"], scale)
             core = stroke_layer((wh, ww), pts,
                                 op["radius"] * STROKE_CORE, scale)
-            if engine == "cheveux":
+            if engine == "cheveux" and segment is not None:
+                big = np.array(segment(self.source.crop(bbox).convert(
+                    "RGB").resize(wsize, Image.Resampling.BILINEAR)),
+                    dtype=np.uint8)
+                cand = big
+            elif engine == "cheveux":
                 cand = matte_stroke_mask(np.asarray(crop), prior, layer)
             else:
                 cand = snap_stroke_mask(np.asarray(crop), prior, layer,
