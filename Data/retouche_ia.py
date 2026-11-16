@@ -2943,6 +2943,9 @@ async def main(page: ft.Page) -> None:
         _affine_ok_show()
         if editor is _mask["editor"]:
             _rembg_apply_composite()
+            # Affinage confirmé : retour à Déplacer, vue normale.
+            on_mask_tool_change(0)
+            mask_tool_btn.update()
             _live_tick()
 
     def _stroke_segment(precise: bool, image):

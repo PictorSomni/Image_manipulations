@@ -3246,6 +3246,10 @@ class PhotoCropper:
         self._affine_ok_show()
         if editor is self._mask_editor:
             self._mask_baked = None
+            # Affinage confirmé : retour à Déplacer, vue normale.
+            ui_helpers.seg_grid_set(self.mask_tool_btn, 0)
+            self.mask_tool_btn.update()
+            self.on_mask_tool_change(0)
             self._live_preview_tick()
 
     def _stroke_segment(self, precise: bool, image):
