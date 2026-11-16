@@ -22,8 +22,18 @@ function mailSheet(opts = {}) {
       const q = to.value.trim().toLowerCase();
       sugg.replaceChildren();
       if (q.length < 2) return;
-      try { mailSheet.contacts ??= await api("/api/mail",
-        {action: "contacts"}); } catch (e) { return; }
+      if (!mailSheet.contacts) {
+        try { mailSheet.contacts = JSON.parse(
+          localStorage.getItem("contacts") || "null"); } catch (e) {}
+        const fetched = api("/api/mail", {action: "contacts"}).then(l => {
+          if (!Array.isArray(l) || !l.length) return;
+          mailSheet.contacts = l;
+          try { localStorage.setItem("contacts", JSON.stringify(l)); }
+          catch (e) {}
+        }).catch(() => {});
+        if (!mailSheet.contacts) await fetched;
+        if (!mailSheet.contacts) return;
+      }
       mailSheet.contacts.filter(c => (c.a + " " + c.n).toLowerCase()
         .includes(q)).slice(0, 6).forEach(c => sugg.append(
           h("button", {class: "chipbtn", style: {background: "var(--blue)",

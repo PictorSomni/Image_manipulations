@@ -219,15 +219,34 @@ def search(q, limit=30):
 CONTACTS = os.path.join(HOME, ".mail_contacts.json")
 
 
+_scan_lock = __import__("threading").Lock()
+
+
 def contacts(max_age=12 * 3600):
     """Adresses déjà écrites ou reçues (envoyés comptés double), pour
-    l'autocomplétion du champ « À ». Cache ~/.mail_contacts.json."""
+    l'autocomplétion du champ « À ». Cache ~/.mail_contacts.json :
+    renvoyé tout de suite, même vieux ; rafraîchi en arrière-plan."""
     try:
-        if time.time() - os.path.getmtime(CONTACTS) < max_age:
-            with open(CONTACTS, encoding="utf-8") as f:
-                return json.load(f)
+        with open(CONTACTS, encoding="utf-8") as f:
+            cached = json.load(f)
+        if time.time() - os.path.getmtime(CONTACTS) >= max_age:
+            __import__("threading").Thread(target=_scan_contacts,
+                                           daemon=True).start()
+        return cached
     except (OSError, ValueError):
-        pass
+        return _scan_contacts()
+
+
+def _scan_contacts():
+    if not _scan_lock.acquire(blocking=False):
+        return []
+    try:
+        return _scan_contacts_locked()
+    finally:
+        _scan_lock.release()
+
+
+def _scan_contacts_locked():
     import mail_reader
     seen = {}
     with imaplib.IMAP4_SSL(HOST, 993, timeout=60) as imap:

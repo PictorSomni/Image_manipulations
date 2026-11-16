@@ -5,6 +5,7 @@ La webapp a son équivalent dans Mobile/mail.js.
 """
 
 import base64
+import json
 import os
 
 import flet as ft
@@ -12,7 +13,24 @@ import flet as ft
 import CONSTANTS
 import hub_sync
 
-_contacts = []  # adresses déjà écrites / reçues (cache du Pi)
+# Adresses déjà écrites / reçues : copie locale du cache du Pi, lue au
+# démarrage, rafraîchie une fois par session.
+_CONTACTS_FILE = os.path.join(os.path.expanduser("~"), ".hub_contacts.json")
+try:
+    with open(_CONTACTS_FILE, encoding="utf-8") as _f:
+        _contacts = json.load(_f)
+except (OSError, ValueError):
+    _contacts = []
+_fresh = {"done": False}
+
+
+def _save_contacts(out):
+    try:
+        with open(_CONTACTS_FILE + ".tmp", "w", encoding="utf-8") as f:
+            json.dump(out, f, ensure_ascii=False)
+        os.replace(_CONTACTS_FILE + ".tmp", _CONTACTS_FILE)
+    except OSError:
+        pass
 
 TONES = [("professionnel et chaleureux", "Chaleureux"),
          ("professionnel et sobre", "Sobre"), ("très bref", "Bref")]
@@ -59,12 +77,14 @@ def build(ui, bg, show, close, seg, field):
             page.update()
 
         def _loaded(out):
-            if isinstance(out, list):
+            if isinstance(out, list) and out:
                 _contacts[:] = out
+                _save_contacts(out)
                 _suggest()
 
         def _typed(e):
-            if not _contacts:
+            if not _fresh["done"]:
+                _fresh["done"] = True
                 bg(lambda: hub_sync.mail("contacts"), _loaded)
             _suggest()
 
