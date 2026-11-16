@@ -2523,10 +2523,13 @@ async def main(page: ft.Page) -> None:
         on_click=lambda e: page.run_task(on_mask_recalc, e),
         style=ft.ButtonStyle(padding=ft.Padding.symmetric(horizontal=6)),
     )
-    affine_ok_btn = ft.FilledButton(
-        "OK", icon=ft.Icons.CHECK, bgcolor=VIOLET, color=WHITE,
-        right=12, bottom=12, visible=False,
-        on_click=lambda e: page.run_task(_affine_ok))
+    affine_ok_btn = ft.Container(
+        content=ft.FilledButton(
+            "OK", icon=ft.Icons.CHECK, bgcolor=VIOLET, color=DARK,
+            icon_color=DARK,
+            on_click=lambda e: page.run_task(_affine_ok)),
+        top=12, left=0, right=0, alignment=ft.Alignment.TOP_CENTER,
+        visible=False)
     brush_ring = ft.Container(
         width=0, height=0, left=0, top=0, opacity=0,
         border=ft.Border.all(2, GREEN), border_radius=999,

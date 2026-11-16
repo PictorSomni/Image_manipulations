@@ -669,10 +669,13 @@ class PhotoCropper:
             border=ft.Border.all(2, GREEN), border_radius=999,
         )
         # OK des traits Affiner : calcul groupé quand on confirme.
-        self.affine_ok_btn = ft.FilledButton(
-            "OK", icon=ft.Icons.CHECK, bgcolor=VIOLET, color=WHITE,
-            right=12, bottom=12, visible=False,
-            on_click=lambda e: self.page.run_task(self._affine_ok))
+        self.affine_ok_btn = ft.Container(
+            content=ft.FilledButton(
+                "OK", icon=ft.Icons.CHECK, bgcolor=VIOLET, color=DARK,
+                icon_color=DARK,
+                on_click=lambda e: self.page.run_task(self._affine_ok)),
+            top=12, left=0, right=0, alignment=ft.Alignment.TOP_CENTER,
+            visible=False)
         self.image_stack = ft.Stack(
             controls=[self.image_container, *self._grid_lines,
                       self._usa_guide, self._brush_ring,
