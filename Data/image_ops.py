@@ -1960,7 +1960,7 @@ class MaskEditor:
                 if len(self._render_cache) > 2:
                     self._render_cache.clear()
                 self._render_cache[size] = (version, mask)
-        if live is not None and len(live[2]):
+        if live is not None and len(live[2]) and len(live) < 4:
             keep, radius, points = live
             scale = (size[0] / self.size[0], size[1] / self.size[1])
             layer = stroke_layer(mask.shape, points, radius, scale)
@@ -1970,8 +1970,21 @@ class MaskEditor:
     def compose(self, size=None, live=None) -> Image.Image:
         """Image RGBA : pixels d'origine + masque retouché."""
         size = tuple(size or self.size)
-        image = Image.fromarray(self.rgb_at(size), mode="RGB")
-        image.putalpha(Image.fromarray(self.render(size, live), mode="L"))
+        rgb = self.rgb_at(size)
+        mask = self.render(size, live)
+        if live is not None and len(live) > 3 and len(live[2]):
+            # Trait Affiner en cours : simple voile coloré, le masque
+            # n'est recalculé qu'au relâchement.
+            _keep, radius, points, tint = live
+            scale = (size[0] / self.size[0], size[1] / self.size[1])
+            a = stroke_layer(mask.shape, points, radius, scale
+                             ).astype(np.uint16) * 140 // 255
+            rgb = ((rgb.astype(np.uint16) * (255 - a[..., None])
+                    + np.array(tint, np.uint16) * a[..., None]) // 255
+                   ).astype(np.uint8)
+            mask = np.maximum(mask, (a * 255 // 140).astype(np.uint8))
+        image = Image.fromarray(rgb, mode="RGB")
+        image.putalpha(Image.fromarray(mask, mode="L"))
         return image
 
     def grabcut(self, *, work_px: int = GRABCUT_WORK_PX,

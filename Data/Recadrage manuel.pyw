@@ -2286,9 +2286,10 @@ class PhotoCropper:
             # opérations directement à la taille d'aperçu (rendu mis en
             # cache), plus le trait en cours de tracé.
             live = None
-            if (stroke is not None and stroke[2]
-                    and self._mask_tool != 3):
+            if stroke is not None and stroke[2]:
                 live = (stroke[0], stroke[1], list(stroke[2]))
+                if self._mask_tool == 3:
+                    live += ((160, 90, 230),)
             ratio = min(max_px / self.original_width,
                         max_px / self.original_height, 1.0)
             if live:

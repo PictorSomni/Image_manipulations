@@ -2843,7 +2843,9 @@ async def main(page: ft.Page) -> None:
                 _live["dirty"] = False
                 stroke = _mask["stroke"]
                 live = ((stroke[0], stroke[1], list(stroke[2]))
-                        if stroke and _mask["tool"] != 3 else None)
+                        if stroke else None)
+                if live and _mask["tool"] == 3:
+                    live += ((160, 90, 230),)  # voile Affiner
 
                 def work():
                     base, _ = _rembg_preview(live)
