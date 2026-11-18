@@ -18,6 +18,7 @@ import os
 import shutil
 import sys
 import time
+import warnings
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -37,6 +38,8 @@ RED = CONSTANTS.COLOR_RED
 YELLOW = CONSTANTS.COLOR_YELLOW
 VIOLET = CONSTANTS.COLOR_VIOLET
 ORANGE = CONSTANTS.COLOR_ORANGE
+
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 FOLDER = os.environ.get("FOLDER_PATH") or os.getcwd()
 NO_OBJ = "—"
