@@ -8586,6 +8586,8 @@ def main(page: ft.Page):
              _launch_images_en_pdf),
             ("Livret", ft.Icons.MENU_BOOK_OUTLINED, ORANGE,
              _launch_livret),
+            ("Fiche commande", ft.Icons.RECEIPT_LONG_OUTLINED, ORANGE,
+             lambda e: _launch_tool("Fiche commande.pyw")),
             # Icône d'urne : Remerciements sert aux faire-part de décès,
             # c'est le repère visuel que Charles reconnaît dans le menu.
             # Ne PAS « corriger » en icône cadeau/carte (retour user).

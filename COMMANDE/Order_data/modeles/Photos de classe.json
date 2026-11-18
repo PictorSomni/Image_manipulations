@@ -1,0 +1,293 @@
+{
+ "deadline": "28 novembre",
+ "note": "Vos commandes sont au profit de l'école !",
+ "footer": "à remettre pour le {date}\navec le montant exact en liquide",
+ "sections": [
+  {
+   "name": "Packs photos",
+   "col": 0,
+   "items": [
+    {
+     "name": "Pack A",
+     "sub": "1X 13x18 + 2X 9x13 + 2X 3.5x4.5",
+     "price": "12",
+     "price2": "",
+     "object": null,
+     "on": true
+    },
+    {
+     "name": "Pack B",
+     "sub": "1X 20x30 + 2X 15x20",
+     "price": "18",
+     "price2": "",
+     "object": null,
+     "on": true
+    },
+    {
+     "name": "A + B",
+     "sub": "",
+     "price": "25",
+     "price2": "",
+     "object": null,
+     "on": true
+    }
+   ]
+  },
+  {
+   "name": "Impressions",
+   "col": 0,
+   "items": [
+    {
+     "name": "Photo 13x18",
+     "sub": "+ cadre",
+     "price": "6",
+     "price2": "8",
+     "object": "cadre",
+     "on": true
+    },
+    {
+     "name": "Photo 13x18 sur support bois",
+     "sub": "",
+     "price": "13",
+     "price2": "",
+     "object": "bois",
+     "on": true
+    },
+    {
+     "name": "Photo 15x20",
+     "sub": "+ cadre",
+     "price": "7",
+     "price2": "9",
+     "object": null,
+     "on": true
+    },
+    {
+     "name": "Photo 20x30",
+     "sub": "+ cadre",
+     "price": "9",
+     "price2": "10",
+     "object": null,
+     "on": true
+    },
+    {
+     "name": "Photo 30x40",
+     "sub": "+ cadre",
+     "price": "19",
+     "price2": "13",
+     "object": null,
+     "on": true
+    },
+    {
+     "name": "Photo 40x60",
+     "sub": "+ cadre",
+     "price": "38",
+     "price2": "20",
+     "object": null,
+     "on": true
+    }
+   ]
+  },
+  {
+   "name": "Objets personnalisés",
+   "col": 1,
+   "items": [
+    {
+     "name": "Calendrier A4",
+     "sub": "",
+     "price": "9",
+     "price2": "",
+     "object": "calendrier",
+     "on": true
+    },
+    {
+     "name": "Magnet 10x15",
+     "sub": "",
+     "price": "8",
+     "price2": "",
+     "object": null,
+     "on": true
+    },
+    {
+     "name": "Magnets ronds Ø5cm X3",
+     "sub": "",
+     "price": "15",
+     "price2": "",
+     "object": "magnet",
+     "on": true
+    },
+    {
+     "name": "Porte-clefs plexi X2",
+     "sub": "",
+     "price": "9",
+     "price2": "",
+     "object": "porte_clef",
+     "on": true
+    },
+    {
+     "name": "Tapis de souris X2",
+     "sub": "",
+     "price": "10",
+     "price2": "",
+     "object": null,
+     "on": true
+    },
+    {
+     "name": "Toile sur châssis 30x40cm",
+     "sub": "",
+     "price": "49",
+     "price2": "",
+     "object": null,
+     "on": true
+    },
+    {
+     "name": "Dibond 30x40cm",
+     "sub": "",
+     "price": "49",
+     "price2": "",
+     "object": null,
+     "on": true
+    },
+    {
+     "name": "Plexi 30x40cm",
+     "sub": "",
+     "price": "49",
+     "price2": "",
+     "object": null,
+     "on": true
+    },
+    {
+     "name": "Toile sur châssis 40x60cm",
+     "sub": "",
+     "price": "79",
+     "price2": "",
+     "object": null,
+     "on": true
+    },
+    {
+     "name": "Dibond 40x60cm",
+     "sub": "",
+     "price": "79",
+     "price2": "",
+     "object": null,
+     "on": true
+    },
+    {
+     "name": "Plexi 40x60cm",
+     "sub": "",
+     "price": "79",
+     "price2": "",
+     "object": null,
+     "on": true
+    },
+    {
+     "name": "Tasse",
+     "sub": "",
+     "price": "15",
+     "price2": "",
+     "object": "mug",
+     "on": true
+    }
+   ]
+  },
+  {
+   "name": "Mais aussi",
+   "col": 2,
+   "items": [
+    {
+     "name": "Boule à neige",
+     "sub": "",
+     "price": "9",
+     "price2": "",
+     "object": "neige",
+     "on": true
+    },
+    {
+     "name": "Badge X2",
+     "sub": "",
+     "price": "10",
+     "price2": "",
+     "object": null,
+     "on": true
+    },
+    {
+     "name": "Calendrier dépliants A6 X3",
+     "sub": "",
+     "price": "8",
+     "price2": "",
+     "object": null,
+     "on": true
+    },
+    {
+     "name": "Cartes de vœux modèle A",
+     "sub": "X5",
+     "price": "6",
+     "price2": "",
+     "object": "voeux05",
+     "on": true
+    },
+    {
+     "name": "Cartes de vœux modèle B",
+     "sub": "X5",
+     "price": "6",
+     "price2": "",
+     "object": "voeux02",
+     "on": true
+    },
+    {
+     "name": "Boule de Noël modèle A",
+     "sub": "avec prénom gravé",
+     "price": "6",
+     "price2": "",
+     "object": null,
+     "on": true
+    },
+    {
+     "name": "Boule de Noël modèle B",
+     "sub": "avec prénom gravé",
+     "price": "6",
+     "price2": "",
+     "object": null,
+     "on": true
+    }
+   ]
+  },
+  {
+   "name": "Photos de classes",
+   "col": 2,
+   "items": [
+    {
+     "name": "P1, P2, P3",
+     "sub": "",
+     "price": "3,5",
+     "price2": "",
+     "object": null,
+     "on": true
+    },
+    {
+     "name": "P4, P5, P6",
+     "sub": "",
+     "price": "3,5",
+     "price2": "",
+     "object": null,
+     "on": true
+    },
+    {
+     "name": "P6",
+     "sub": "",
+     "price": "3,5",
+     "price2": "",
+     "object": null,
+     "on": true
+    },
+    {
+     "name": "Maternelles",
+     "sub": "",
+     "price": "3,5",
+     "price2": "",
+     "object": null,
+     "on": true
+    }
+   ]
+  }
+ ]
+}
