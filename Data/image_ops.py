@@ -1705,9 +1705,9 @@ def mask_overlay(image: Image.Image) -> Image.Image:
     image = image.convert("RGBA")
     half = image.convert("L").point(lambda v: v // 2)
     tint = Image.merge("RGB", (half.point(lambda v: v + 120), half, half))
-    # Poids de la teinte : 60 % sur le fond retiré, 0 sur le sujet.
+    # Poids de la teinte : 75 % sur le fond retiré, 0 sur le sujet.
     weight = image.getchannel("A").point(
-        lambda a: (153 * (255 - a) + 127) // 255)
+        lambda a: (191 * (255 - a) + 127) // 255)
     return Image.composite(tint, image.convert("RGB"), weight)
 
 

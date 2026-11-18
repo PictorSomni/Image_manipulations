@@ -672,6 +672,10 @@ class PhotoCropper:
         self.affine_ok_btn = ft.Container(
             content=ft.FilledButton(
                 "OK", icon=ft.Icons.CHECK, bgcolor=VIOLET, color=DARK,
+                style=ft.ButtonStyle(
+                    side=ft.BorderSide(3, WHITE), elevation=8,
+                    padding=ft.Padding.symmetric(horizontal=36, vertical=18),
+                    text_style=ft.TextStyle(size=20, weight=ft.FontWeight.BOLD)),
                 icon_color=DARK,
                 on_click=lambda e: self.page.run_task(self._affine_ok)),
             top=12, left=0, right=0, alignment=ft.Alignment.TOP_CENTER,
