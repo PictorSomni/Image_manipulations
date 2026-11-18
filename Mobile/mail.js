@@ -112,7 +112,8 @@ function mailSheet(opts = {}) {
                (m.points || []).length ? md(m.points.map(x => "- **" + x +
                  "**").join("\n")) : null,
                md(m.body || ""),
-               m.files_id ? mailFiles(m.files_id) : null),
+               m.files_id ? mailFiles(m.files_id) : null,
+               mailThread(m)),
              ...(opts.info || []),
              card("--violet", title("Rédaction IA", "--violet"), ...form),
              card("--blue", title("Réponse", "--blue"), ...mine)]
@@ -120,4 +121,29 @@ function mailSheet(opts = {}) {
              card("--violet", title("Rédaction IA", "--violet"), ...form),
              card("--blue", title("Message", "--blue"), ...mine)]),
     pick], true);
+}
+
+// Fil précédent d'un mail (même correspondant, même objet), sur demande.
+function mailThread(m) {
+  const list = h("div");
+  const btn = h("button", {class: "btn", style: {background: C.green,
+    color: "#222429"}}, ic("forum"), " Conversation");
+  btn.onclick = async () => {
+    btn.remove();
+    list.replaceChildren(h("div", {class: "muted"}, "Chargement…"));
+    try {
+      const r = (await api("/api/mail", {action: "thread", addr: m.from,
+        subject: m.subject || "", exclude: m.message_id || ""})).ok;
+      list.replaceChildren(...(r.length ? r.map(x => h("div", {style: {
+        borderLeft: "3px solid " + (x.sent ? C.green : C.blue),
+        padding: "4px 0 4px 10px", margin: "8px 0"}},
+        h("div", {class: "muted"}, h("span", {class: "ms", style: {color:
+          x.sent ? C.green : C.blue, marginRight: "4px"}},
+          x.sent ? "send" : "mail"), x.date),
+        h("div", {style: {whiteSpace: "pre-wrap"}}, x.body)))
+        : [h("div", {class: "muted"}, "Pas d'autre message")]));
+    } catch (e) { list.replaceChildren(h("div", {}, "Erreur : " +
+      e.message)); }
+  };
+  return h("div", {}, btn, list);
 }

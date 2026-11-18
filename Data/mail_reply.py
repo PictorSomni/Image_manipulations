@@ -225,6 +225,50 @@ def search(q, limit=30):
     return found
 
 
+def _base_subject(subject):
+    """Objet sans les Re:/Fwd:/TR: en tête, pour regrouper un fil."""
+    return re.sub(r"^\s*((re|fwd?|tr|aw|wg)\s*(\[\d+\])?\s*:\s*)+", "",
+                  subject or "", flags=re.I).strip().lower()
+
+
+def thread(addr, subject, exclude="", limit=20):
+    """Fil d'un mail : reçus de `addr` et envois à `addr` au même objet
+    (Re:/Fwd: ignorés), du plus ancien au plus récent, sans `exclude`."""
+    import email
+    import email.policy
+    import email.utils
+    import mail_reader
+    addr = email.utils.parseaddr(addr or "")[1].replace('"', "")
+    base = _base_subject(subject)
+    if not addr:
+        return []
+    out = []
+    with imaplib.IMAP4_SSL(HOST, 993, timeout=30) as imap:
+        imap.login(ADDRESS, _password())
+        for folder, sent in (("INBOX", False), (_sent_folder(imap), True)):
+            imap.select(folder, readonly=True)
+            nums = imap.search(None, "TO" if sent else "FROM",
+                               '"' + addr + '"')[1][0].split()
+            for num in nums[::-1][:60]:
+                _, parts = imap.fetch(num, "(BODY.PEEK[])")
+                msg = email.message_from_bytes(parts[0][1],
+                                               policy=email.policy.default)
+                subj = mail_reader._decode(msg["Subject"])
+                mid = msg["Message-ID"] or f"{folder}:{num}"
+                if _base_subject(subj) != base or mid == exclude:
+                    continue
+                try:
+                    date = email.utils.parsedate_to_datetime(msg["Date"])
+                    stamp = f"{date:%Y-%m-%d %H:%M}"
+                except (TypeError, ValueError):
+                    stamp = ""
+                out.append({"message_id": mid, "subject": subj,
+                            "body": _clean_body(msg), "date": stamp,
+                            "sent": sent})
+    out.sort(key=lambda m: m["date"])
+    return out[-limit:]
+
+
 CONTACTS = os.path.join(HOME, ".mail_contacts.json")
 
 
@@ -398,6 +442,9 @@ def call(req):
         return search(req.get("q", ""))
     if a == "contacts":
         return contacts()
+    if a == "thread":
+        return thread(req.get("addr", ""), req.get("subject", ""),
+                      req.get("exclude", ""))
     if a == "briefing":  # le texte du matin, pour Hub
         path = os.path.join(HOME, "briefing.md")
         try:

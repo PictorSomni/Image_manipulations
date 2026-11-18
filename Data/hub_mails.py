@@ -29,7 +29,7 @@ def build(ui):
     page = ui.page
     DARK, WHITE, GREY = ui.DARK, ui.WHITE, ui.GREY
     LIGHT_GREY, RED, BLUE = ui.LIGHT_GREY, ui.RED, ui.BLUE
-    YELLOW = CONSTANTS.COLOR_YELLOW
+    YELLOW, GREEN = CONSTANTS.COLOR_YELLOW, CONSTANTS.COLOR_GREEN
     _dialog, _dlg_btn, _run_task = ui._dialog, ui._dlg_btn, ui._run_task
     # Rempli par Hub une fois l'onglet Fichiers prêt (open_folder).
     hooks = {}
@@ -204,6 +204,34 @@ def build(ui):
             _close(box["dlg"])
             mail_to_task(m)
 
+        # Fil précédent (même correspondant, même objet), sur demande.
+        history = ft.Column([], spacing=6)
+
+        def _thread_fill(out):
+            if isinstance(out, Exception):
+                history.controls = [ft.Text(f"Erreur : {out}", color=RED)]
+                return
+            history.controls = [ft.Container(ft.Column([
+                ft.Row([ft.Icon(ft.Icons.SEND if x["sent"]
+                                else ft.Icons.MAIL_OUTLINE,
+                                color=GREEN if x["sent"] else BLUE,
+                                size=16),
+                        ft.Text(x["date"], color=LIGHT_GREY, size=12)],
+                       spacing=6),
+                ft.Text(x["body"], color=WHITE, selectable=True)],
+                spacing=4), padding=10, border_radius=8,
+                border=ft.Border.all(1, GREEN if x["sent"] else BLUE))
+                for x in out] or [ft.Text("Pas d'autre message",
+                                          color=LIGHT_GREY)]
+
+        def _thread(e):
+            history.controls = [ft.Text("Chargement…", color=LIGHT_GREY)]
+            page.update()
+            _bg(lambda: hub_sync.mail("thread", addr=m.get("from", ""),
+                                      subject=m.get("subject", ""),
+                                      exclude=m.get("message_id", "")),
+                _thread_fill)
+
         box["dlg"] = open_mail(
             reply=m,
             header=[*([ft.Container(ft.Column([
@@ -213,8 +241,10 @@ def build(ui):
                 if m.get("points") else []),
                     ft.Text(m.get("body", ""), color=WHITE,
                             selectable=True),
-                    *([_mail_files(m)] if m.get("files_id") else [])],
+                    *([_mail_files(m)] if m.get("files_id") else []),
+                    history],
             extra_actions=[
+                _dlg_btn("Conversation", color=GREEN, on_click=_thread),
                 *([_dlg_btn("Retirer", color=RED, on_click=_retire)]
                   if on_dismiss else []),
                 *([_dlg_btn("Tâche", color=ui.ORANGE, on_click=_to_task)]
