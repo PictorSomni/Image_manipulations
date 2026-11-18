@@ -8370,7 +8370,7 @@ def main(page: ft.Page):
         # de dossier, "Créer un dossier") — n'agit que sur un seul dossier
         # sélectionné (garde dans _open_folder_new_tab).
         ("Ouvrir dans un nouvel onglet", ft.Icons.TAB_OUTLINED, YELLOW,
-         lambda e: _open_folder_new_tab(list(selected))),
+         lambda e: _open_folder_new_tab_from_menu()),
         None,
         ("Renommer", ft.Icons.DRIVE_FILE_RENAME_OUTLINE, BLUE_DARK,
          renommer_btn.on_click),
@@ -8808,6 +8808,13 @@ def main(page: ft.Page):
     ], expand=True)
 
     _new_tab_btn = _icon_btns["Ouvrir dans un nouvel onglet"]
+
+    def _open_folder_new_tab_from_menu():
+        # Ferme Actions et vide la sélection du dossier parent AVANT de
+        # mémoriser l'onglet : y revenir ne relance rien dessus.
+        paths = list(selected)
+        _close_actions()
+        _open_folder_new_tab(paths)
 
     def _close_actions(event=None):
         if actions_overlay in page.overlay:
