@@ -204,33 +204,28 @@ def build(ui):
             _close(box["dlg"])
             mail_to_task(m)
 
-        # Fil précédent (même correspondant, même objet), sur demande.
+        # Dernier message précédent du fil (reçu ou envoyé), d'office.
         history = ft.Column([], spacing=6)
 
         def _thread_fill(out):
-            if isinstance(out, Exception):
-                history.controls = [ft.Text(f"Erreur : {out}", color=RED)]
+            if isinstance(out, Exception) or not out:
                 return
+            x = out[-1]
             history.controls = [ft.Container(ft.Column([
                 ft.Row([ft.Icon(ft.Icons.SEND if x["sent"]
                                 else ft.Icons.MAIL_OUTLINE,
-                                color=GREEN if x["sent"] else BLUE,
-                                size=16),
-                        ft.Text(x["date"], color=LIGHT_GREY, size=12)],
-                       spacing=6),
+                                color=YELLOW, size=16),
+                        ft.Text(x["date"], color=YELLOW, size=12,
+                                weight=ft.FontWeight.BOLD)], spacing=6),
                 ft.Text(x["body"], color=WHITE, selectable=True)],
                 spacing=4), padding=10, border_radius=8,
-                border=ft.Border.all(1, GREEN if x["sent"] else BLUE))
-                for x in out] or [ft.Text("Pas d'autre message",
-                                          color=LIGHT_GREY)]
+                bgcolor=ft.Colors.with_opacity(0.12, YELLOW),
+                border=ft.Border.all(1.5, YELLOW))]
 
-        def _thread(e):
-            history.controls = [ft.Text("Chargement…", color=LIGHT_GREY)]
-            page.update()
-            _bg(lambda: hub_sync.mail("thread", addr=m.get("from", ""),
-                                      subject=m.get("subject", ""),
-                                      exclude=m.get("message_id", "")),
-                _thread_fill)
+        _bg(lambda: hub_sync.mail("thread", addr=m.get("from", ""),
+                                  subject=m.get("subject", ""),
+                                  exclude=m.get("message_id", "")),
+            _thread_fill)
 
         box["dlg"] = open_mail(
             reply=m,
@@ -244,7 +239,6 @@ def build(ui):
                     *([_mail_files(m)] if m.get("files_id") else []),
                     history],
             extra_actions=[
-                _dlg_btn("Conversation", color=GREEN, on_click=_thread),
                 *([_dlg_btn("Retirer", color=RED, on_click=_retire)]
                   if on_dismiss else []),
                 *([_dlg_btn("Tâche", color=ui.ORANGE, on_click=_to_task)]
