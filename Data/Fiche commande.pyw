@@ -436,6 +436,16 @@ def main(page: ft.Page):
                           value=obj.get("fit", False))
         orient = ft.Checkbox(label="Tourner pour les photos en paysage",
                              value=obj.get("orient", False))
+        static = ft.Checkbox(label="Image fixe, sans la photo",
+                             value=obj.get("static", False))
+        persp = ft.Slider(min=-300, max=300, divisions=60,
+                          value=int(obj.get("persp", 0) or 0),
+                          label="Perspective {value}", active_color=ORANGE)
+
+        def read_opts():
+            obj["fit"], obj["orient"] = fit.value, orient.value
+            obj["static"] = static.value
+            obj["persp"] = int(persp.value)
 
         def place():
             bg = fc._asset(obj["bg"]) if obj["bg"] else None
@@ -453,7 +463,7 @@ def main(page: ft.Page):
         def redo_sample():
             if st["photo"] is None or not obj["bg"]:
                 return
-            obj["fit"], obj["orient"] = fit.value, orient.value
+            read_opts()
             sample.src = _png_src(fc.render_object(st["photo"], obj), 500)
 
         def to_px(p):
@@ -504,7 +514,7 @@ def main(page: ft.Page):
             if not obj["bg"]:
                 return
             obj["name"] = name.value.strip() or "Objet"
-            obj["fit"], obj["orient"] = fit.value, orient.value
+            read_opts()
             k = key or "obj_%d" % int(time.time())
             st["objects"][k] = obj
             fc.save_objects(st["objects"])
@@ -512,8 +522,9 @@ def main(page: ft.Page):
             page.pop_dialog()
             changed(True)
 
-        fit.on_change = orient.on_change = lambda e: (redo_sample(),
-                                                      page.update())
+        fit.on_change = orient.on_change = static.on_change = (
+            lambda e: (redo_sample(), page.update()))
+        persp.on_change_end = lambda e: (redo_sample(), page.update())
         place()
         page.show_dialog(ft.AlertDialog(
             title=ft.Text("Objet"),
@@ -529,7 +540,7 @@ def main(page: ft.Page):
                                  lambda e: page.run_task(pick, "bg")),
                             _btn("Masque", ft.Icons.GRADIENT, VIOLET,
                                  lambda e: page.run_task(pick, "alpha"))]),
-                    fit, orient, sample], width=300)],
+                    fit, orient, static, persp, sample], width=300)],
                 vertical_alignment=ft.CrossAxisAlignment.START),
             actions=[ft.TextButton("Annuler",
                                    on_click=lambda e: page.pop_dialog()),

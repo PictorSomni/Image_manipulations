@@ -11,6 +11,7 @@ import json
 import os
 import re
 
+import numpy
 from PIL import Image, ImageChops, ImageDraw, ImageFont, ImageOps
 
 Image.MAX_IMAGE_PIXELS = None
@@ -88,15 +89,29 @@ DEFAULT_OBJECTS = {
                      "alpha": "PORTEFEUILLE_ALPHA.png",
                      "box": [280, 534, 2023, 1574], "fit": True,
                      "orient": False},
+    "boite": {"name": "Boîte à tartines", "bg": "BOITE-TARTINE.png",
+              "alpha": "BOITE-TARTINE_ALPHA.png",
+              "box": [313, 566, 1842, 1311], "fit": False,
+              "orient": False, "persp": 60},
+    "voeux03": {"name": "Carte de vœux 3", "bg": "VOEUX03.png",
+                "alpha": "VOEUX03_ALPHA.png", "box": [0, 0, 1796, 1205],
+                "fit": False, "orient": False},
+    "boule_01": {"name": "Boule de Noël gravée A", "bg": "BOULE_01.png",
+                 "alpha": "", "box": [0, 0, 487, 487], "static": True},
+    "boule_02": {"name": "Boule de Noël gravée B", "bg": "BOULE_02.png",
+                 "alpha": "", "box": [0, 0, 487, 487], "static": True},
 }
 
 
 def load_objects():
     try:
         with open(OBJECTS, encoding="utf-8") as f:
-            return json.load(f)
+            saved = json.load(f)
     except (OSError, ValueError):
-        return copy.deepcopy(DEFAULT_OBJECTS)
+        saved = {}
+    objs = copy.deepcopy(DEFAULT_OBJECTS)
+    objs.update(saved)
+    return objs
 
 
 def save_objects(objs):
@@ -191,7 +206,25 @@ def _asset(name):
     return _img_cache[name]
 
 
-def combine(photo, bg, box, alpha=None, fit=False, orient=False):
+def _perspective(img, p):
+    """Rétrécit le bord haut de `p` px de chaque côté (p < 0 : l'élargit)
+    et tasse la hauteur, pour une face vue en biais."""
+    w, h = img.size
+    dst = [(p, 0), (w - p, 0), (w, h), (0, h)]
+    src = [(0, 0), (w, 0), (w, h), (0, h)]
+    rows, rhs = [], []
+    for (x, y), (u, v) in zip(dst, src):
+        rows.append([x, y, 1, 0, 0, 0, -u * x, -u * y])
+        rows.append([0, 0, 0, x, y, 1, -v * x, -v * y])
+        rhs += [u, v]
+    coeffs = numpy.linalg.solve(numpy.array(rows, float),
+                                numpy.array(rhs, float))
+    return img.transform((w, h), Image.Transform.PERSPECTIVE,
+                         tuple(coeffs), Image.Resampling.BICUBIC)
+
+
+def combine(photo, bg, box, alpha=None, fit=False, orient=False,
+            persp=0):
     """Photo dans la zone `box` de `bg`, découpée par le masque `alpha`
     (même principe qu'Order.pyw : le plus sombre des deux l'emporte)."""
     left, up, right, down = box
@@ -206,6 +239,8 @@ def combine(photo, bg, box, alpha=None, fit=False, orient=False):
                        Image.Resampling.LANCZOS)
     zone = Image.new("RGBA", (w, h), (255, 255, 255, 0))
     zone.paste(pic, ((w - pic.width) // 2, (h - pic.height) // Y_OFFSET))
+    if persp:
+        zone = _perspective(zone, persp)
     layer = Image.new("RGBA", bg.size, (255, 255, 255, 0))
     layer.paste(zone, (left, up), zone)
     if alpha is not None:
@@ -214,9 +249,12 @@ def combine(photo, bg, box, alpha=None, fit=False, orient=False):
 
 
 def render_object(photo, obj):
+    if obj.get("static"):
+        return _asset(obj["bg"]).copy()
     out = combine(photo, _asset(obj["bg"]), obj["box"],
                   _asset(obj["alpha"]) if obj.get("alpha") else None,
-                  obj.get("fit", False), obj.get("orient", False))
+                  obj.get("fit", False), obj.get("orient", False),
+                  int(obj.get("persp", 0) or 0))
     out.thumbnail((600, 600), Image.Resampling.LANCZOS)
     return out
 
