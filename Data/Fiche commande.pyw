@@ -122,7 +122,9 @@ def main(page: ft.Page):
                        fit=ft.BoxFit.CONTAIN, expand=True)
     status = ft.Text("", color=LIGHT_GREY, size=CONSTANTS.TEXT_SM)
     progress = ft.ProgressBar(color=GREEN, visible=False, value=0)
-    sections_col = ft.Column(spacing=10)
+    sections_col = ft.ReorderableListView(
+        expand=True, spacing=10,
+        mouse_cursor=ft.MouseCursor.GRAB)
 
     # ── Aperçu (en tâche de fond, la dernière demande gagne) ────────────
     def refresh(delay=0.5):
@@ -242,10 +244,6 @@ def main(page: ft.Page):
             title.value = sec["name"]
             changed()
 
-        def set_col(e):
-            sec["col"] = int(e.control.value)
-            changed(True)
-
         def add_item(e):
             sec["items"].append({"name": "Nouvel article", "sub": "",
                                  "price": "0", "price2": "",
@@ -257,26 +255,17 @@ def main(page: ft.Page):
             st["open"].symmetric_difference_update({id(sec)})
             draw_sections()
             page.update()
-        tint = PALETTE[i % len(PALETTE)]
+        si = st["model"]["sections"].index(sec)
+        tint = PALETTE[si % len(PALETTE)]
         n_on = sum(1 for it in sec["items"] if it.get("on", True))
         drawer = _drawer(
             sec["name"],
-            f"Colonne {sec.get('col', 0) + 1} · "
             f"{n_on} / {len(sec['items'])} articles",
             tint, id(sec) in st["open"], toggle, [
                 ft.Row([
                     _field(sec["name"], rename, expand=True, border=tint,
                            label="Rubrique"),
-                    ft.Dropdown(value=str(sec.get("col", 0)), width=110,
-                                label="Colonne", border_color=tint,
-                                filled=True, fill_color=DARK, bgcolor=DARK,
-                                dense=True, color=WHITE,
-                                on_select=set_col,
-                                text_size=CONSTANTS.TEXT_SM,
-                                options=[ft.DropdownOption(
-                                    key=str(c), text=str(c + 1))
-                                    for c in range(3)]),
-                    actions_menu(st["model"]["sections"], i)],
+                    sec_menu(i, si)],
                     spacing=10),
                 ft.Container(height=4),
                 ft.Column([item_row(sec, j, it, tint)
@@ -289,6 +278,7 @@ def main(page: ft.Page):
                     alignment=ft.MainAxisAlignment.END),
                     padding=ft.Padding.only(top=6, bottom=6))])
         title = drawer.content.controls[0].content.controls[1].controls[0]
+        drawer.key = str(id(sec))
         return drawer
 
     def toggle_fiche(e):
@@ -304,8 +294,7 @@ def main(page: ft.Page):
                 m[key] = e.control.value
                 changed()
             return _h
-        sections_col.controls = [
-            _drawer(
+        sections_col.header = ft.Container(_drawer(
                 "Fiche", f"Pour le {m.get('deadline', '')}", LIGHT_GREY,
                 "fiche" in st["open"], toggle_fiche, [ft.Column([
                     ft.Row([
@@ -321,13 +310,74 @@ def main(page: ft.Page):
                            label="Bas de fiche · {date}",
                            border=LIGHT_GREY, multiline=True,
                            min_lines=2)],
-                    spacing=18)]),
-            *[section_box(i, s) for i, s in enumerate(m["sections"])],
-            ft.Row([ft.FilledButton(
+                    spacing=18)]), padding=ft.Padding.only(bottom=10))
+        sections_col.header = ft.Column(
+            [sections_col.header,
+             ft.Text("Colonne 1", color=LIGHT_GREY,
+                     weight=ft.FontWeight.W_600, size=CONSTANTS.TEXT_SM)],
+            spacing=0)
+        seq = []
+        for c in range(3):
+            if c:
+                seq.append(c)
+            seq += [s for s in m["sections"] if s.get("col", 0) == c]
+        st["seq"] = seq
+        sections_col.controls = [
+            col_sep(x, n) if isinstance(x, int) else section_box(n, x)
+            for n, x in enumerate(seq)]
+        sections_col.footer = ft.Container(ft.Row([ft.FilledButton(
                 "Rubrique", icon=ft.Icons.ADD, on_click=add_section,
                 style=ft.ButtonStyle(bgcolor=BLUE, color=DARK,
                                      icon_color=DARK))],
-                alignment=ft.MainAxisAlignment.END)]
+                alignment=ft.MainAxisAlignment.END),
+            padding=ft.Padding.only(top=10))
+
+    def col_sep(c, n):
+        return ft.Container(
+            ft.Row([ft.Text(f"Colonne {c + 1}", color=LIGHT_GREY,
+                            weight=ft.FontWeight.W_600,
+                            size=CONSTANTS.TEXT_SM),
+                    ft.Container(height=1, bgcolor=GREY, expand=True)]),
+            padding=ft.Padding.only(top=6), key=f"col{c}")
+
+    def sec_menu(n, si):
+        def go(d):
+            if 0 <= n + d < len(st["seq"]):
+                apply_order(n, n + d)
+
+        def drop(e):
+            st["model"]["sections"].pop(si)
+            changed(True)
+        return ft.PopupMenuButton(
+            icon=ft.Icons.MORE_VERT, icon_color=LIGHT_GREY,
+            items=[ft.PopupMenuItem(content="Monter",
+                                    icon=ft.Icons.ARROW_UPWARD,
+                                    on_click=lambda e: go(-1)),
+                   ft.PopupMenuItem(content="Descendre",
+                                    icon=ft.Icons.ARROW_DOWNWARD,
+                                    on_click=lambda e: go(1)),
+                   ft.PopupMenuItem(content="Supprimer",
+                                    icon=ft.Icons.DELETE_OUTLINE,
+                                    on_click=drop)])
+
+    def reorder(e):
+        apply_order(e.old_index, e.new_index)
+
+    def apply_order(old, new):
+        seq = st["seq"]
+        seq.insert(new, seq.pop(old))
+        col, secs = 0, []
+        for x in seq:
+            if isinstance(x, int):
+                col += 1
+            else:
+                x["col"] = min(col, 2)
+                secs.append(x)
+        st["model"]["sections"] = secs
+        changed(True)
+
+    sections_col.on_reorder = reorder
+
 
     def add_section(e):
         st["model"]["sections"].append(
@@ -400,7 +450,9 @@ def main(page: ft.Page):
                                    on_click=lambda e: page.pop_dialog()),
                      _btn("Supprimer", ft.Icons.DELETE, RED, ok)]))
 
-    save_btn = _btn("Enregistrer", ft.Icons.SAVE, GREEN, save)
+    save_btn = ft.IconButton(ft.Icons.SAVE, icon_color=DARK,
+                             tooltip="Enregistrer", on_click=save,
+                             style=ft.ButtonStyle(bgcolor=GREEN))
 
     # ── Objets : photo de l'objet, masque, zone de la photo ─────────────
     def objects_dialog(e=None):
@@ -596,10 +648,8 @@ def main(page: ft.Page):
                     ft.IconButton(ft.Icons.CATEGORY_OUTLINED,
                                   icon_color=VIOLET, tooltip="Objets",
                                   on_click=objects_dialog),
-                    gen_btn]),
-            ft.Container(ft.Column([sections_col],
-                                   scroll=ft.ScrollMode.AUTO),
-                         expand=True),
+                    gen_btn], wrap=True, run_spacing=8),
+            sections_col,
             status, progress], spacing=CONSTANTS.SPACE_MD),
             width=740, bgcolor=DARK, padding=CONSTANTS.SPACE_MD,
             border=ft.Border(left=ft.BorderSide(1, GREY)))],
