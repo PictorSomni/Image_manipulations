@@ -307,8 +307,16 @@ def render_sheet(model, objects, photo=None, label="", renders=None):
         s -= 0.04
     ys = [MARGIN] * 3
     renders = renders if renders is not None else {}
-    for sec, h in zip(model["sections"], heights):
-        c = min(2, max(0, int(sec.get("col", 0))))
+    # Colonnes de même hauteur : l'espace libre de chaque colonne est
+    # réparti entre ses rubriques, puis entre leurs articles.
+    col_of = [min(2, max(0, int(sec.get("col", 0))))
+              for sec in model["sections"]]
+    n_secs = [col_of.count(c) for c in range(3)]
+    bottom = max(cols) - GAP
+    for sec, h, c in zip(model["sections"], heights, col_of):
+        extra = max(0, bottom - (cols[c] - GAP)) / n_secs[c]
+        n_on = sum(1 for it in sec["items"] if it.get("on", True))
+        h += extra
         x, y = MARGIN + c * (col_w + GAP), ys[c]
         ys[c] += h + GAP
         draw.rectangle([x, y, x + col_w, y + h], outline="black",
@@ -320,7 +328,7 @@ def render_sheet(model, objects, photo=None, label="", renders=None):
         for it in sec["items"]:
             if not it.get("on", True):
                 continue
-            ih = _item_h(it, s, col_w, draw)
+            ih = _item_h(it, s, col_w, draw) + extra / max(1, n_on)
             _draw_item(sheet, draw, it, objects, photo, renders,
                        x, cy, col_w, ih, s)
             cy += ih
