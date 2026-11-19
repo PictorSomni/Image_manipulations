@@ -402,9 +402,10 @@ def _draw_panel(sheet, draw, model, photo, label):
     else:
         draw.rectangle([x0, y, x0 + PANEL_W, y + 1150], fill=(225, 225, 225))
         y += 1150
-    if label:
-        draw.text((x0, y + 25), label, font=num_font(1), fill="black")
-    y += 120
+    if label:  # sous la 3e colonne, sur la ligne de la note
+        draw.text((x0 - GAP, H - MARGIN), label, font=num_font(1),
+                  fill="black", anchor="rs")
+    y += 40
     box_h = H - MARGIN - y
     draw.rectangle([x0, y, x0 + PANEL_W, y + box_h], outline="black",
                    width=5)
