@@ -75,6 +75,7 @@ def main(page: ft.Page):
     page.bgcolor = BACKGROUND
     page.padding = 12
     page.theme_mode = ft.ThemeMode.DARK
+    page.window.maximized = True
 
     photos = fc.photos_in(FOLDER) if os.path.isdir(FOLDER) else []
     st = {"name": fc.list_models()[0], "objects": fc.load_objects(),
