@@ -62,7 +62,6 @@ def _btn(text, icon, color, on_click):
 
 PALETTE = [BLUE, VIOLET, GREEN, ORANGE, YELLOW, RED]
 LABEL = ft.TextStyle(color=DARK, weight=ft.FontWeight.W_600)
-LABEL_ON_DARK = ft.TextStyle(color=WHITE, weight=ft.FontWeight.W_600)
 
 
 def _field(value, on_change, color=WHITE, border=GREY,
@@ -185,20 +184,23 @@ def main(page: ft.Page):
                        cursor_color=DARK, hint_style=ft.TextStyle(
                            color=ft.Colors.with_opacity(0.5, DARK)))],
                 spacing=6, expand=True),
-            _field(it["price"], set_("price"), width=80, color=GREEN,
-                   border=DARK, filled=True, fill_color=DARK,
-                   suffix=ft.Text("€", color=GREEN), tooltip="Prix",
+            _field(it["price"], set_("price"), width=80, color=DARK,
+                   border=GREEN, filled=True, fill_color=WHITE,
+                   cursor_color=DARK, suffix=ft.Text("€", color=DARK),
+                   tooltip="Prix",
                    text_style=ft.TextStyle(weight=ft.FontWeight.BOLD)),
             _field(it.get("price2", ""), set_("price2"), width=80,
-                   color=YELLOW, border=DARK, filled=True,
-                   fill_color=DARK, prefix=ft.Text("+", color=YELLOW),
-                   suffix=ft.Text("€", color=YELLOW),
+                   color=DARK, border=YELLOW, filled=True,
+                   fill_color=WHITE, cursor_color=DARK,
+                   prefix=ft.Text("+", color=DARK),
+                   suffix=ft.Text("€", color=DARK),
                    tooltip="Supplément",
                    text_style=ft.TextStyle(weight=ft.FontWeight.BOLD)),
             ft.Dropdown(value=it.get("object") or NO_OBJ,
                         options=obj_options(), on_select=set_obj,
-                        dense=True, width=170, color=WHITE,
-                        border_color=DARK, filled=True, fill_color=DARK,
+                        dense=True, width=170, color=DARK,
+                        border_color=VIOLET, filled=True, fill_color=WHITE,
+                        text_style=ft.TextStyle(color=DARK),
                         text_size=CONSTANTS.TEXT_SM,
                         leading_icon=ft.Icon(ft.Icons.IMAGE_OUTLINED,
                                              color=VIOLET)),
@@ -251,9 +253,9 @@ def main(page: ft.Page):
                            label_style=LABEL),
                     ft.Dropdown(value=str(sec.get("col", 0)), width=110,
                                 label="Colonne", border_color=DARK,
-                                label_style=LABEL_ON_DARK,
-                                filled=True, fill_color=DARK,
-                                dense=True, color=WHITE,
+                                label_style=LABEL,
+                                filled=True, fill_color=WHITE,
+                                dense=True, color=DARK,
                                 on_select=set_col,
                                 text_size=CONSTANTS.TEXT_SM,
                                 options=[ft.DropdownOption(
@@ -265,11 +267,12 @@ def main(page: ft.Page):
                 ft.Column([item_row(sec, j, it, tint)
                            for j, it in enumerate(sec["items"])],
                           spacing=8),
-                ft.Row([ft.FilledButton(
+                ft.Container(ft.Row([ft.FilledButton(
                     "Article", icon=ft.Icons.ADD, on_click=add_item,
                     style=ft.ButtonStyle(bgcolor=DARK, color=tint,
                                          icon_color=tint))],
-                    alignment=ft.MainAxisAlignment.END)])
+                    alignment=ft.MainAxisAlignment.END),
+                    padding=ft.Padding.only(top=6, bottom=6))])
 
     def draw_sections():
         m = st["model"]
@@ -297,15 +300,17 @@ def main(page: ft.Page):
                 controls=[ft.Column([
                     ft.Row([
                         _field(m.get("deadline", ""), set_m("deadline"),
-                               label="Date limite", color=ORANGE,
+                               label="Date limite",
+                               color=ft.Colors.DEEP_ORANGE_900,
                                border=DARK, width=200, filled=True,
-                               fill_color=DARK,
-                               label_style=LABEL_ON_DARK),
+                               fill_color=WHITE, cursor_color=DARK,
+                               label_style=LABEL),
                         _field(m.get("note", ""), set_m("note"),
-                               label="Note en rouge", color=RED,
+                               label="Note en rouge",
+                               color=ft.Colors.RED_800,
                                border=DARK, expand=True, filled=True,
-                               fill_color=DARK,
-                               label_style=LABEL_ON_DARK)]),
+                               fill_color=WHITE, cursor_color=DARK,
+                               label_style=LABEL)]),
                     _field(m.get("footer", ""), set_m("footer"),
                            label="Bas de fiche · {date}",
                            border=DARK, multiline=True, min_lines=2,
@@ -573,15 +578,15 @@ def main(page: ft.Page):
                                   on_click=delete),
                     ft.IconButton(ft.Icons.CATEGORY_OUTLINED,
                                   icon_color=VIOLET, tooltip="Objets",
-                                  on_click=objects_dialog)]),
+                                  on_click=objects_dialog),
+                    gen_btn]),
             ft.Container(ft.Column([sections_col],
                                    scroll=ft.ScrollMode.AUTO),
-                         expand=True)], width=720),
+                         expand=True),
+            status, progress], width=720),
         ft.Column([
-            ft.Container(preview, expand=True, bgcolor=WHITE,
-                         border_radius=6),
-            ft.Row([gen_btn, ft.Container(status, expand=True)]),
-            progress], expand=True)], expand=True,
+            ft.Container(preview, expand=True, bgcolor="#8a8d93",
+                         border_radius=6)], expand=True)], expand=True,
         vertical_alignment=ft.CrossAxisAlignment.STRETCH))
     refresh(0)
 
