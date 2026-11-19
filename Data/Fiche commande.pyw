@@ -63,11 +63,12 @@ def _btn(text, icon, color, on_click):
 PALETTE = [BLUE, VIOLET, GREEN, ORANGE, YELLOW, RED]
 
 
-def _field(value, on_change, color=WHITE, border=GREY, **kw):
+def _field(value, on_change, color=WHITE, border=GREY,
+           text_size=CONSTANTS.TEXT_SM, **kw):
     return ft.TextField(
         value=str(value or ""), on_change=on_change, dense=True,
         color=color, border_color=border, focused_border_color=WHITE,
-        text_size=CONSTANTS.TEXT_SM, **kw)
+        text_size=text_size, **kw)
 
 
 def main(page: ft.Page):
@@ -79,7 +80,8 @@ def main(page: ft.Page):
 
     photos = fc.photos_in(FOLDER) if os.path.isdir(FOLDER) else []
     st = {"name": fc.list_models()[0], "objects": fc.load_objects(),
-          "photo": None, "renders": {}, "dirty": False, "gen": 0}
+          "photo": None, "renders": {}, "dirty": False, "gen": 0,
+          "open": set()}
     st["model"] = fc.load_model(st["name"])
     if photos:
         st["photo"] = fc.open_photo(os.path.join(FOLDER, photos[0]))
@@ -88,7 +90,7 @@ def main(page: ft.Page):
                        fit=ft.BoxFit.CONTAIN, expand=True)
     status = ft.Text("", color=LIGHT_GREY, size=CONSTANTS.TEXT_SM)
     progress = ft.ProgressBar(color=GREEN, visible=False, value=0)
-    sections_col = ft.Column(spacing=16)
+    sections_col = ft.Column(spacing=10)
 
     # ── Aperçu (en tâche de fond, la dernière demande gagne) ────────────
     def refresh(delay=0.5):
@@ -134,6 +136,23 @@ def main(page: ft.Page):
             lst[i], lst[j] = lst[j], lst[i]
             changed(True)
 
+    def actions_menu(lst, i):
+        """Monter / descendre / supprimer, toujours au même endroit."""
+        def drop(e):
+            lst.pop(i)
+            changed(True)
+        return ft.PopupMenuButton(
+            icon=ft.Icons.MORE_VERT, icon_color=LIGHT_GREY,
+            items=[ft.PopupMenuItem(content="Monter",
+                                    icon=ft.Icons.ARROW_UPWARD,
+                                    on_click=lambda e: move(lst, i, -1)),
+                   ft.PopupMenuItem(content="Descendre",
+                                    icon=ft.Icons.ARROW_DOWNWARD,
+                                    on_click=lambda e: move(lst, i, 1)),
+                   ft.PopupMenuItem(content="Supprimer",
+                                    icon=ft.Icons.DELETE_OUTLINE,
+                                    on_click=drop)])
+
     def item_row(sec, i, it, tint):
         def set_(key):
             def _h(e):
@@ -149,117 +168,132 @@ def main(page: ft.Page):
         def toggle(e):
             it["on"] = e.control.value
             changed(True)
-
-        def drop(e):
-            sec["items"].pop(i)
-            changed(True)
         on = it.get("on", True)
-        return ft.Container(ft.Column([
-            ft.Row([
-                ft.Checkbox(value=on, on_change=toggle, active_color=GREEN),
-                _field(it["name"], set_("name"), expand=True,
-                       border=tint, text_style=ft.TextStyle(
+        return ft.Container(ft.Row([
+            ft.Checkbox(value=on, on_change=toggle, active_color=tint,
+                        check_color=DARK),
+            ft.Column([
+                _field(it["name"], set_("name"), border=tint,
+                       text_style=ft.TextStyle(
                            weight=ft.FontWeight.W_600)),
-                _field(it["price"], set_("price"), width=70,
-                       color=GREEN, border=GREEN,
-                       suffix="€", tooltip="Prix"),
-                _field(it.get("price2", ""), set_("price2"), width=70,
-                       color=YELLOW, border=YELLOW,
-                       prefix="+", suffix="€", tooltip="Supplément"),
-                ft.IconButton(ft.Icons.ARROW_UPWARD, icon_size=18,
-                              icon_color=LIGHT_GREY,
-                              on_click=lambda e: move(sec["items"], i, -1)),
-                ft.IconButton(ft.Icons.ARROW_DOWNWARD, icon_size=18,
-                              icon_color=LIGHT_GREY,
-                              on_click=lambda e: move(sec["items"], i, 1)),
-                ft.IconButton(ft.Icons.DELETE_OUTLINE, icon_size=18,
-                              icon_color=RED, on_click=drop)],
-                spacing=4),
-            ft.Row([
-                ft.Container(width=40),
-                _field(it.get("sub", ""), set_("sub"), expand=True,
-                       color=LIGHT_GREY, hint_text="Détail"),
-                ft.Dropdown(value=it.get("object") or NO_OBJ,
-                            options=obj_options(), on_select=set_obj,
-                            dense=True, width=210, color=WHITE,
-                            text_size=CONSTANTS.TEXT_SM,
-                            border_color=VIOLET,
-                            leading_icon=ft.Icons.IMAGE_OUTLINED)],
-                spacing=4)], spacing=4),
-            opacity=1 if on else 0.4, padding=8, border_radius=8,
-            bgcolor=ft.Colors.with_opacity(0.07 if i % 2 else 0.14, tint),
-            border=ft.Border.only(left=ft.BorderSide(4, tint)))
+                _field(it.get("sub", ""), set_("sub"), color=LIGHT_GREY,
+                       hint_text="Détail", text_size=12)],
+                spacing=6, expand=True),
+            _field(it["price"], set_("price"), width=74, color=GREEN,
+                   border=GREEN, suffix="€", tooltip="Prix"),
+            _field(it.get("price2", ""), set_("price2"), width=74,
+                   color=YELLOW, border=YELLOW, prefix="+", suffix="€",
+                   tooltip="Supplément"),
+            ft.Dropdown(value=it.get("object") or NO_OBJ,
+                        options=obj_options(), on_select=set_obj,
+                        dense=True, width=170, color=WHITE,
+                        border_color=VIOLET, text_size=CONSTANTS.TEXT_SM,
+                        leading_icon=ft.Icons.IMAGE_OUTLINED),
+            actions_menu(sec["items"], i)], spacing=10),
+            opacity=1 if on else 0.4, padding=ft.Padding.symmetric(
+                horizontal=10, vertical=8), border_radius=8,
+            bgcolor=ft.Colors.with_opacity(0.10, tint))
 
     def section_box(i, sec):
         def rename(e):
             sec["name"] = e.control.value
+            title.value = sec["name"]
             changed()
 
         def set_col(e):
             sec["col"] = int(e.control.value)
-            changed()
+            changed(True)
 
         def add_item(e):
             sec["items"].append({"name": "Nouvel article", "sub": "",
                                  "price": "0", "price2": "",
                                  "object": None, "on": True})
+            st["open"].add(id(sec))
             changed(True)
 
-        def drop(e):
-            st["model"]["sections"].pop(i)
-            changed(True)
-        secs = st["model"]["sections"]
+        def toggle(e):
+            st["open"].symmetric_difference_update({id(sec)})
         tint = PALETTE[i % len(PALETTE)]
-        return ft.Container(ft.Column([
-            ft.Container(ft.Row([
-                _field(sec["name"], rename, expand=True, color=DARK,
-                       border=DARK, text_style=ft.TextStyle(
-                           weight=ft.FontWeight.BOLD, size=17)),
-                ft.Dropdown(value=str(sec.get("col", 0)), width=96,
-                            label="Colonne", border_color=DARK,
-                            label_style=ft.TextStyle(color=DARK),
-                            dense=True, color=DARK, on_select=set_col,
-                            text_size=CONSTANTS.TEXT_SM,
-                            options=[ft.DropdownOption(
-                                key=str(c), text=str(c + 1))
-                                for c in range(3)]),
-                ft.IconButton(ft.Icons.ARROW_UPWARD, icon_color=DARK,
-                              on_click=lambda e: move(secs, i, -1)),
-                ft.IconButton(ft.Icons.ARROW_DOWNWARD, icon_color=DARK,
-                              on_click=lambda e: move(secs, i, 1)),
-                ft.IconButton(ft.Icons.DELETE_OUTLINE, icon_color=DARK,
-                              on_click=drop)]),
-                bgcolor=tint, border_radius=8,
-                padding=ft.Padding.only(left=8, top=10, bottom=6)),
-            *[item_row(sec, j, it, tint)
-              for j, it in enumerate(sec["items"])],
-            ft.TextButton("Article", icon=ft.Icons.ADD, on_click=add_item,
-                          style=ft.ButtonStyle(color=tint))],
-            spacing=8), border_radius=10, padding=10,
-            bgcolor=ft.Colors.with_opacity(0.06, tint),
-            border=ft.Border.all(2, tint))
+        n_on = sum(1 for it in sec["items"] if it.get("on", True))
+        title = ft.Text(sec["name"], weight=ft.FontWeight.BOLD, size=17)
+        return ft.ExpansionTile(
+            title=title,
+            subtitle=ft.Text(f"Colonne {sec.get('col', 0) + 1} · "
+                             f"{n_on} / {len(sec['items'])} articles",
+                             size=CONSTANTS.TEXT_SM),
+            expanded=id(sec) in st["open"], on_change=toggle,
+            maintain_state=True,
+            collapsed_bgcolor=tint, collapsed_text_color=DARK,
+            collapsed_icon_color=DARK,
+            bgcolor=ft.Colors.with_opacity(0.08, tint), text_color=tint,
+            icon_color=tint,
+            shape=ft.RoundedRectangleBorder(radius=10),
+            collapsed_shape=ft.RoundedRectangleBorder(radius=10),
+            controls_padding=ft.Padding.all(12),
+            controls=[
+                ft.Row([
+                    _field(sec["name"], rename, expand=True, border=tint,
+                           label="Rubrique"),
+                    ft.Dropdown(value=str(sec.get("col", 0)), width=110,
+                                label="Colonne", border_color=tint,
+                                dense=True, color=WHITE,
+                                on_select=set_col,
+                                text_size=CONSTANTS.TEXT_SM,
+                                options=[ft.DropdownOption(
+                                    key=str(c), text=str(c + 1))
+                                    for c in range(3)]),
+                    actions_menu(st["model"]["sections"], i)],
+                    spacing=10),
+                ft.Container(height=4),
+                ft.Column([item_row(sec, j, it, tint)
+                           for j, it in enumerate(sec["items"])],
+                          spacing=8),
+                ft.Row([ft.TextButton(
+                    "Article", icon=ft.Icons.ADD, on_click=add_item,
+                    style=ft.ButtonStyle(color=tint))],
+                    alignment=ft.MainAxisAlignment.END)])
 
     def draw_sections():
         m = st["model"]
+
+        def set_m(key):
+            def _h(e):
+                m[key] = e.control.value
+                changed()
+            return _h
         sections_col.controls = [
-            ft.Container(ft.Column([ft.Row([
-                _field(m.get("deadline", ""),
-                       lambda e: (m.__setitem__("deadline", e.control.value),
-                                  changed()), label="Date limite",
-                       color=ORANGE, border=ORANGE, width=200),
-                _field(m.get("note", ""),
-                       lambda e: (m.__setitem__("note", e.control.value),
-                                  changed()), label="Note en rouge",
-                       color=RED, border=RED, expand=True)]),
-                _field(m.get("footer", ""),
-                       lambda e: (m.__setitem__("footer", e.control.value),
-                                  changed()), label="Bas de fiche · {date}",
-                       border=LIGHT_GREY, multiline=True, min_lines=2)],
-                spacing=16), padding=ft.Padding.only(top=14, bottom=6)),
+            ft.ExpansionTile(
+                title=ft.Text("Fiche", weight=ft.FontWeight.BOLD, size=17),
+                subtitle=ft.Text(f"Pour le {m.get('deadline', '')}",
+                                 size=CONSTANTS.TEXT_SM),
+                expanded="fiche" in st["open"],
+                on_change=lambda e: st["open"].symmetric_difference_update(
+                    {"fiche"}),
+                collapsed_bgcolor=LIGHT_GREY, collapsed_text_color=DARK,
+                collapsed_icon_color=DARK, text_color=WHITE,
+                bgcolor=ft.Colors.with_opacity(0.08, WHITE),
+                shape=ft.RoundedRectangleBorder(radius=10),
+                collapsed_shape=ft.RoundedRectangleBorder(radius=10),
+                controls_padding=ft.Padding.only(left=12, right=12,
+                                                 top=16, bottom=12),
+                controls=[ft.Column([
+                    ft.Row([
+                        _field(m.get("deadline", ""), set_m("deadline"),
+                               label="Date limite", color=ORANGE,
+                               border=ORANGE, width=200),
+                        _field(m.get("note", ""), set_m("note"),
+                               label="Note en rouge", color=RED,
+                               border=RED, expand=True)]),
+                    _field(m.get("footer", ""), set_m("footer"),
+                           label="Bas de fiche · {date}",
+                           border=LIGHT_GREY, multiline=True,
+                           min_lines=2)], spacing=18)]),
             *[section_box(i, s) for i, s in enumerate(m["sections"])],
-            ft.TextButton("Rubrique", icon=ft.Icons.ADD,
-                          on_click=add_section,
-                          style=ft.ButtonStyle(color=BLUE))]
+            ft.Row([ft.FilledButton(
+                "Rubrique", icon=ft.Icons.ADD, on_click=add_section,
+                style=ft.ButtonStyle(bgcolor=BLUE, color=DARK,
+                                     icon_color=DARK))],
+                alignment=ft.MainAxisAlignment.END)]
 
     def add_section(e):
         st["model"]["sections"].append(
@@ -518,7 +552,7 @@ def main(page: ft.Page):
                                   on_click=objects_dialog)]),
             ft.Container(ft.Column([sections_col],
                                    scroll=ft.ScrollMode.AUTO),
-                         expand=True)], width=640),
+                         expand=True)], width=720),
         ft.Column([
             ft.Container(preview, expand=True, bgcolor=WHITE,
                          border_radius=6),
