@@ -573,6 +573,7 @@ def main(page: ft.Page):
 
     draw_sections()
     page.add(ft.Row([
+        ft.Container(preview, expand=True, padding=CONSTANTS.SPACE_MD),
         ft.Container(ft.Column([
             ft.Row([model_dd, save_btn,
                     ft.IconButton(ft.Icons.COPY_ALL, icon_color=BLUE,
@@ -589,8 +590,8 @@ def main(page: ft.Page):
                                    scroll=ft.ScrollMode.AUTO),
                          expand=True),
             status, progress], spacing=CONSTANTS.SPACE_MD),
-            width=740, bgcolor=DARK, padding=CONSTANTS.SPACE_MD),
-        ft.Container(preview, expand=True, padding=CONSTANTS.SPACE_MD)],
+            width=740, bgcolor=DARK, padding=CONSTANTS.SPACE_MD,
+            border=ft.Border(left=ft.BorderSide(1, GREY)))],
         expand=True, spacing=0,
         vertical_alignment=ft.CrossAxisAlignment.STRETCH))
     refresh(0)
