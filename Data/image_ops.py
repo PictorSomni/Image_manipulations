@@ -1445,6 +1445,7 @@ def run_rembg(image: Image.Image, *, precise: bool = False,
         pass
     from rembg import remove as _rembg_remove
 
+    precise = precise and BIREFNET_ENABLED
     mode_key = ("precise" if precise else "fast", "human" if human else "general")
     model_name = _REMBG_MODEL_ALIASES[mode_key]
     cache = session_cache if session_cache is not None else {}
@@ -1577,8 +1578,15 @@ STROKE_MATTE_PX = 700
 STROKE_MATTE_BAND = 0.025
 
 
+# BiRefNet (précis, ~1 Go) coupé : u2net + matting partout, pour la
+# vitesse. Code gardé : repasser à True pour le réactiver.
+BIREFNET_ENABLED = False
+
+
 def big_model_ok(min_gb: float = 10.0) -> bool:
     """Assez de mémoire pour BiRefNet (~5 Go) ? Sinon matting."""
+    if not BIREFNET_ENABLED:
+        return False
     try:
         return (os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
                 / 2 ** 30) >= min_gb
