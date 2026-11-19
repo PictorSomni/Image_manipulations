@@ -432,27 +432,30 @@ def _draw_item(sheet, draw, it, objects, photo, renders, x, y, col_w, ih,
 def _draw_panel(sheet, draw, model, photo, label):
     x0 = W - MARGIN - PANEL_W
     y = MARGIN
+    lines = model.get("footer", "").split("\n")
+    # Cadre réduit à l'essentiel : la photo prend tout le reste.
+    box_h = 30 + 56 + 150 + 56 + 120 + len(lines) * 56 + 30
+    photo_h = H - MARGIN - y - box_h - 40
     if photo is not None:
         pic = watermarked(photo)
-        pic.thumbnail((PANEL_W, 1150), Image.Resampling.LANCZOS)
-        sheet.paste(pic, (round(x0 + (PANEL_W - pic.width) / 2), y), pic)
-        y += pic.height
+        pic.thumbnail((PANEL_W, photo_h), Image.Resampling.LANCZOS)
+        sheet.paste(pic, (round(x0 + (PANEL_W - pic.width) / 2),
+                          y), pic)
     else:
-        draw.rectangle([x0, y, x0 + PANEL_W, y + 1150], fill=(225, 225, 225))
-        y += 1150
+        draw.rectangle([x0, y, x0 + PANEL_W, y + photo_h],
+                       fill=(225, 225, 225))
+    y += photo_h
     if label:  # sous la 3e colonne, sur la ligne de la note
         draw.text((x0 - GAP, H - MARGIN), label, font=num_font(1),
                   fill="black", anchor="rs")
     y += 40
-    box_h = H - MARGIN - y
     draw.rectangle([x0, y, x0 + PANEL_W, y + box_h], outline="black",
                    width=5)
     f = item_font(1)
     draw.text((x0 + 30, y + 30), "Nom et Prénom :", font=f, fill="black")
-    draw.text((x0 + 30, y + 30 + box_h * 0.38), "Montant total :", font=f,
+    draw.text((x0 + 30, y + 30 + 56 + 150), "Montant total :", font=f,
               fill="black")
     date = model.get("deadline", "")
-    lines = model.get("footer", "").split("\n")
     ly = y + box_h - 30 - len(lines) * 56
     for ln in lines:
         # La date en rouge, le reste en noir.
