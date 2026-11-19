@@ -281,24 +281,30 @@ def _auto_reply(msg, name, addr, subject, body):
     return True
 
 
+# Ventes de photos en ligne : notifications automatiques, mais à
+# toujours afficher (retour user).
+ALWAYS = ("inbox.photo", "lamapix")
+
+
 def run():
     pending = mail_reply._read()
     known = {m["message_id"] for m in pending}
     for msg in _new_mails():
-        if msg["List-Unsubscribe"] or msg["Auto-Submitted"] not in (
-                None, "no"):
+        name, addr = email.utils.parseaddr(msg["From"] or "")
+        sales = any(k in addr.lower() for k in ALWAYS)
+        if not sales and (msg["List-Unsubscribe"] or msg[
+                "Auto-Submitted"] not in (None, "no")):
             continue
         mid = msg["Message-ID"] or ""
-        name, addr = email.utils.parseaddr(msg["From"] or "")
         if mid in known or addr.lower() == mail_reply.ADDRESS:
             continue
         subject = str(msg["Subject"] or "")
         body = _text(msg)
         verdict = _classify(f"{name} <{addr}>", subject, body)
-        if not verdict.get("action"):
+        if not verdict.get("action") and not sales:
             continue
         draft = _auto_reply(msg, name, addr, subject, body) \
-            if verdict.get("faq") else None
+            if verdict.get("faq") and not sales else None
         if draft is True:
             continue
         summary = verdict.get("summary") or subject
