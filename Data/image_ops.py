@@ -21,6 +21,8 @@ import functools
 import io
 import math
 import os
+import importlib.util
+import threading
 import sys
 from dataclasses import dataclass
 from datetime import datetime
@@ -1387,6 +1389,43 @@ class FloodPipette:
         self.drag_px = 0.0
 
 
+_REMBG_LOCK = threading.Lock()
+
+
+def rembg_session(cache: dict, model_name: str):
+    """Session rembg `model_name`, chargée une seule fois dans `cache`
+    (verrou : le préchargement et un clic peuvent arriver ensemble)."""
+    with _REMBG_LOCK:
+        session = cache.get(model_name)
+        if session is None:
+            import contextlib, io
+            try:  # DLL CUDA/cuDNN des paquets pip nvidia-*
+                import onnxruntime
+                with contextlib.redirect_stdout(io.StringIO()):
+                    onnxruntime.preload_dlls()
+            except Exception:
+                pass
+            from rembg import new_session
+            with contextlib.redirect_stderr(io.StringIO()):
+                session = new_session(model_name)
+            cache[model_name] = session
+        return session
+
+
+def preload_rembg(cache: dict, model_name: str) -> None:
+    """Charge le modèle en arrière-plan : le premier détourage ne paie
+    plus l'import de rembg ni le chargement (~2,5 s sur le Pi)."""
+    if importlib.util.find_spec("rembg") is None:
+        return
+
+    def _load():
+        try:
+            rembg_session(cache, model_name)
+        except Exception:
+            pass
+    threading.Thread(target=_load, daemon=True).start()
+
+
 def run_rembg(image: Image.Image, *, precise: bool = False,
               human: bool = True, session_cache: dict | None = None
               ) -> Image.Image:
@@ -1404,15 +1443,12 @@ def run_rembg(image: Image.Image, *, precise: bool = False,
             onnxruntime.preload_dlls()
     except Exception:
         pass
-    from rembg import remove as _rembg_remove, new_session as _rembg_new_session
+    from rembg import remove as _rembg_remove
 
     mode_key = ("precise" if precise else "fast", "human" if human else "general")
     model_name = _REMBG_MODEL_ALIASES[mode_key]
     cache = session_cache if session_cache is not None else {}
-    session = cache.get(model_name)
-    if session is None:
-        session = _rembg_new_session(model_name)
-        cache[model_name] = session
+    session = rembg_session(cache, model_name)
     return _rembg_remove(image, session=session)
 
 

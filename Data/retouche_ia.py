@@ -2444,6 +2444,8 @@ async def main(page: ft.Page) -> None:
     _rembg_mode    = [2 if CONSTANTS.RECADRAGE_REMBG_MODE == 2 else 0]
     _rembg_human   = [True]    # True = portrait/human_seg, False = general
     _rembg_sessions: dict = {}
+    image_ops.preload_rembg(
+        _rembg_sessions, "u2net_human_seg" if _rembg_human[0] else "u2net")
     _rembg_erosion_pct = [0.0]
     _rembg_feather_pct = [0.0]
     _pipette = image_ops.FloodPipette(CONSTANTS.RECADRAGE_FLOOD_TOLERANCE)
@@ -3237,10 +3239,9 @@ async def main(page: ft.Page) -> None:
             # Sélection rapide : u2net (birefnet ne sert qu'à la finition
             # des traits, cf. _stroke_segment).
             model = "u2net_human_seg" if _rembg_human[0] else "u2net"
-            if model not in _rembg_sessions:
-                _rembg_sessions[model] = _rembg.new_session(model)
-            cut = _rembg.remove(base.convert("RGB"),
-                                session=_rembg_sessions[model])
+            cut = _rembg.remove(
+                base.convert("RGB"),
+                session=image_ops.rembg_session(_rembg_sessions, model))
             # Pixels d'origine sous le masque (rembg noircit le fond) :
             # visibles quand une érosion négative élargit le sujet.
             rgba = base.convert("RGB")

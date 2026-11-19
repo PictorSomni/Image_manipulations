@@ -803,6 +803,10 @@ class PhotoCropper:
         # 0 = fond blanc, 1 = fond gris clair, 2 = fond flou
         self.rembg_bg_mode = 0 if CONSTANTS.RECADRAGE_REMBG_BG_WHITE else 2
         self.rembg_human_seg = CONSTANTS.RECADRAGE_REMBG_HUMAN_SEG
+        self._rembg_u2net_cache: dict = {}
+        image_ops.preload_rembg(
+            self._rembg_u2net_cache,
+            "u2net_human_seg" if self.rembg_human_seg else "u2net")
         # Sélection de départ : 0 = rapide (u2net), 2 = instantané (flood,
         # sans IA). Le précis (birefnet) ne sert plus qu'à la finition.
         self.rembg_mode = 2 if CONSTANTS.RECADRAGE_REMBG_MODE == 2 else 0
@@ -3640,14 +3644,13 @@ class PhotoCropper:
                     onnxruntime.preload_dlls()
             except Exception:
                 pass
-            from rembg import remove as _rembg_remove, new_session as _rembg_new_session
+            from rembg import remove as _rembg_remove
             # Sélection rapide : u2net (birefnet ne sert qu'à la finition
             # des traits, cf. _stroke_segment).
-            if self._rembg_session_u2net[0] is None:
-                model_name = ("u2net_human_seg" if self.rembg_human_seg
-                              else "u2net")
-                self._rembg_session_u2net[0] = _rembg_new_session(model_name)
-            sess = self._rembg_session_u2net[0]
+            model_name = ("u2net_human_seg" if self.rembg_human_seg
+                          else "u2net")
+            sess = image_ops.rembg_session(self._rembg_u2net_cache,
+                                           model_name)
             source_rgb = self.current_pil_image.convert("RGB")
             with contextlib.redirect_stderr(io.StringIO()):
                 result = _rembg_remove(source_rgb, session=sess)
