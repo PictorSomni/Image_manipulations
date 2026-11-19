@@ -61,12 +61,12 @@ def _btn(text, icon, color, on_click):
 
 
 PALETTE = [BLUE, VIOLET, GREEN, ORANGE, YELLOW, RED]
-CARD = ft.Colors.with_opacity(0.06, WHITE)
+CARD = GREY
 
 
 def _stripe(color, content):
     return ft.Container(content, border=ft.Border(
-        left=ft.BorderSide(4, color)), border_radius=10)
+        left=ft.BorderSide(3, color)), border_radius=6)
 
 
 def _field(value, on_change, color=WHITE, border=GREY,
@@ -200,14 +200,15 @@ def main(page: ft.Page):
             ft.Dropdown(value=it.get("object") or NO_OBJ,
                         options=obj_options(), on_select=set_obj,
                         dense=True, width=170, color=WHITE,
-                        border_color=VIOLET,
+                        border_color=VIOLET, filled=True, fill_color=DARK,
+                        bgcolor=DARK,
                         text_size=CONSTANTS.TEXT_SM,
                         leading_icon=ft.Icon(ft.Icons.IMAGE_OUTLINED,
                                              color=VIOLET)),
             actions_menu(sec["items"], i)], spacing=10),
             opacity=1 if on else 0.45, padding=ft.Padding.symmetric(
                 horizontal=10, vertical=8), border_radius=6,
-            bgcolor=ft.Colors.with_opacity(0.05, WHITE),
+            bgcolor=BACKGROUND,
             border=ft.Border(left=ft.BorderSide(3, tint)))
 
     def section_box(i, sec):
@@ -231,8 +232,8 @@ def main(page: ft.Page):
             st["open"].symmetric_difference_update({id(sec)})
         tint = PALETTE[i % len(PALETTE)]
         n_on = sum(1 for it in sec["items"] if it.get("on", True))
-        title = ft.Text(sec["name"], weight=ft.FontWeight.BOLD, size=17,
-                        color=tint)
+        title = ft.Text(sec["name"], weight=ft.FontWeight.W_600, size=16,
+                        color=LIGHT_GREY)
         return _stripe(tint, ft.ExpansionTile(
             title=title,
             subtitle=ft.Text(f"Colonne {sec.get('col', 0) + 1} · "
@@ -243,8 +244,8 @@ def main(page: ft.Page):
             collapsed_bgcolor=CARD, collapsed_text_color=WHITE,
             collapsed_icon_color=tint,
             bgcolor=CARD, text_color=WHITE, icon_color=tint,
-            shape=ft.RoundedRectangleBorder(radius=10),
-            collapsed_shape=ft.RoundedRectangleBorder(radius=10),
+            shape=ft.RoundedRectangleBorder(radius=6),
+            collapsed_shape=ft.RoundedRectangleBorder(radius=6),
             controls_padding=ft.Padding.all(12),
             controls=[
                 ft.Row([
@@ -252,6 +253,7 @@ def main(page: ft.Page):
                            label="Rubrique"),
                     ft.Dropdown(value=str(sec.get("col", 0)), width=110,
                                 label="Colonne", border_color=tint,
+                                filled=True, fill_color=DARK, bgcolor=DARK,
                                 dense=True, color=WHITE,
                                 on_select=set_col,
                                 text_size=CONSTANTS.TEXT_SM,
@@ -281,7 +283,8 @@ def main(page: ft.Page):
             return _h
         sections_col.controls = [
             _stripe(LIGHT_GREY, ft.ExpansionTile(
-                title=ft.Text("Fiche", weight=ft.FontWeight.BOLD, size=17),
+                title=ft.Text("Fiche", weight=ft.FontWeight.W_600, size=16,
+                              color=LIGHT_GREY),
                 subtitle=ft.Text(f"Pour le {m.get('deadline', '')}",
                                  size=CONSTANTS.TEXT_SM),
                 expanded="fiche" in st["open"],
@@ -290,8 +293,8 @@ def main(page: ft.Page):
                 collapsed_bgcolor=CARD, collapsed_text_color=WHITE,
                 collapsed_icon_color=LIGHT_GREY, text_color=WHITE,
                 icon_color=LIGHT_GREY, bgcolor=CARD,
-                shape=ft.RoundedRectangleBorder(radius=10),
-                collapsed_shape=ft.RoundedRectangleBorder(radius=10),
+                shape=ft.RoundedRectangleBorder(radius=6),
+                collapsed_shape=ft.RoundedRectangleBorder(radius=6),
                 controls_padding=ft.Padding.only(left=12, right=12,
                                                  top=16, bottom=12),
                 controls=[ft.Column([
