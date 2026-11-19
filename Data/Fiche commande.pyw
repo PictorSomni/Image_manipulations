@@ -61,12 +61,38 @@ def _btn(text, icon, color, on_click):
 
 
 PALETTE = [BLUE, VIOLET, GREEN, ORANGE, YELLOW, RED]
-CARD = GREY
 
 
-def _stripe(color, content):
-    return ft.Container(content, border=ft.Border(
-        left=ft.BorderSide(3, color)), border_radius=6)
+def _drawer(title, subtitle, color, is_open, on_toggle, controls):
+    """Tiroir au style de Retouche photo : filet de couleur, en-tête
+    GREY (teinté quand ouvert), corps sur fond BACKGROUND."""
+    accent = color if is_open else LIGHT_GREY
+    title = ft.Text(title, color=accent, weight=ft.FontWeight.W_600,
+                    size=CONSTANTS.TEXT_SM)
+    header = ft.Container(
+        ft.Row([
+            ft.Icon(ft.Icons.EXPAND_MORE if is_open
+                    else ft.Icons.CHEVRON_RIGHT, color=accent,
+                    size=CONSTANTS.ICON_SM),
+            ft.Column([
+                title,
+                ft.Text(subtitle, color=LIGHT_GREY,
+                        size=CONSTANTS.TEXT_SM - 2)], spacing=0)],
+            spacing=CONSTANTS.SPACE_SM),
+        on_click=on_toggle, border_radius=6,
+        bgcolor=(ft.Colors.with_opacity(0.15, color) if is_open
+                 else GREY),
+        padding=ft.Padding(CONSTANTS.SPACE_SM, CONSTANTS.SPACE_SM,
+                           CONSTANTS.SPACE_SM, CONSTANTS.SPACE_SM))
+    body = ft.Container(
+        ft.Column(controls, spacing=CONSTANTS.SPACE_SM), visible=is_open,
+        bgcolor=BACKGROUND, border_radius=6,
+        padding=ft.Padding(CONSTANTS.SPACE_LG, CONSTANTS.SPACE_MD,
+                           CONSTANTS.SPACE_LG, CONSTANTS.SPACE_MD))
+    return ft.Container(
+        ft.Column([header, body], spacing=CONSTANTS.SPACE_XS),
+        border=ft.Border(left=ft.BorderSide(3, color)),
+        padding=ft.Padding(CONSTANTS.SPACE_SM, 0, 0, 0))
 
 
 def _field(value, on_change, color=WHITE, border=GREY,
@@ -80,7 +106,7 @@ def _field(value, on_change, color=WHITE, border=GREY,
 def main(page: ft.Page):
     page.title = "Fiche commande"
     page.bgcolor = BACKGROUND
-    page.padding = 12
+    page.padding = 0
     page.theme_mode = ft.ThemeMode.DARK
     page.window.maximized = True
 
@@ -208,8 +234,7 @@ def main(page: ft.Page):
             actions_menu(sec["items"], i)], spacing=10),
             opacity=1 if on else 0.45, padding=ft.Padding.symmetric(
                 horizontal=10, vertical=8), border_radius=6,
-            bgcolor=BACKGROUND,
-            border=ft.Border(left=ft.BorderSide(3, tint)))
+            bgcolor=GREY)
 
     def section_box(i, sec):
         def rename(e):
@@ -230,24 +255,15 @@ def main(page: ft.Page):
 
         def toggle(e):
             st["open"].symmetric_difference_update({id(sec)})
+            draw_sections()
+            page.update()
         tint = PALETTE[i % len(PALETTE)]
         n_on = sum(1 for it in sec["items"] if it.get("on", True))
-        title = ft.Text(sec["name"], weight=ft.FontWeight.W_600, size=16,
-                        color=LIGHT_GREY)
-        return _stripe(tint, ft.ExpansionTile(
-            title=title,
-            subtitle=ft.Text(f"Colonne {sec.get('col', 0) + 1} · "
-                             f"{n_on} / {len(sec['items'])} articles",
-                             size=CONSTANTS.TEXT_SM),
-            expanded=id(sec) in st["open"], on_change=toggle,
-            maintain_state=True,
-            collapsed_bgcolor=CARD, collapsed_text_color=WHITE,
-            collapsed_icon_color=tint,
-            bgcolor=CARD, text_color=WHITE, icon_color=tint,
-            shape=ft.RoundedRectangleBorder(radius=6),
-            collapsed_shape=ft.RoundedRectangleBorder(radius=6),
-            controls_padding=ft.Padding.all(12),
-            controls=[
+        drawer = _drawer(
+            sec["name"],
+            f"Colonne {sec.get('col', 0) + 1} · "
+            f"{n_on} / {len(sec['items'])} articles",
+            tint, id(sec) in st["open"], toggle, [
                 ft.Row([
                     _field(sec["name"], rename, expand=True, border=tint,
                            label="Rubrique"),
@@ -271,7 +287,14 @@ def main(page: ft.Page):
                     style=ft.ButtonStyle(bgcolor=tint, color=DARK,
                                          icon_color=DARK))],
                     alignment=ft.MainAxisAlignment.END),
-                    padding=ft.Padding.only(top=6, bottom=6))]))
+                    padding=ft.Padding.only(top=6, bottom=6))])
+        title = drawer.content.controls[0].content.controls[1].controls[0]
+        return drawer
+
+    def toggle_fiche(e):
+        st["open"].symmetric_difference_update({"fiche"})
+        draw_sections()
+        page.update()
 
     def draw_sections():
         m = st["model"]
@@ -282,22 +305,9 @@ def main(page: ft.Page):
                 changed()
             return _h
         sections_col.controls = [
-            _stripe(LIGHT_GREY, ft.ExpansionTile(
-                title=ft.Text("Fiche", weight=ft.FontWeight.W_600, size=16,
-                              color=LIGHT_GREY),
-                subtitle=ft.Text(f"Pour le {m.get('deadline', '')}",
-                                 size=CONSTANTS.TEXT_SM),
-                expanded="fiche" in st["open"],
-                on_change=lambda e: st["open"].symmetric_difference_update(
-                    {"fiche"}),
-                collapsed_bgcolor=CARD, collapsed_text_color=WHITE,
-                collapsed_icon_color=LIGHT_GREY, text_color=WHITE,
-                icon_color=LIGHT_GREY, bgcolor=CARD,
-                shape=ft.RoundedRectangleBorder(radius=6),
-                collapsed_shape=ft.RoundedRectangleBorder(radius=6),
-                controls_padding=ft.Padding.only(left=12, right=12,
-                                                 top=16, bottom=12),
-                controls=[ft.Column([
+            _drawer(
+                "Fiche", f"Pour le {m.get('deadline', '')}", LIGHT_GREY,
+                "fiche" in st["open"], toggle_fiche, [ft.Column([
                     ft.Row([
                         _field(m.get("deadline", ""), set_m("deadline"),
                                label="Date limite",
@@ -311,7 +321,7 @@ def main(page: ft.Page):
                            label="Bas de fiche · {date}",
                            border=LIGHT_GREY, multiline=True,
                            min_lines=2)],
-                    spacing=18)])),
+                    spacing=18)]),
             *[section_box(i, s) for i, s in enumerate(m["sections"])],
             ft.Row([ft.FilledButton(
                 "Rubrique", icon=ft.Icons.ADD, on_click=add_section,
@@ -563,7 +573,7 @@ def main(page: ft.Page):
 
     draw_sections()
     page.add(ft.Row([
-        ft.Column([
+        ft.Container(ft.Column([
             ft.Row([model_dd, save_btn,
                     ft.IconButton(ft.Icons.COPY_ALL, icon_color=BLUE,
                                   tooltip="Enregistrer sous",
@@ -578,10 +588,10 @@ def main(page: ft.Page):
             ft.Container(ft.Column([sections_col],
                                    scroll=ft.ScrollMode.AUTO),
                          expand=True),
-            status, progress], width=720),
-        ft.Column([
-            ft.Container(preview, expand=True, bgcolor="#8a8d93",
-                         border_radius=6)], expand=True)], expand=True,
+            status, progress], spacing=CONSTANTS.SPACE_MD),
+            width=740, bgcolor=DARK, padding=CONSTANTS.SPACE_MD),
+        ft.Container(preview, expand=True, padding=CONSTANTS.SPACE_MD)],
+        expand=True, spacing=0,
         vertical_alignment=ft.CrossAxisAlignment.STRETCH))
     refresh(0)
 
