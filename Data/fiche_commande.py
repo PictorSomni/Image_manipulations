@@ -374,7 +374,7 @@ def render_sheet(model, objects, photo=None, label="", renders=None):
     draw.text((MARGIN, H - MARGIN), model.get("note", ""),
               font=_font("Baloo2-Regular.ttf", 56), fill=RED_TXT,
               anchor="ls")
-    _draw_panel(sheet, draw, model, photo, label)
+    _draw_panel(sheet, draw, model, photo, label, MARGIN + bottom)
     return sheet
 
 
@@ -429,24 +429,26 @@ def _draw_item(sheet, draw, it, objects, photo, renders, x, y, col_w, ih,
                   font=item_font(s), fill="black", anchor="rm")
 
 
-def _draw_panel(sheet, draw, model, photo, label):
+def _draw_panel(sheet, draw, model, photo, label, bottom):
     x0 = W - MARGIN - PANEL_W
     y = MARGIN
     lines = model.get("footer", "").split("\n")
     # Cadre réduit à l'essentiel : la photo prend tout le reste.
     box_h = 30 + 56 + 150 + 56 + 120 + len(lines) * 56 + 30
-    photo_h = H - MARGIN - y - box_h - 40
+    photo_h = bottom - y - box_h - 40
     if photo is not None:
         pic = watermarked(photo)
-        pic.thumbnail((PANEL_W, photo_h), Image.Resampling.LANCZOS)
+        k = min(PANEL_W / pic.width, photo_h / pic.height)
+        pic = pic.resize((round(pic.width * k), round(pic.height * k)),
+                         Image.Resampling.LANCZOS)
         sheet.paste(pic, (round(x0 + (PANEL_W - pic.width) / 2),
                           y), pic)
     else:
         draw.rectangle([x0, y, x0 + PANEL_W, y + photo_h],
                        fill=(225, 225, 225))
     y += photo_h
-    if label:  # sous la 3e colonne, sur la ligne de la note
-        draw.text((x0 - GAP, H - MARGIN), label, font=num_font(1),
+    if label:  # tout à droite, sur la ligne de la note
+        draw.text((W - MARGIN, H - MARGIN), label, font=num_font(1),
                   fill="black", anchor="rs")
     y += 40
     draw.rectangle([x0, y, x0 + PANEL_W, y + box_h], outline="black",
