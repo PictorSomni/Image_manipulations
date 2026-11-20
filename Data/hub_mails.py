@@ -312,9 +312,23 @@ def build(ui):
         open_btn = ft.TextButton("Ouvrir dans Hub",
                                  icon=ft.Icons.FOLDER_OPEN_OUTLINED,
                                  visible=False, on_click=_open_in_hub)
-        return ft.Column([previews, files, ft.Row([ft.TextButton(
-            "Enregistrer", icon=ft.Icons.DOWNLOAD, on_click=_save),
-            open_btn], spacing=6), status], spacing=4, tight=True)
+        def _save_here(e):
+            folder = ui.state["folder"]
+            if not folder:
+                return
+            status.value = "Téléchargement…"
+            page.update()
+            names = [c.data for c in files.controls]
+            _bg(lambda: _download(folder, names), _saved)
+
+        return ft.Column([previews, files, ft.Row([
+            ft.TextButton("Enregistrer dans le dossier en cours",
+                          icon=ft.Icons.DOWNLOAD, on_click=_save_here),
+            ft.TextButton("Enregistrer sous…",
+                          icon=ft.Icons.DRIVE_FOLDER_UPLOAD_OUTLINED,
+                          on_click=_save),
+            open_btn], spacing=6, wrap=True), status],
+            spacing=4, tight=True)
 
     # ── Réponse à un mail (fenêtre commune : mail_compose) ───────────────
     def mail_to_task(m):
