@@ -102,6 +102,11 @@ def build(ui):
             *([ft.Row(actions, alignment=ft.MainAxisAlignment.END,
                       wrap=True)] if actions else [])],
             spacing=8, expand=True)
+        # Ouvert depuis une fiche (tâche…) : on la ferme pour voir le
+        # bandeau au lieu de le laisser sous le voile (retour user).
+        for c in page.overlay:
+            if isinstance(c, ft.AlertDialog) and c.open:
+                c.open = False
         mails_panel.visible = True
         hooks.get("sync_btn", lambda: None)()
         page.update()
