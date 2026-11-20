@@ -9890,6 +9890,9 @@ def main(page: ft.Page):
         hs = [0]
         if notes_panel.visible:
             hs.append(notes_panel.height or 0)
+        mp = _mails["mails_panel"]
+        if mp.visible:
+            hs = [h + (mp.height or 0) for h in hs]
         if (terminal_panel.visible and _terminal_autohide["pinned"]
                 and not _terminal_fullscreen["active"]):
             hs.append(terminal_panel.height or 0)
@@ -9940,6 +9943,29 @@ def main(page: ft.Page):
         notes_btn_text.color = DARK if active else WHITE
         notes_toggle_btn.update()
 
+    mails_btn_icon = ft.Icon(ft.Icons.MAIL_OUTLINE,
+                             size=CONSTANTS.ICON_SM, color=WHITE)
+    mails_btn_text = ft.Text("Mails", size=CONSTANTS.TEXT_SM, color=WHITE)
+    mails_toggle_btn = ft.TextButton(
+        content=ft.Row([mails_btn_icon, mails_btn_text], spacing=6,
+                       tight=True),
+        height=CONSTANTS.HUB_STATUSBAR_TAP_HEIGHT,
+        on_click=_mails["toggle_mails"], tooltip="Mails")
+
+    def _sync_mails_btn():
+        active = _mails["mails_panel"].visible
+        _sync_dock_inset()
+        mails_toggle_btn.style = ft.ButtonStyle(
+            bgcolor=BLUE if active else None)
+        mails_btn_icon.color = DARK if active else WHITE
+        mails_btn_text.color = DARK if active else WHITE
+        try:
+            mails_toggle_btn.update()
+        except Exception:
+            pass
+
+    _mails["sync_btn"] = _sync_mails_btn
+
     # Barre plus haute (56 au lieu de 40) + cibles tactiles agrandies pour
     # Terminal/Actions/curseur de taille — accès écran tactile (retour user).
     statusbar = ft.Container(
@@ -9948,6 +9974,7 @@ def main(page: ft.Page):
             terminal_toggle_btn,
             actions_btn,
             notes_toggle_btn,
+            mails_toggle_btn,
             ft.Container(
                 content=ft.Row([
                     tariff_wrap,
@@ -10523,7 +10550,11 @@ print("[délai dépassé]")
     # boutons de la barre du bas (retour user).
     panels_row = ft.Row([terminal_panel, notes_panel], spacing=4,
                         vertical_alignment=ft.CrossAxisAlignment.END)
-    panels_dock = ft.Container(content=panels_row, left=60, right=0,
+    # Mails en bandeau à part, au-dessus du terminal/notes (retour user).
+    panels_dock = ft.Container(content=ft.Column(
+        [_mails["mails_panel"], panels_row], spacing=4, tight=True,
+        horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
+        left=60, right=0,
                                bottom=0)
     main_box = ft.Container(main_row, left=0, top=0, right=0, bottom=0)
     _dock["box"] = center_box

@@ -54,6 +54,9 @@ def build(ui):
         page.update()
 
     def _close(dlg):
+        if dlg is _DOCK:
+            _dock_close()
+            return
         # Pas de retrait de page.overlay dans la même mise à jour : le
         # client ne voit jamais open=False et le dialogue reste orphelin.
         dlg.open = False
@@ -70,7 +73,95 @@ def build(ui):
         return ft.TextField(width=560, bgcolor=DARK, color=WHITE,
                             border=CONSTANTS.input_border(GREY), **kw)
 
-    open_mail = mail_compose.build(ui, _bg, _show, _close, _seg, _field)
+    # Bandeau Mails à part (retour user) : la rédaction survit aux
+    # changements d'onglet, terminal au-dessous.
+    _DOCK = object()
+    mails_body = ft.Container(expand=True, padding=ft.Padding(12, 6, 12, 8),
+                              alignment=ft.Alignment.TOP_LEFT)
+    _MAILS_MIN, _MAILS_MAX = 160, 900
+
+    def _on_mails_resize(e):
+        mails_panel.height = max(_MAILS_MIN, min(
+            _MAILS_MAX, mails_panel.height - e.local_delta.y))
+        mails_panel.update()
+        hooks.get("sync_btn", lambda: None)()
+
+    mails_panel = ft.Container(
+        content=ft.Column([
+            ft.GestureDetector(
+                content=ft.Container(height=6, bgcolor=BLUE),
+                mouse_cursor=ft.MouseCursor.RESIZE_UP_DOWN,
+                on_pan_update=_on_mails_resize),
+            mails_body], spacing=0, expand=True),
+        bgcolor=DARK, height=480, visible=False)
+
+    def _dock(title_row, content, actions):
+        content.expand = True
+        mails_body.content = ft.Column([
+            title_row, content,
+            ft.Row(actions, alignment=ft.MainAxisAlignment.END,
+                   wrap=True)], spacing=8, expand=True)
+        mails_panel.visible = True
+        hooks.get("sync_btn", lambda: None)()
+        page.update()
+        return _DOCK
+
+    def _dock_close():
+        _idle_fill()
+        hooks.get("sync_btn", lambda: None)()
+        page.update()
+
+    _last = {"b": None}
+
+    def _mail_tiles():
+        b = _last["b"]
+        if not b or isinstance(b, Exception):
+            return []
+
+        def _done(m):
+            if m in b["mails"]:
+                b["mails"].remove(m)
+            _briefing_fill(b)
+
+        def _dismiss(m):
+            _done(m)
+            _bg(lambda: hub_sync.mail("done", id=m["message_id"]),
+                lambda out: None)
+        return [ft.ListTile(
+            leading=ft.Icon(ft.Icons.MAIL_OUTLINE, color=BLUE),
+            title=ft.Text(m.get("name") or m["from"], color=WHITE),
+            subtitle=ft.Text(m.get("summary") or m.get("subject", ""),
+                             color=LIGHT_GREY),
+            on_click=lambda e, m=m: open_reply(m, _done, _dismiss))
+            for m in b["mails"]]
+
+    def _idle():
+        return mails_body.content is None or \
+            getattr(mails_body.content, "data", None) == "idle"
+
+    def _idle_fill():
+        mails_body.content = ft.Column(data="idle", expand=True, controls=[
+            ft.Row([
+                ft.Text("Mails", color=BLUE, size=16,
+                        weight=ft.FontWeight.BOLD, expand=True),
+                ft.IconButton(ft.Icons.SEARCH, icon_color=BLUE,
+                              tooltip="Rechercher", on_click=search_mails),
+                ft.IconButton(ft.Icons.EDIT, icon_color=BLUE,
+                              tooltip="Nouveau mail",
+                              on_click=lambda e: new_mail())]),
+            ft.ListView(_mail_tiles(), expand=True)])
+
+    def toggle_mails(e=None):
+        if _idle():
+            _idle_fill()
+            if _last["b"] is None:
+                briefing_refresh()
+        mails_panel.visible = not mails_panel.visible
+        hooks.get("sync_btn", lambda: None)()
+        page.update()
+
+    open_mail = mail_compose.build(ui, _bg, _show, _close, _seg, _field,
+                                   dock=_dock)
 
     VIEWER_EXTS = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp",
                    ".tif", ".tiff", ".pdf")
@@ -538,8 +629,16 @@ def build(ui):
             new_btn], tight=True, spacing=0)
         if not mails:
             cards.append(_card("Mails", BLUE, [], new_btn))
+        recap = next((body for t, body in _sections(b["text"])
+                      if "mail" in t.lower()), "").strip()
+        new_btn.controls.insert(0, ft.IconButton(
+            ft.Icons.UNFOLD_MORE, icon_color=BLUE, tooltip="Tous les mails",
+            on_click=lambda e: toggle_mails() if not mails_panel.visible
+            else None))
         if mails:
             cards.append(_card(f"Mails · {len(mails)}", BLUE, [
+                *([ft.Markdown(recap, selectable=True)] if recap else []),
+                *[
                 ft.ListTile(
                     leading=ft.Icon(ft.Icons.MAIL_OUTLINE, color=BLUE),
                     title=ft.Text(m.get("name") or m["from"], color=WHITE),
@@ -556,7 +655,7 @@ def build(ui):
                         tight=True, spacing=0),
                     on_click=lambda e, m=m: open_reply(
                         m, _answered, _dismiss))
-                for m in mails], new_btn))
+                for m in mails[:-4:-1]]], new_btn))
         if b.get("quiz"):
             cards.append(_quiz_card(b["quiz"]))
         for title, body in _sections(b["text"]):
@@ -598,6 +697,9 @@ def build(ui):
                                 padding=ft.Padding(16, 12, 16, 16))
 
     def _briefing_fill(b):
+        _last["b"] = b
+        if mails_panel.visible and _idle():
+            _idle_fill()
         briefing_view.controls = _briefing_controls(b, _briefing_fill)
         page.update()
 
@@ -643,5 +745,7 @@ def build(ui):
     hooks.update({"notify_client": notify_client,
                   "new_mail": new_mail,
                   "briefing_surface": briefing_surface,
-                  "briefing_refresh": briefing_refresh})
+                  "briefing_refresh": briefing_refresh,
+                  "mails_panel": mails_panel,
+                  "toggle_mails": toggle_mails})
     return hooks

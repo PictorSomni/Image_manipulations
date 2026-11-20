@@ -36,7 +36,7 @@ TONES = [("professionnel et chaleureux", "Chaleureux"),
          ("professionnel et sobre", "Sobre"), ("très bref", "Bref")]
 
 
-def build(ui, bg, show, close, seg, field):
+def build(ui, bg, show, close, seg, field, dock=None):
     """Renvoie open_mail(...) branché sur les outils de hub_mails."""
     page = ui.page
     WHITE, LIGHT_GREY, GREY = ui.WHITE, ui.LIGHT_GREY, ui.GREY
@@ -175,32 +175,56 @@ def build(ui, bg, show, close, seg, field):
             + list(header or [])
         title = (reply.get("subject") or "(sans sujet)") if reply \
             else "Mail"
-        dlg = ui._dialog(
-            title=ft.Row([
-                ft.Text(title, expand=True),
-                ft.IconButton(ft.Icons.CLOSE, icon_color=LIGHT_GREY,
-                              tooltip="Fermer",
-                              on_click=lambda e: close(dlg))]),
-            content=ft.Column([
-                *([_card("Message reçu", LIGHT_GREY, received)]
-                  if received else []),
-                *([to_f, sugg, subj_f] if not reply else []),
-                _card("Rédaction IA", ui.VIOLET, [
-                    seg([(False, "Vous"), (True, "Tu")], _tu),
-                    seg(TONES, lambda v: o.update(tone=v)),
-                    hint,
-                    ui._dlg_btn("Rédiger", color=ui.VIOLET,
-                                on_click=_draft)]),
-                _card("Réponse" if reply else "Message", ui.BLUE, [
-                    body, names, status])],
-                tight=True, spacing=14, width=600,
-                scroll=ft.ScrollMode.AUTO,
-                height=max(300, min(680, (page.height or 900) - 220))),
-            actions=[*extra_actions,
-                     ui._dlg_btn("Joindre", color=CONSTANTS.COLOR_MINT,
-                                 on_click=_join),
-                     ui._dlg_btn("Envoyer", "primary", on_click=_send)],
-            inset_padding=ft.Padding(20, 40, 20, 40))
+        title_row = ft.Row([
+            ft.Text(title, expand=True, size=16, color=WHITE,
+                    weight=ft.FontWeight.BOLD),
+            ft.IconButton(ft.Icons.CLOSE, icon_color=LIGHT_GREY,
+                          tooltip="Fermer",
+                          on_click=lambda e: close(dlg))])
+        content = ft.Column([
+            *([_card("Message reçu", LIGHT_GREY, received)]
+              if received else []),
+            *([to_f, sugg, subj_f] if not reply else []),
+            _card("Rédaction IA", ui.VIOLET, [
+                seg([(False, "Vous"), (True, "Tu")], _tu),
+                seg(TONES, lambda v: o.update(tone=v)),
+                hint,
+                ui._dlg_btn("Rédiger", color=ui.VIOLET,
+                            on_click=_draft)]),
+            _card("Réponse" if reply else "Message", ui.BLUE, [
+                body, names, status])],
+            tight=True, spacing=14, scroll=ft.ScrollMode.AUTO)
+        actions = [*extra_actions,
+                   ui._dlg_btn("Joindre", color=CONSTANTS.COLOR_MINT,
+                               on_click=_join),
+                   ui._dlg_btn("Envoyer", "primary", on_click=_send)]
+        if dock:
+            # Pleine largeur : reçu + consignes à gauche, réponse à droite.
+            for f in (to_f, subj_f, hint, body):
+                f.width = None
+            left = ft.Column(content.controls[:-2], spacing=14,
+                             expand=True, scroll=ft.ScrollMode.AUTO,
+                             horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
+            right = ft.Column(content.controls[-2:], expand=True, spacing=14,
+                              scroll=ft.ScrollMode.AUTO,
+                              horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
+            for c in content.controls:
+                if isinstance(c, ft.Container):
+                    c.content.horizontal_alignment = \
+                        ft.CrossAxisAlignment.STRETCH
+                    for x in c.content.controls:
+                        if hasattr(x, "width"):
+                            x.width = None
+            dlg = dock(title_row, ft.Row([left, right], spacing=16,
+                                         expand=True,
+                                         vertical_alignment=ft
+                                         .CrossAxisAlignment.START),
+                       actions)
+            return dlg
+        content.width = 600
+        content.height = max(300, min(680, (page.height or 900) - 220))
+        dlg = ui._dialog(title=title_row, content=content, actions=actions,
+                         inset_padding=ft.Padding(20, 40, 20, 40))
         show(dlg)
         return dlg
 
