@@ -439,7 +439,12 @@ def call(req):
     if a == "list":
         return pending()
     if a == "recent":  # tous les mails triés, récents d'abord (bandeau)
-        return _read()[:-int(req.get("limit", 80)) - 1:-1]
+        # Mails déjà en cache chez Hub (« known ») : statut seul, pour
+        # ne renvoyer en entier que les nouveaux (retour user).
+        known = set(req.get("known") or ())
+        return [m if m.get("message_id") not in known else
+                {k: m.get(k) for k in ("message_id", "done", "replied")}
+                for m in _read()[:-int(req.get("limit", 80)) - 1:-1]]
     if a == "copy_files":  # pièces jointes d'un mail → fichiers de tâche
         return copy_files(req["src"], req["dst"])
     if a == "search":

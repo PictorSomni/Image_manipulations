@@ -122,7 +122,9 @@ def build(ui):
 
     _last = {"b": None}
 
-    _recent = {"list": None, "todo": False}
+    _MAILS_CACHE = CONSTANTS.state_file(".mails_cache.json")
+    _recent = {"list": ui._load_json(_MAILS_CACHE, None), "todo": False,
+               "loading": False}
 
     def _mail_tiles():
         """Tous les mails triés (sans spams), récents d'abord : à traiter
@@ -167,12 +169,26 @@ def build(ui):
                 if not (_recent["todo"] and m.get("done"))]
 
     def _recent_load():
+        # Copie locale affichée tout de suite ; le Pi ne renvoie en
+        # entier que les mails absents du cache (retour user).
+        cache = {m["message_id"]: m for m in _recent["list"] or ()
+                 if m.get("message_id")}
+        _recent["loading"] = True
+
         def _got(out):
+            _recent["loading"] = False
             if not isinstance(out, Exception):
-                _recent["list"] = out
+                lst = []
+                for m in out:
+                    old = cache.get(m.get("message_id"))
+                    lst.append({**old, **m} if old else m)
+                _recent["list"] = lst
+                ui._save_json(_MAILS_CACHE, lst)
             if mails_panel.visible and _idle():
                 _idle_fill()
-        _bg(lambda: hub_sync.mail("recent", limit=80), _got)
+                page.update()
+        _bg(lambda: hub_sync.mail("recent", limit=80, known=list(cache)),
+            _got)
 
     def _idle():
         return mails_body.content is None or \
@@ -187,7 +203,13 @@ def build(ui):
         mails_body.content = ft.Column(data="idle", expand=True, controls=[
             ft.Row([
                 ft.Text("Mails", color=BLUE, size=16,
-                        weight=ft.FontWeight.BOLD, expand=True),
+                        weight=ft.FontWeight.BOLD),
+                ft.Row([ft.ProgressRing(width=14, height=14,
+                                        stroke_width=2, color=BLUE),
+                        ft.Text("Nouveaux mails…", size=12,
+                                color=LIGHT_GREY)],
+                       spacing=6, visible=_recent["loading"]),
+                ft.Container(expand=True),
                 ft.IconButton(
                     ft.Icons.MARK_EMAIL_UNREAD, tooltip="À traiter",
                     icon_color=DARK if _recent["todo"] else BLUE,
@@ -202,8 +224,8 @@ def build(ui):
 
     def toggle_mails(e=None):
         if _idle():
-            _idle_fill()
             _recent_load()
+            _idle_fill()
         mails_panel.visible = not mails_panel.visible
         hooks.get("sync_btn", lambda: None)()
         page.update()
