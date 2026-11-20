@@ -406,11 +406,16 @@ function toggleTts() {
   drawTts();
 }
 drawTts();
-log.addEventListener("click", e => {  // toucher une réponse = la relire
+// Toucher une réponse : coupe la lecture en cours, sinon la relit.
+log.addEventListener("click", e => {
   const m = e.target.closest(".text");
-  if (m) { speechSynthesis.cancel(); const t = tts; tts = true;
-    say(m.textContent); tts = t; }
+  if (!m) return;
+  if (speechSynthesis.speaking || speechSynthesis.pending)
+    return speechSynthesis.cancel();
+  const t = tts; tts = true; say(m.textContent); tts = t;
 });
+// Toucher la zone de saisie coupe aussi la lecture.
+$("msg").addEventListener("pointerdown", () => speechSynthesis.cancel());
 
 // Notifications sur l'iPhone et la montre (page en HTTPS, ajoutée à
 // l'écran d'accueil) : Claude a répondu, ou attend ton accord.
