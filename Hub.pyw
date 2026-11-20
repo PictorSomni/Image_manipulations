@@ -9971,8 +9971,8 @@ def main(page: ft.Page):
     statusbar = ft.Container(
         content=ft.Row([
             status_left,
-            terminal_toggle_btn,
             actions_btn,
+            terminal_toggle_btn,
             notes_toggle_btn,
             mails_toggle_btn,
             ft.Container(

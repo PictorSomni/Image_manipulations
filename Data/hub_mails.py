@@ -95,7 +95,10 @@ def build(ui):
             mails_body], spacing=0, expand=True),
         bgcolor=DARK, height=480, visible=False)
 
-    def _dock(title_row, content, actions):
+    _cur = {"add": None}
+
+    def _dock(title_row, content, actions, add=None):
+        _cur["add"] = add
         content.expand = True
         mails_body.content = ft.Column([
             title_row, content,
@@ -765,6 +768,15 @@ def build(ui):
                   text_tu=READY_TU.format(prix=prix), on_sent=on_sent)
 
     def new_mail(to_addr="", files=()):
+        # Rédaction ouverte dans le bandeau : on y joint les fichiers
+        # au lieu d'ouvrir un nouveau mail (retour user).
+        if files and not to_addr and _cur["add"] and not _idle():
+            _cur["add"](list(files))
+            if not mails_panel.visible:
+                mails_panel.visible = True
+                hooks.get("sync_btn", lambda: None)()
+                page.update()
+            return
         open_mail(to=to_addr, files=files)
 
     hooks.update({"notify_client": notify_client,

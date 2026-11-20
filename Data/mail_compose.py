@@ -119,6 +119,11 @@ def build(ui, bg, show, close, seg, field, dock=None):
             names.value = ", ".join(os.path.basename(p) for p in joined)
             page.update()
 
+        def _add(paths):
+            joined.extend(p for p in paths if p not in joined)
+            names.value = ", ".join(os.path.basename(p) for p in joined)
+            page.update()
+
         def _files():
             out = []
             for p in joined:
@@ -226,11 +231,9 @@ def build(ui, bg, show, close, seg, field, dock=None):
                 title_row.controls = [
                     t, ft.Row(list(extra_actions), tight=True),
                     ft.Container(expand=1), title_row.controls[1]]
-            dlg = dock(title_row, ft.Row([left, right], spacing=16,
-                                         expand=True,
-                                         vertical_alignment=ft
-                                         .CrossAxisAlignment.START),
-                       [])
+            row = ft.Row([left, right], spacing=16, expand=True,
+                         vertical_alignment=ft.CrossAxisAlignment.START)
+            dlg = dock(title_row, row, [], add=_add)
             return dlg
         content.width = 600
         content.height = max(300, min(680, (page.height or 900) - 220))
