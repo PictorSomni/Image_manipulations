@@ -179,6 +179,10 @@ def with_ext(name, data, ctype=""):
     return name + ext if ext and ext != ".bin" else name
 
 
+# Logo Studio C de la signature, renvoyé quand un client cite le mail.
+_LOGOS = {"58b2af31e78ea6267bc4c7d51fa0b963"}
+
+
 def _save_files(msg, mid):
     """Pièces jointes (photos, PDF…) dans ~/task_files/<id>, servies par
     /files comme celles des tâches. Renvoie l'id, ou "" s'il n'y en a
@@ -190,7 +194,8 @@ def _save_files(msg, mid):
         name = os.path.basename(part.get_filename() or "")
         if not name or name.startswith(".") or len(name) > 150 or (
                 part.get_content_maintype() == "image"
-                and len(data) < 15000):
+                and len(data) < 15000) or (
+                hashlib.md5(data).hexdigest() in _LOGOS):
             continue
         name = with_ext(name, data, part.get_content_type())
         name, data = to_jpeg(name, data)
