@@ -406,13 +406,14 @@ function toggleTts() {
   drawTts();
 }
 drawTts();
-// Toucher une réponse : coupe la lecture en cours, sinon la relit.
+// Toucher une réponse : coupe la lecture en cours, sinon la relit
+// (si Lecture est activée).
 log.addEventListener("click", e => {
   const m = e.target.closest(".text");
   if (!m) return;
   if (speechSynthesis.speaking || speechSynthesis.pending)
     return speechSynthesis.cancel();
-  const t = tts; tts = true; say(m.textContent); tts = t;
+  say(m.textContent);  // seulement si Lecture est activée
 });
 // Toucher la zone de saisie coupe aussi la lecture.
 $("msg").addEventListener("pointerdown", () => speechSynthesis.cancel());
