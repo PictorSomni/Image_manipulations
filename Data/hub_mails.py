@@ -43,8 +43,15 @@ def build(ui):
                 out = exc
 
             async def _apply():
-                done(out)
-                page.update()
+                # Une erreur dans done() ne doit pas bloquer l'affichage
+                # (interface figée après un envoi, retour user).
+                try:
+                    done(out)
+                except Exception:
+                    import traceback
+                    traceback.print_exc()
+                finally:
+                    page.update()
             _run_task(_apply)
         threading.Thread(target=_run, daemon=True).start()
 
@@ -116,6 +123,7 @@ def build(ui):
         return _DOCK
 
     def _dock_close():
+        _cur["add"] = None
         _idle_fill()
         hooks.get("sync_btn", lambda: None)()
         page.update()
