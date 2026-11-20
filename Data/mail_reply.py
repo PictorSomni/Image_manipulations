@@ -42,11 +42,13 @@ def _read():
         return []
 
 
-def _mark_done(mid):
+def _mark_done(mid, replied=False):
     mails = _read()
     for m in mails:
         if m["message_id"] == mid:
             m["done"] = True
+            if replied:
+                m["replied"] = True
     with open(MAILS + ".tmp", "w", encoding="utf-8") as f:
         json.dump(mails, f, ensure_ascii=False, indent=1)
     os.replace(MAILS + ".tmp", MAILS)
@@ -428,7 +430,7 @@ def reply(mid, text, files=()):
     subj = m["subject"]
     send(m["from"], subj if subj.lower().startswith("re:")
          else "Re: " + subj, text, m["message_id"], files)
-    _mark_done(mid)
+    _mark_done(mid, replied=True)
 
 
 def call(req):
@@ -436,6 +438,8 @@ def call(req):
     a = req["action"]
     if a == "list":
         return pending()
+    if a == "recent":  # tous les mails triés, récents d'abord (bandeau)
+        return _read()[:-int(req.get("limit", 80)) - 1:-1]
     if a == "copy_files":  # pièces jointes d'un mail → fichiers de tâche
         return copy_files(req["src"], req["dst"])
     if a == "search":

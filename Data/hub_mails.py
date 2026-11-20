@@ -119,27 +119,56 @@ def build(ui):
 
     _last = {"b": None}
 
+    _recent = {"list": None}
+
     def _mail_tiles():
-        b = _last["b"]
-        if not b or isinstance(b, Exception):
-            return []
+        """Tous les mails triés (sans spams), récents d'abord : à traiter
+        en bleu, répondus en vert, retirés en gris (retour user)."""
+        lst = _recent["list"]
+        if lst is None:
+            return [ft.Text("Chargement…", color=LIGHT_GREY)]
 
         def _done(m):
-            if m in b["mails"]:
-                b["mails"].remove(m)
-            _briefing_fill(b)
+            m["done"] = m["replied"] = True
+            _recent_load()
+            if _last["b"] and not isinstance(_last["b"], Exception):
+                b = _last["b"]
+                b["mails"] = [x for x in b["mails"]
+                              if x["message_id"] != m["message_id"]]
+                _briefing_fill(b)
 
         def _dismiss(m):
-            _done(m)
+            m["done"] = True
             _bg(lambda: hub_sync.mail("done", id=m["message_id"]),
-                lambda out: None)
-        return [ft.ListTile(
-            leading=ft.Icon(ft.Icons.MAIL_OUTLINE, color=BLUE),
-            title=ft.Text(m.get("name") or m["from"], color=WHITE),
-            subtitle=ft.Text(m.get("summary") or m.get("subject", ""),
-                             color=LIGHT_GREY),
-            on_click=lambda e, m=m: open_reply(m, _done, _dismiss))
-            for m in b["mails"]]
+                lambda out: _recent_load())
+
+        def _tile(m):
+            if not m.get("done"):
+                color, icon = BLUE, ft.Icons.MAIL_OUTLINE
+            elif m.get("replied"):
+                color, icon = GREEN, ft.Icons.REPLY
+            else:
+                color, icon = GREY, ft.Icons.DRAFTS_OUTLINED
+            todo = not m.get("done")
+            return ft.Container(ft.ListTile(
+                leading=ft.Icon(icon, color=color),
+                title=ft.Text(m.get("name") or m["from"],
+                              color=WHITE if todo else LIGHT_GREY,
+                              weight=ft.FontWeight.BOLD if todo else None),
+                subtitle=ft.Text(m.get("summary") or m.get("subject", ""),
+                                 color=LIGHT_GREY, max_lines=1),
+                on_click=lambda e: open_reply(
+                    m, _done, _dismiss if todo else None)),
+                border=ft.Border(left=ft.BorderSide(4, color)))
+        return [_tile(m) for m in lst]
+
+    def _recent_load():
+        def _got(out):
+            if not isinstance(out, Exception):
+                _recent["list"] = out
+            if mails_panel.visible and _idle():
+                _idle_fill()
+        _bg(lambda: hub_sync.mail("recent", limit=80), _got)
 
     def _idle():
         return mails_body.content is None or \
@@ -160,8 +189,7 @@ def build(ui):
     def toggle_mails(e=None):
         if _idle():
             _idle_fill()
-            if _last["b"] is None:
-                briefing_refresh()
+            _recent_load()
         mails_panel.visible = not mails_panel.visible
         hooks.get("sync_btn", lambda: None)()
         page.update()
