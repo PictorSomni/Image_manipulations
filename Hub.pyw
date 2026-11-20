@@ -8410,6 +8410,8 @@ def main(page: ft.Page):
          lambda e: _run_action(_share_link, list(selected))),
         ("Envoyer par mail", ft.Icons.MAIL_OUTLINE, YELLOW,
          lambda e: _run_action(_mail_selected, list(selected))),
+        ("Ajouter à une tâche", ft.Icons.TASK_OUTLINED, MINT,
+         lambda e: _run_action(_task_selected, list(selected))),
         ("Ajouter à l'IA", ft.Icons.SMART_TOY_OUTLINED, VIOLET,
          ajouter_ia_btn.on_click),
         ("Supprimer", ft.Icons.DELETE_OUTLINE, RED,
@@ -8709,6 +8711,45 @@ def main(page: ft.Page):
         files = [p for p in paths if os.path.isfile(p)]
         if files:
             _mails["new_mail"](files=files)
+
+    def _task_selected(paths):
+        """Joint les fichiers sélectionnés à une tâche choisie dans la
+        liste des tâches en cours (retour user)."""
+        files = [p for p in paths if os.path.isfile(p)]
+        rows = [r for r in kanban_state["rows"]
+                if r.get("etat") != "Terminé"]
+        if not files or not rows:
+            return
+
+        def _pick(row):
+            dlg.open = False
+            page.update()
+
+            def work():
+                for p in files:
+                    with open(p, "rb") as f:
+                        hub_sync.file_req("PUT", row["page_id"],
+                                          os.path.basename(p), f.read(),
+                                          timeout=300)
+                _log_to_terminal(
+                    f"[Tâches] {len(files)} fichier(s) → {row['demande']}",
+                    MINT)
+            threading.Thread(target=work, daemon=True).start()
+
+        dlg = ft.AlertDialog(
+            title=ft.Text("Ajouter à une tâche", color=WHITE),
+            bgcolor=DARK,
+            content=ft.Container(width=520, height=480, content=ft.ListView(
+                [ft.ListTile(
+                    title=ft.Text(r["demande"] or "Sans titre",
+                                  color=WHITE, weight=ft.FontWeight.BOLD),
+                    subtitle=ft.Text(r.get("etat", ""), color=MINT),
+                    on_click=lambda e, r=r: _pick(r)) for r in rows])),
+            actions=[ft.TextButton("Annuler", on_click=lambda e: (
+                setattr(dlg, "open", False), page.update()))])
+        page.overlay.append(dlg)
+        dlg.open = True
+        page.update()
 
     def _action_category(label, tools):
         # GREY sur le fond DARK de l'overlay est quasi illisible, deux
