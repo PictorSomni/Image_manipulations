@@ -98,6 +98,8 @@ button, a, [role="button"], .chipbtn {
 button.pressed, [role="button"].pressed, .chipbtn.pressed {
   transform: scale(.97); filter: brightness(.85); }
 [style*="overflow"], .scroll, main, #sheet, #log { overscroll-behavior: contain; }
+.ask b { white-space: pre-line; }
+.ask button.always { background: var(--green, #3fb950); color: #111; font-weight: 600; }
 </style>
 </head>
 <body>
@@ -276,10 +278,10 @@ function showAsk(a) {
   if ((a && a.at) === askAt) return;
   askAt = a && a.at;
   if (askBox) { askBox.remove(); askBox = null; }
-  if (a) askBox = ask(a.q, true);
+  if (a) askBox = ask(a.q, true, a.perm);
 }
 
-function ask(qs, live) {
+function ask(qs, live, perm) {
   const box = add("tool", "");
   box.textContent = "";
   qs.forEach(q => {
@@ -287,9 +289,10 @@ function ask(qs, live) {
     d.className = "ask";
     d.append(Object.assign(document.createElement("b"),
       {textContent: q.t}));
-    [...q.o, "Autre…"].forEach((label, i) => {
+    [...q.o, ...(perm ? [] : ["Autre…"])].forEach((label, i) => {
       const b = document.createElement("button");
       b.textContent = label;
+      if (perm && label.startsWith("Toujours")) b.classList.add("always");
       b.disabled = !live;
       b.onclick = async () => {
         let t = "";

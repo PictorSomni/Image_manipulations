@@ -218,20 +218,59 @@ def _check_updates():
 ASK = os.path.expanduser("~/.claude_ask.json")
 
 
+_OPT = re.compile(r"^\s*(?:❯\s*)?([1-9])\.\s+(.+?)\s*$")
+
+
+def _perm_label(t):
+    low = t.lower()
+    if "don't ask again" in low or "do not ask again" in low:
+        return "Toujours autoriser · " + re.sub(
+            r"(?i)^yes,?\s*and don't ask again\s*", "", t)
+    if low.startswith("yes"):
+        return "Oui"
+    if low.startswith("no"):
+        return "Non"
+    return t
+
+
+def _perm(pane):
+    """Demande d'autorisation de Claude Code lue dans le pane, ou None."""
+    lines = pane.splitlines()
+    at = max((i for i, l in enumerate(lines) if "Do you want" in l),
+             default=None)
+    if at is None:
+        return None
+    opts = []
+    for line in lines[at + 1:]:
+        m = _OPT.match(line)
+        if m:
+            opts.append(_perm_label(m.group(2)))
+        elif opts and line.strip():
+            break
+    if not opts:
+        return None
+    head = [l.strip(" │") for l in lines[max(0, at - 8):at]]
+    head = [l for l in head if l and not set(l) <= set("─━-╌╭╮╰╯ ")]
+    text = "\n".join(head[-6:] + [lines[at].strip()])
+    return {"at": hash(text) & 0xFFFFFFF, "perm": True,
+            "q": [{"t": text, "o": opts, "multi": False}]}
+
+
 def _ask(pane):
-    """Question à choix en attente (déposée par Pi/ask_hook.py), ou None."""
+    """Question à choix en attente (déposée par Pi/ask_hook.py), ou
+    demande d'autorisation, ou None."""
     try:
         with open(ASK, encoding="utf-8") as f:
             ask = json.load(f)
     except (OSError, ValueError):
-        return None
+        return _perm(pane)
     # Question longue (> 24 lignes du pane) : le pied « Esc to cancel »
     # sort de l'écran, d'où aussi la recherche d'un des choix.
     labels = [o for q in ask.get("q", []) for o in q.get("o", []) if o]
     if ("Esc to cancel" in pane or "Enter to select" in pane
             or any(o in pane for o in labels)):
         return ask
-    return None
+    return _perm(pane)
 
 
 def _tmux(*keys, literal=False):
