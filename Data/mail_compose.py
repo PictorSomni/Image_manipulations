@@ -102,8 +102,26 @@ def build(ui, bg, show, close, seg, field, dock=None):
                      on_change=lambda e: o.update(touched=True))
         status = ft.Text("", size=13, color=WHITE)
         joined = list(files)
-        names = ft.Text(", ".join(os.path.basename(p) for p in joined),
-                        size=13, color=LIGHT_GREY)
+        names = ft.Row([], wrap=True, spacing=6, run_spacing=4)
+
+        def _render():
+            # Une puce par pièce jointe, avec une croix pour la retirer
+            # (retour user).
+            names.controls = [ft.Container(
+                ft.Row([ft.Icon(ft.Icons.ATTACH_FILE, size=14, color=WHITE),
+                        ft.Text(os.path.basename(p), size=13, color=WHITE),
+                        ft.IconButton(ft.Icons.CLOSE, icon_size=14,
+                                      icon_color=WHITE, tooltip="Retirer",
+                                      on_click=lambda e, p=p: _remove(p))],
+                       spacing=2, tight=True),
+                bgcolor=GREY, border_radius=12,
+                padding=ft.Padding(8, 0, 0, 0)) for p in joined]
+
+        def _remove(p):
+            joined.remove(p)
+            _render()
+            page.update()
+        _render()
 
         def _tu(v):
             o["tu"] = v
@@ -116,12 +134,12 @@ def build(ui, bg, show, close, seg, field, dock=None):
                 dialog_title="Joindre des fichiers", allow_multiple=True,
                 initial_directory=ui.state["folder"] or None)
             joined.extend(f.path for f in picked or [] if f.path)
-            names.value = ", ".join(os.path.basename(p) for p in joined)
+            _render()
             page.update()
 
         def _add(paths):
             joined.extend(p for p in paths if p not in joined)
-            names.value = ", ".join(os.path.basename(p) for p in joined)
+            _render()
             page.update()
 
         def _files():
