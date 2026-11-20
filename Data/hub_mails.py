@@ -119,7 +119,7 @@ def build(ui):
 
     _last = {"b": None}
 
-    _recent = {"list": None}
+    _recent = {"list": None, "todo": False}
 
     def _mail_tiles():
         """Tous les mails triés (sans spams), récents d'abord : à traiter
@@ -160,7 +160,8 @@ def build(ui):
                 on_click=lambda e: open_reply(
                     m, _done, _dismiss if todo else None)),
                 border=ft.Border(left=ft.BorderSide(4, color)))
-        return [_tile(m) for m in lst]
+        return [_tile(m) for m in lst
+                if not (_recent["todo"] and m.get("done"))]
 
     def _recent_load():
         def _got(out):
@@ -174,11 +175,21 @@ def build(ui):
         return mails_body.content is None or \
             getattr(mails_body.content, "data", None) == "idle"
 
+    def _toggle_todo(e):
+        _recent["todo"] = not _recent["todo"]
+        _idle_fill()
+        page.update()
+
     def _idle_fill():
         mails_body.content = ft.Column(data="idle", expand=True, controls=[
             ft.Row([
                 ft.Text("Mails", color=BLUE, size=16,
                         weight=ft.FontWeight.BOLD, expand=True),
+                ft.IconButton(
+                    ft.Icons.MARK_EMAIL_UNREAD, tooltip="À traiter",
+                    icon_color=DARK if _recent["todo"] else BLUE,
+                    bgcolor=BLUE if _recent["todo"] else None,
+                    on_click=_toggle_todo),
                 ft.IconButton(ft.Icons.SEARCH, icon_color=BLUE,
                               tooltip="Rechercher", on_click=search_mails),
                 ft.IconButton(ft.Icons.EDIT, icon_color=BLUE,
