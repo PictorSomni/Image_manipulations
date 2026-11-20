@@ -15,6 +15,7 @@ import hashlib
 import html
 import imaplib
 import json
+import mimetypes
 import os
 import re
 import subprocess
@@ -158,6 +159,26 @@ def to_jpeg(name, data):
     return stem + ".jpg", out.getvalue()
 
 
+_MAGIC = ((b"\x89PNG", ".png"), (b"\xff\xd8\xff", ".jpg"),
+          (b"%PDF", ".pdf"), (b"GIF8", ".gif"), (b"PK\x03\x04", ".zip"),
+          (b"II*\x00", ".tif"), (b"MM\x00*", ".tif"),
+          (b"8BPS", ".psd"))
+
+
+def with_ext(name, data, ctype=""):
+    """Ajoute l'extension manquante (« noname ») d'après le contenu,
+    sinon d'après le type MIME (retour user)."""
+    if os.path.splitext(name)[1]:
+        return name
+    if data[8:12] == b"WEBP":
+        return name + ".webp"
+    for sig, ext in _MAGIC:
+        if data.startswith(sig):
+            return name + ext
+    ext = mimetypes.guess_extension(ctype or "")
+    return name + ext if ext and ext != ".bin" else name
+
+
 def _save_files(msg, mid):
     """Pièces jointes (photos, PDF…) dans ~/task_files/<id>, servies par
     /files comme celles des tâches. Renvoie l'id, ou "" s'il n'y en a
@@ -171,6 +192,7 @@ def _save_files(msg, mid):
                 part.get_content_maintype() == "image"
                 and len(data) < 15000):
             continue
+        name = with_ext(name, data, part.get_content_type())
         name, data = to_jpeg(name, data)
         os.makedirs(folder, exist_ok=True)
         with open(os.path.join(folder, name), "wb") as f:
