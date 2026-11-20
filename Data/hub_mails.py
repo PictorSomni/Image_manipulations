@@ -99,8 +99,9 @@ def build(ui):
         content.expand = True
         mails_body.content = ft.Column([
             title_row, content,
-            ft.Row(actions, alignment=ft.MainAxisAlignment.END,
-                   wrap=True)], spacing=8, expand=True)
+            *([ft.Row(actions, alignment=ft.MainAxisAlignment.END,
+                      wrap=True)] if actions else [])],
+            spacing=8, expand=True)
         mails_panel.visible = True
         hooks.get("sync_btn", lambda: None)()
         page.update()
@@ -627,35 +628,15 @@ def build(ui):
             ft.IconButton(ft.Icons.SEARCH, icon_color=BLUE,
                           tooltip="Rechercher", on_click=search_mails),
             new_btn], tight=True, spacing=0)
-        if not mails:
-            cards.append(_card("Mails", BLUE, [], new_btn))
         recap = next((body for t, body in _sections(b["text"])
                       if "mail" in t.lower()), "").strip()
         new_btn.controls.insert(0, ft.IconButton(
             ft.Icons.UNFOLD_MORE, icon_color=BLUE, tooltip="Tous les mails",
             on_click=lambda e: toggle_mails() if not mails_panel.visible
             else None))
-        if mails:
-            cards.append(_card(f"Mails · {len(mails)}", BLUE, [
-                *([ft.Markdown(recap, selectable=True)] if recap else []),
-                *[
-                ft.ListTile(
-                    leading=ft.Icon(ft.Icons.MAIL_OUTLINE, color=BLUE),
-                    title=ft.Text(m.get("name") or m["from"], color=WHITE),
-                    subtitle=ft.Text(m.get("summary")
-                                     or m.get("subject", ""),
-                                     color=LIGHT_GREY),
-                    trailing=ft.Row([
-                        *([ft.Icon(ft.Icons.ATTACH_FILE, color=LIGHT_GREY,
-                                   size=16)] if m.get("files_id") else []),
-                        ft.IconButton(
-                            ft.Icons.CLOSE, icon_color=LIGHT_GREY,
-                            tooltip="Retirer",
-                            on_click=lambda e, m=m: _dismiss(m))],
-                        tight=True, spacing=0),
-                    on_click=lambda e, m=m: open_reply(
-                        m, _answered, _dismiss))
-                for m in mails[:-4:-1]]], new_btn))
+        cards.append(_card(f"Mails · {len(mails)}" if mails else "Mails",
+                           BLUE, [ft.Markdown(recap, selectable=True)]
+                           if recap else [], new_btn))
         if b.get("quiz"):
             cards.append(_quiz_card(b["quiz"]))
         for title, body in _sections(b["text"]):

@@ -215,11 +215,22 @@ def build(ui, bg, show, close, seg, field, dock=None):
                     for x in c.content.controls:
                         if hasattr(x, "width"):
                             x.width = None
+            # Joindre/Envoyer sous la réponse, Retirer/Tâche centrés en
+            # haut, à côté du sujet (retour user).
+            right = ft.Column([right, ft.Row(
+                actions[-2:], alignment=ft.MainAxisAlignment.END)],
+                expand=True, spacing=8)
+            if extra_actions:
+                t = title_row.controls[0]
+                t.expand = 1
+                title_row.controls = [
+                    t, ft.Row(list(extra_actions), tight=True),
+                    ft.Container(expand=1), title_row.controls[1]]
             dlg = dock(title_row, ft.Row([left, right], spacing=16,
                                          expand=True,
                                          vertical_alignment=ft
                                          .CrossAxisAlignment.START),
-                       actions)
+                       [])
             return dlg
         content.width = 600
         content.height = max(300, min(680, (page.height or 900) - 220))
