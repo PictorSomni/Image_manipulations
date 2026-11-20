@@ -375,7 +375,7 @@ def build(ui):
                     *([_mail_files(m)] if m.get("files_id") else []),
                     history],
             extra_actions=[
-                *([_dlg_btn("Retirer", color=RED, on_click=_retire)]
+                *([_dlg_btn("Traité", color=GREEN, on_click=_retire)]
                   if on_dismiss else []),
                 *([_dlg_btn("Tâche", color=ui.ORANGE, on_click=_to_task)]
                   if "new_task" in hooks else [])],
