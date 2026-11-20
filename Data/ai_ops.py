@@ -27,9 +27,28 @@ _MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
 _loaded_model_cache = {}
 
 
+_cuda_ok = None
+
+
+def _cuda_works(torch) -> bool:
+    """CUDA annoncé ne suffit pas : une DLL cuDNN cassée (WinError 127)
+    ne se voit qu'à la première convolution. On l'essaie une fois."""
+    global _cuda_ok
+    if _cuda_ok is None:
+        try:
+            x = torch.zeros(1, 3, 8, 8, device="cuda")
+            torch.nn.functional.conv2d(x, torch.zeros(3, 3, 3, 3,
+                                                      device="cuda"))
+            _cuda_ok = True
+        except (OSError, RuntimeError) as exc:
+            print(f"[ai_ops] CUDA inutilisable, CPU à la place : {exc}")
+            _cuda_ok = False
+    return _cuda_ok
+
+
 def _pick_torch_device() -> str:
     import torch
-    if torch.cuda.is_available():
+    if torch.cuda.is_available() and _cuda_works(torch):
         return "cuda"
     if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
         return "mps"
