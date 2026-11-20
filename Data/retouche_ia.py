@@ -1842,7 +1842,18 @@ async def main(page: ft.Page) -> None:
 
         try:
             async with _veiled("Traitement en cours…"):
-                result = await asyncio.to_thread(_do_run)
+                try:
+                    result = await asyncio.to_thread(_do_run)
+                except (OSError, RuntimeError) as gpu_ex:
+                    # cuDNN cassé (WinError 127…) : on refait sur le CPU.
+                    msg = str(gpu_ex).lower()
+                    if ai_ops._cuda_ok is False or not (
+                            "cuda" in msg or "dll" in msg):
+                        raise
+                    print(f"[DeJPG] GPU KO, CPU à la place : {gpu_ex}")
+                    ai_ops._cuda_ok = False
+                    _custom_model_cache.pop(model_name, None)
+                    result = await asyncio.to_thread(_do_run)
             state["undo_img"]  = state["work_img"]
             state["work_img"]  = result
             state["modified"]  = True
