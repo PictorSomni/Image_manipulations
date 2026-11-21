@@ -22,7 +22,7 @@ Pillow>=12.1.0
 # ImageMagick Python binding (requis par plusieurs scripts de conversion)
 Wand>=0.6.11
 
-numpy>=1.24.0
+numpy>=1.24.0,<2.5
 
 # Masques, détourage, débruitage (image_ops)
 opencv-python>=4.8.0
