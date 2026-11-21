@@ -9826,6 +9826,11 @@ def main(page: ft.Page):
         is_full = _terminal_fullscreen["active"]
         # Plein écran : le calque monte jusqu'en haut de la zone onglet.
         panels_dock.top = 0 if is_full else None
+        # Le bandeau Mails a mis terminal/notes dans une Column « tight » :
+        # sans expand, la hauteur libre du plein écran n'est pas bornée
+        # et toute l'interface disparaît (retour user).
+        panels_row.expand = is_full
+        panels_dock.content.tight = not is_full
         panels_row.vertical_alignment = (
             ft.CrossAxisAlignment.STRETCH if is_full
             else ft.CrossAxisAlignment.END)
@@ -9858,6 +9863,8 @@ def main(page: ft.Page):
         if not terminal_panel.visible and _terminal_fullscreen["active"]:
             _terminal_fullscreen["active"] = False
             panels_dock.top = None
+            panels_row.expand = False
+            panels_dock.content.tight = True
             panels_row.vertical_alignment = ft.CrossAxisAlignment.END
             terminal_panel.height = _terminal_fullscreen["last_height"]
             terminal_fullscreen_btn.icon = ft.Icons.FULLSCREEN
