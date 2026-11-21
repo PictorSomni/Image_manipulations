@@ -5411,6 +5411,9 @@ def main(page: ft.Page):
     _sync_lock = threading.Lock()
 
     def _sync_name(path):
+        base = os.path.basename(path or "")
+        if base.startswith(".liste-") and base.endswith(".json"):
+            return base[1:-5]  # listes en plus, partagées via le Pi
         return {_LISTE_TODO_PATH: "liste", _PRIX_PATH: "prix"}.get(path)
 
     def _sync_dirty(name, flag=None):
@@ -6086,17 +6089,11 @@ def main(page: ft.Page):
         liste_header_row.content = _liste_header()
         liste_header_row.visible = bool(liste_entries)
         # Autre .json ouvert : ni todo ni tarifs → bouton retour.
-        other = _liste_file["path"] not in (_LISTE_TODO_PATH, _PRIX_PATH)
+        other = _liste_mode_key() is None
         liste_back_to_todo_btn.visible = other
         liste_trash_btn.visible = (
             _liste_file["path"] == _LISTE_TODO_PATH)
-        liste_mode_seg.selected_index = (
-            1 if _liste_file["path"] == _PRIX_PATH else 0)
-        for i, t in enumerate(liste_mode_texts):
-            t.color = (DARK if i == liste_mode_seg.selected_index
-                       and not other else WHITE)
-        liste_mode_seg.thumb_color = (SURFACE_ACCENT["liste"] if not other
-                                      else GREY)
+        liste_mode_dd.value = _liste_mode_key()
         known = _liste_categories()
         # Changement de liste : reprendre la catégorie mémorisée de CETTE
         # liste (retour user : un prix ajouté dans "Noël" des tâches).
@@ -6212,16 +6209,63 @@ def main(page: ft.Page):
         liste_search["value"] = ""
         _liste_reload()
 
-    # Todo ↔ Tarifs en sélecteur glissant, comme l'app mobile (retour
-    # user) ; « Revenir à la todo list » reste pour les autres .json.
-    liste_mode_texts = [ft.Text("À faire", size=CONSTANTS.TEXT_SM),
-                        ft.Text("Tarifs", size=CONSTANTS.TEXT_SM)]
-    liste_mode_seg = ft.CupertinoSlidingSegmentedButton(
-        selected_index=0, controls=liste_mode_texts, bgcolor=DARK,
-        thumb_color=SURFACE_ACCENT["liste"], padding=ft.Padding(4, 6, 4, 6),
-        on_change=lambda e: (_liste_open_prix() if
-                             liste_mode_seg.selected_index == 1
-                             else _liste_back_to_todo()))
+    # Menu de toutes les listes (retour user) : À faire, Tarifs, puis
+    # les listes partagées via le Pi (index « listes » : nom + titre).
+    _LISTES_INDEX = CONSTANTS.state_file(".listes.json")
+    _listes = {"rows": _load_json(_LISTES_INDEX, [])}
+
+    def _liste_extra_path(nom):
+        return CONSTANTS.state_file(f".liste-{nom}.json")
+
+    def _liste_mode_options():
+        liste_mode_dd.options = [
+            ft.dropdown.Option("todo", "À faire"),
+            ft.dropdown.Option("prix", "Tarifs"),
+            *[ft.dropdown.Option(r["nom"], r["titre"])
+              for r in _listes["rows"]]]
+
+    def _liste_mode_key():
+        path = _liste_file["path"]
+        if path == _LISTE_TODO_PATH:
+            return "todo"
+        if path == _PRIX_PATH:
+            return "prix"
+        for r in _listes["rows"]:
+            if path == _liste_extra_path(r["nom"]):
+                return r["nom"]
+        return None
+
+    def _liste_mode_select(e):
+        key = liste_mode_dd.value
+        if key == "todo":
+            _liste_back_to_todo()
+        elif key == "prix":
+            _liste_open_prix()
+        elif key:
+            _liste_file["path"] = _liste_extra_path(key)
+            liste_search_field.value = ""
+            liste_search["value"] = ""
+            _liste_reload()
+
+    liste_mode_dd = ft.Dropdown(
+        value="todo", width=200, dense=True, bgcolor=DARK, color=WHITE,
+        border_color=SURFACE_ACCENT["liste"],
+        text_style=ft.TextStyle(color=WHITE, size=CONSTANTS.TEXT_SM),
+        on_select=_liste_mode_select)
+
+    def _listes_refresh():
+        try:
+            rows = hub_sync.get("listes", timeout=5)
+        except Exception:
+            return
+        if isinstance(rows, list) and rows != _listes["rows"]:
+            _listes["rows"] = rows
+            _save_json(_LISTES_INDEX, rows)
+            _liste_mode_options()
+            liste_mode_dd.value = _liste_mode_key()
+            page.update()
+    _liste_mode_options()
+    threading.Thread(target=_listes_refresh, daemon=True).start()
 
     def _liste_show_trash(e=None):
         try:
@@ -6344,7 +6388,7 @@ def main(page: ft.Page):
                 liste_search_row,
                 liste_path_text,
                 liste_back_to_todo_btn,
-                liste_mode_seg,
+                liste_mode_dd,
                 ft.IconButton(ft.Icons.NOTE_ADD_OUTLINED, **SQUARE_BTN,
                              icon_color=SURFACE_ACCENT["liste"],
                              icon_size=CONSTANTS.ICON_SM, tooltip="Nouveau fichier .json",

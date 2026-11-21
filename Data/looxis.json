@@ -1,15 +1,32 @@
-{
-  "fournisseur": "Looxis",
-  "unite": "mm",
-  "series": {
-    "Verre 2D prisme": {
-      "S": [60, 80],
-      "M": [80, 105],
-      "L": [100, 135],
-      "XL": [180, 130],
-      "XXL": [200, 150],
-      "3XL": [300, 200]
-    }
+[
+  {
+    "catégorie": "Verre 2D prisme",
+    "taille": "S",
+    "dimensions": "60 × 80 mm"
   },
-  "alias": {"Géant": "3XL"}
-}
+  {
+    "catégorie": "Verre 2D prisme",
+    "taille": "M",
+    "dimensions": "80 × 105 mm"
+  },
+  {
+    "catégorie": "Verre 2D prisme",
+    "taille": "L",
+    "dimensions": "100 × 135 mm"
+  },
+  {
+    "catégorie": "Verre 2D prisme",
+    "taille": "XL",
+    "dimensions": "180 × 130 mm"
+  },
+  {
+    "catégorie": "Verre 2D prisme",
+    "taille": "XXL",
+    "dimensions": "200 × 150 mm"
+  },
+  {
+    "catégorie": "Verre 2D prisme",
+    "taille": "3XL / Géant",
+    "dimensions": "300 × 200 mm"
+  }
+]
