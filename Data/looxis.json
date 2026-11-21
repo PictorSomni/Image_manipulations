@@ -28,5 +28,30 @@
     "catégorie": "Verre 2D prisme",
     "taille": "3XL / Géant",
     "dimensions": "300 × 200 mm"
+  },
+  {
+    "catégorie": "Bloc 3D Aura",
+    "taille": "XS · Aura Spark",
+    "dimensions": "50 × 80 mm"
+  },
+  {
+    "catégorie": "Bloc 3D Aura",
+    "taille": "S · Aura Pure",
+    "dimensions": "60 × 90 mm"
+  },
+  {
+    "catégorie": "Bloc 3D Aura",
+    "taille": "M · Aura Rise",
+    "dimensions": "65 × 100 mm"
+  },
+  {
+    "catégorie": "Bloc 3D Aura",
+    "taille": "L · Aura Deep",
+    "dimensions": "110 × 75 mm"
+  },
+  {
+    "catégorie": "Bloc 3D Aura",
+    "taille": "XL · Aura Bold",
+    "dimensions": "130 × 100 mm"
   }
 ]
