@@ -2,71 +2,121 @@
   {
     "catégorie": "Verre 2D prisme",
     "taille": "S",
-    "dimensions": "60 × 80 mm"
+    "dimensions": "60 × 80 mm",
+    "prix": ""
   },
   {
     "catégorie": "Verre 2D prisme",
     "taille": "M",
-    "dimensions": "80 × 105 mm"
+    "dimensions": "80 × 105 mm",
+    "prix": ""
   },
   {
     "catégorie": "Verre 2D prisme",
     "taille": "L",
-    "dimensions": "100 × 135 mm"
+    "dimensions": "100 × 135 mm",
+    "prix": ""
   },
   {
     "catégorie": "Verre 2D prisme",
     "taille": "XL",
-    "dimensions": "180 × 130 mm"
+    "dimensions": "180 × 130 mm",
+    "prix": ""
   },
   {
     "catégorie": "Verre 2D prisme",
     "taille": "XXL",
-    "dimensions": "200 × 150 mm"
+    "dimensions": "200 × 150 mm",
+    "prix": ""
   },
   {
     "catégorie": "Verre 2D prisme",
     "taille": "3XL / Géant",
-    "dimensions": "300 × 200 mm"
+    "dimensions": "300 × 200 mm",
+    "prix": ""
   },
   {
     "catégorie": "Bloc 3D Aura",
     "taille": "XS · Aura Spark",
-    "dimensions": "50 × 80 mm"
+    "dimensions": "50 × 80 mm",
+    "prix": ""
   },
   {
     "catégorie": "Bloc 3D Aura",
     "taille": "S · Aura Pure",
-    "dimensions": "60 × 90 mm"
+    "dimensions": "60 × 90 mm",
+    "prix": ""
   },
   {
     "catégorie": "Bloc 3D Aura",
     "taille": "M · Aura Rise",
-    "dimensions": "65 × 100 mm"
+    "dimensions": "65 × 100 mm",
+    "prix": ""
   },
   {
     "catégorie": "Bloc 3D Aura",
     "taille": "L · Aura Deep",
-    "dimensions": "110 × 75 mm"
+    "dimensions": "110 × 75 mm",
+    "prix": ""
   },
   {
     "catégorie": "Bloc 3D Aura",
     "taille": "XL · Aura Bold",
-    "dimensions": "130 × 100 mm"
+    "dimensions": "130 × 100 mm",
+    "prix": ""
   },
   {
     "catégorie": "Cœur 3D",
     "taille": "M",
-    "dimensions": "80 × 65 mm"
+    "dimensions": "80 × 65 mm",
+    "prix": ""
   },
   {
     "catégorie": "Cœur 3D",
     "taille": "L",
-    "dimensions": "100 × 90 mm"
+    "dimensions": "100 × 90 mm",
+    "prix": ""
   },
   {
     "catégorie": "Cœur 3D",
     "taille": "XL",
-    "dimensions": "160 × 130 mm"
+    "dimensions": "160 × 130 mm",
+    "prix": ""
+  },
+  {
+    "catégorie": "Precious",
+    "taille": "M",
+    "dimensions": "60 × 60 mm",
+    "prix": ""
+  },
+  {
+    "catégorie": "Precious",
+    "taille": "L",
+    "dimensions": "80 × 80 mm",
+    "prix": ""
+  },
+  {
+    "catégorie": "Precious",
+    "taille": "XL",
+    "dimensions": "100 × 100 mm",
+    "prix": ""
+  },
+  {
+    "catégorie": "Iceberg",
+    "taille": "M",
+    "dimensions": "130 × 100 mm",
+    "prix": ""
+  },
+  {
+    "catégorie": "Iceberg",
+    "taille": "L",
+    "dimensions": "",
+    "prix": ""
+  },
+  {
+    "catégorie": "Iceberg",
+    "taille": "XL",
+    "dimensions": "205 × 150 mm",
+    "prix": ""
   }
 ]
