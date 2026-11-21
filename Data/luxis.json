@@ -1,0 +1,15 @@
+{
+  "fournisseur": "Luxis",
+  "unite": "mm",
+  "series": {
+    "Verre 2D prisme": {
+      "S": [60, 80],
+      "M": [80, 105],
+      "L": [100, 135],
+      "XL": [180, 130],
+      "XXL": [200, 150],
+      "3XL": [300, 200]
+    }
+  },
+  "alias": {"Géant": "3XL"}
+}
