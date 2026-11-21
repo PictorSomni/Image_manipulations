@@ -53,5 +53,20 @@
     "catégorie": "Bloc 3D Aura",
     "taille": "XL · Aura Bold",
     "dimensions": "130 × 100 mm"
+  },
+  {
+    "catégorie": "Cœur 3D",
+    "taille": "M",
+    "dimensions": "80 × 65 mm"
+  },
+  {
+    "catégorie": "Cœur 3D",
+    "taille": "L",
+    "dimensions": "100 × 90 mm"
+  },
+  {
+    "catégorie": "Cœur 3D",
+    "taille": "XL",
+    "dimensions": "160 × 130 mm"
   }
 ]
