@@ -5871,8 +5871,34 @@ def main(page: ft.Page):
             categories.index(category) % len(_LISTE_CATEGORY_COLORS)]
         return ft.Colors.with_opacity(0.25, color)
 
-    def _liste_row(index, entry):
+    # Choix pas encore présents dans les données (sélection Notion).
+    _LISTE_CHOICES_EXTRA = {"participe": {"Oui", "Viendra", "Non",
+                                          "A contacter"}}
+
+    def _liste_choices():
+        # Colonne à peu de valeurs répétées (ex. « participe ») : clic =
+        # menu de ces valeurs, comme une sélection Notion (retour user).
+        skip = (_LISTE_GROUP_COLUMN, _LISTE_DONE_COLUMN,
+                _LISTE_DETAILS_COLUMN)
+        out = {}
+        for col in _liste_columns():
+            vals = sorted(({str(e.get(col, "")).strip()
+                            for e in liste_entries}
+                           | _LISTE_CHOICES_EXTRA.get(col, set())) - {""})
+            if (col not in skip and 1 < len(vals) <= 6
+                    and len(liste_entries) >= 2 * len(vals)):
+                out[col] = vals
+        return out
+
+    def _liste_set_choice(index, col, value):
+        liste_entries[index][col] = value
+        _liste_save()
+        _liste_render()
+        page.update()
+
+    def _liste_row(index, entry, choices=None):
         columns = _liste_columns()
+        choices = _liste_choices() if choices is None else choices
         done = _liste_is_done(entry)
         # Hors todo : colonnes centrées et séparées par un trait (retour
         # user : article et prix se confondaient).
@@ -5912,6 +5938,21 @@ def main(page: ft.Page):
             if cells and centered:
                 cells.append(ft.Container(
                     width=1, height=24, bgcolor=LIGHT_GREY, opacity=0.4))
+            if col in choices:
+                cells.append(ft.Container(expand=True, content=ft.PopupMenuButton(
+                    content=ft.Container(
+                        ft.Text(value or "—", size=CONSTANTS.TEXT_SM + 2,
+                                color=WHITE, weight=ft.FontWeight.W_600,
+                                text_align=ft.TextAlign.CENTER),
+                        alignment=ft.Alignment(0, 0),
+                        padding=ft.Padding(10, 8, 6, 8), border_radius=6,
+                        border=ft.Border.all(1, SURFACE_ACCENT["liste"])),
+                    tooltip=col,
+                    items=[ft.PopupMenuItem(
+                        content=ft.Text(v), on_click=lambda e, i=index,
+                        c=col, v=v: _liste_set_choice(i, c, v))
+                        for v in choices[col]])))
+                continue
             cells.append(ft.Container(
                 content=ft.Text(
                     value or "—", size=CONSTANTS.TEXT_SM + 2,
@@ -6122,13 +6163,14 @@ def main(page: ft.Page):
                 "Aucun résultat.", size=CONSTANTS.TEXT_SM, color=GREY))
         else:
             last_group = None
+            choices = _liste_choices()
             for i, e in rows:
                 group = str(e.get(_LISTE_GROUP_COLUMN, "")).strip()
                 if group and group != last_group:
                     liste_list_view.controls.append(
                         _liste_group_title(group, e, i))
                 last_group = group
-                liste_list_view.controls.append(_liste_row(i, e))
+                liste_list_view.controls.append(_liste_row(i, e, choices))
             liste_list_view.controls.append(_liste_drop_target(
                 ft.Column([ft.Container(), ft.Container(height=40)], spacing=0,
                           tight=True), None))
