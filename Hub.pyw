@@ -5411,9 +5411,9 @@ def main(page: ft.Page):
     _sync_lock = threading.Lock()
 
     def _sync_name(path):
-        base = os.path.basename(path or "")
-        if base.startswith(".liste-") and base.endswith(".json"):
-            return base[1:-5]  # listes en plus, partagées via le Pi
+        base = os.path.basename(path or "").lstrip(".")
+        if base.startswith("liste-") and base.endswith(".json"):
+            return base[:-5]  # listes en plus, partagées via le Pi
         return {_LISTE_TODO_PATH: "liste", _PRIX_PATH: "prix"}.get(path)
 
     def _sync_dirty(name, flag=None):
