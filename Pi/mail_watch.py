@@ -183,6 +183,15 @@ def with_ext(name, data, ctype=""):
 _LOGOS = {"58b2af31e78ea6267bc4c7d51fa0b963"}
 
 
+def _iso_date(msg):
+    """Date de réception (en-tête Date, heure locale), "" si illisible."""
+    try:
+        return email.utils.parsedate_to_datetime(
+            msg["Date"]).astimezone().isoformat(timespec="minutes")
+    except (TypeError, ValueError):
+        return ""
+
+
 def _save_files(msg, mid):
     """Pièces jointes (photos, PDF…) dans ~/task_files/<id>, servies par
     /files comme celles des tâches. Renvoie l'id, ou "" s'il n'y en a
@@ -341,6 +350,7 @@ def run():
                         "points": [str(x) for x in
                                    verdict.get("points") or []][:15],
                         "files_id": _save_files(msg, mid),
+                        "date": _iso_date(msg),
                         **({"draft": draft} if draft else {})})
         known.add(mid)
         title = ("URGENT : " if verdict.get("urgent") else "Mail : ") \

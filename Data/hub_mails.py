@@ -170,6 +170,8 @@ def build(ui):
                               weight=ft.FontWeight.BOLD if todo else None),
                 subtitle=ft.Text(m.get("summary") or m.get("subject", ""),
                                  color=LIGHT_GREY, max_lines=1),
+                trailing=ft.Text(mail_compose._when(m.get("date")), size=12,
+                                 color=WHITE if todo else LIGHT_GREY),
                 on_click=lambda e: open_reply(
                     m, _done, _dismiss if todo else None)),
                 border=ft.Border(left=ft.BorderSide(4, color)))

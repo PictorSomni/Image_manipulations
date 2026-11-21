@@ -5,6 +5,7 @@ La webapp a son équivalent dans Mobile/mail.js.
 """
 
 import base64
+import datetime
 import json
 import os
 
@@ -34,6 +35,19 @@ def _save_contacts(out):
 
 TONES = [("professionnel et chaleureux", "Chaleureux"),
          ("professionnel et sobre", "Sobre"), ("très bref", "Bref")]
+
+
+_JOURS = ("lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi",
+          "dimanche")
+
+
+def _when(iso):
+    """« vendredi 20/11 · 14:43 » d'après la date ISO du mail."""
+    try:
+        d = datetime.datetime.fromisoformat(iso)
+    except (TypeError, ValueError):
+        return ""
+    return f"{_JOURS[d.weekday()]} {d:%d/%m} · {d:%H:%M}"
 
 
 def build(ui, bg, show, close, seg, field, dock=None):
@@ -193,8 +207,11 @@ def build(ui, bg, show, close, seg, field, dock=None):
             if on_sent:
                 on_sent()
 
-        received = ([ft.Text(reply["from"], size=13, color=LIGHT_GREY,
-                             selectable=True)] if reply else []) \
+        received = ([ft.Row([
+            ft.Text(reply["from"], size=13, color=LIGHT_GREY,
+                    selectable=True, expand=True),
+            ft.Text(_when(reply.get("date")), size=13, color=WHITE)])]
+            if reply else []) \
             + list(header or [])
         title = (reply.get("subject") or "(sans sujet)") if reply \
             else "Mail"
