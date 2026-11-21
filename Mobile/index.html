@@ -893,7 +893,9 @@ function viewAgenda() {
 async function loadLists() {
   try {
     const d = await api("/api/lists");
-    S.lists = {liste: d.liste, prix: d.prix};
+    S.listes = [["liste", "À faire"], ["prix", "Tarifs"],
+      ...(d.listes || []).map(r => ["liste-" + r.nom, r.titre])];
+    S.lists = Object.fromEntries(S.listes.map(([n]) => [n, d[n] || []]));
     S.base = structuredClone(S.lists);
     S.lastcat = d.lastcat || {};
   } catch (e) { S.status = "Listes injoignables : " + e.message; }
@@ -911,15 +913,29 @@ async function saveList(name, category) {
   render();
 }
 
+const LIST_EXTRA = {participe: ["Oui", "Viendra", "Non", "A contacter"]};
 const catOf = r => String(r["catégorie"] || "").trim();
 const isDone = r => ["true", "1"].includes(String(r.fait).toLowerCase());
 
 function viewLists() {
   const name = S.listKind;
-  const out = [seg([["liste", "À faire"], ["prix", "Prix"]], name,
-    v => { S.listKind = v; render(); })];
+  const pick = h("select", {style: {width: "100%"}, onchange: e => {
+    S.listKind = e.target.value; render(); }},
+    ...(S.listes || [["liste", "À faire"], ["prix", "Tarifs"]]).map(
+      ([v, t]) => h("option", {value: v, selected: v === name}, t)));
+  const out = [pick];
   if (!S.lists) return [...out, h("div", {class: "bar"})];
-  const rows = S.lists[name];
+  const rows = S.lists[name] || [];
+  // Colonnes à peu de valeurs répétées : menu de choix direct (comme Hub).
+  const choices = {};
+  const keys = [...new Set(rows.flatMap(r => Object.keys(r)))]
+    .filter(k => !["catégorie", "fait", "détails"].includes(k));
+  for (const k of keys) {
+    const v = [...new Set([...rows.map(r => String(r[k] ?? "").trim()),
+      ...(LIST_EXTRA[k] || [])])].filter(Boolean).sort();
+    if (v.length > 1 && v.length <= 6 && rows.length >= 2 * v.length)
+      choices[k] = v;
+  }
   out.push(h("div", {class: "row"},
     h("button", {onclick: () => listEdit(name)}, ic("add"), " Ajouter"),
     h("button", {class: S.sorting ? "" : "btn out", onclick: () => {
@@ -963,6 +979,19 @@ function viewLists() {
           onclick: () => listEdit(name, r)}, box,
           h("div", {class: "t"}, r["tâche"] || ""),
           det ? h("div", {class: "d"}, md(det)) : null,
+          ...arrows(d => moveRow(r, d))));
+      } else if (name !== "prix") {
+        const [first, ...rest] = keys;
+        out.push(h("div", {class: "item", onclick: () => listEdit(name, r)},
+          h("div", {class: "t"}, String(r[first] ?? ""),
+            ...rest.filter(k => !choices[k]).map(k => h("div",
+              {class: "d"}, String(r[k] ?? "")))),
+          ...rest.filter(k => choices[k]).map(k => h("select", {
+            style: {width: "auto", flex: "none"},
+            onclick: e => e.stopPropagation(),
+            onchange: e => { r[k] = e.target.value; saveList(name); }},
+            ...["", ...choices[k]].map(v => h("option", {value: v,
+              selected: v === String(r[k] ?? "").trim()}, v || "—")))),
           ...arrows(d => moveRow(r, d))));
       } else {
         out.push(h("div", {class: "item", onclick: () => listEdit(name, r)},

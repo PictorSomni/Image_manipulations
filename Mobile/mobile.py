@@ -875,9 +875,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/notes":
             return self._json({"text": _notes(q["id"])})
         if path == "/api/lists":
-            return self._json({n: hub_sync.get(n) or []
-                               for n in ("liste", "prix")} | {
-                "lastcat": _read_json(LASTCAT_FILE, {})})
+            extra = hub_sync.get("listes") or []
+            names = ["liste", "prix"] + [f"liste-{r['nom']}" for r in extra]
+            return self._json({n: hub_sync.get(n) or [] for n in names} | {
+                "listes": extra, "lastcat": _read_json(LASTCAT_FILE, {})})
         if path == "/api/images":
             prompts = _read_json(PROMPTS_FILE, {})
             return self._json([
@@ -1009,7 +1010,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": True})
         if path == "/api/list":
             name = data["name"]
-            if name not in ("liste", "prix"):
+            if name not in ("liste", "prix") and not re.fullmatch(
+                    r"liste-[a-z0-9-]+", name):
                 raise ValueError(name)
             rows = hub_sync.sync_put(name, data.get("base"), data["rows"])
             if data.get("category"):
