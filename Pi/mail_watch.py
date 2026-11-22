@@ -389,12 +389,12 @@ def _holiday(day):
 
 
 def shop_open(now=None):
-    """Heures du magasin : 9 h 30 – 18 h, fermé mardi, dimanche et
-    jours fériés belges."""
+    """Veille : 9 h 15 (avant l'ouverture de 9 h 30) – 18 h, fermé
+    mardi, dimanche et jours fériés belges."""
     now = now or datetime.datetime.now()
     if now.weekday() in (1, 6) or _holiday(now.date()):
         return False
-    return datetime.time(9, 30) <= now.time() <= datetime.time(18, 0)
+    return datetime.time(9, 15) <= now.time() <= datetime.time(18, 0)
 
 
 def loop():
