@@ -1343,10 +1343,50 @@ def main(page: ft.Page):
         # redémarrage, retour user). Jamais la même clé d'un rendu à
         # l'autre : Flet « gèle » les contrôles appariés par clé, et toute
         # modif ultérieure (sélection...) plantait (« Frozen controls »).
-        return ft.GestureDetector(
-            key=f"{state['render_gen']}|{path}",
+        tile = ft.GestureDetector(
             on_secondary_tap_up=lambda e, p=path: _on_ctx_menu(p, e),
             content=control)
+        # Glisser vers Tâches/IA/Mails/Imprimer ou un dossier (audit D1-D5).
+        n = len(selected) if path in selected else 1
+        drag = ft.Draggable(
+            key=f"{state['render_gen']}|{path}", group="files", data=path,
+            content=tile, content_feedback=ft.Container(
+                ft.Text(f"{n} fichier{'s' if n > 1 else ''}", color=DARK,
+                        weight=ft.FontWeight.W_700),
+                bgcolor=BLUE, border_radius=14,
+                padding=ft.Padding.symmetric(horizontal=12, vertical=6)))
+        if os.path.isdir(path):
+            return _files_drop(drag, lambda ps, d=path: _drop_move(ps, d))
+        return drag
+
+    def _dragged(event):
+        # Sélection si la tuile en fait partie, sinon la tuile seule ;
+        # la sélection suit pour les actions qui la lisent (IA, Imprimer).
+        path = event.src.data
+        if path not in selected:
+            selected.clear()
+            selected.append(path)
+            _update_sel_count()
+        return list(selected)
+
+    def _files_drop(control, action):
+        def _accept(e):
+            action(_dragged(e))
+        return ft.DragTarget(group="files", content=control,
+                             on_accept=_accept)
+
+    def _drop_move(paths, dest):
+        paths = [p for p in paths if p != dest]
+        if not paths:
+            return
+
+        def work():
+            _copy_into(paths, dest, move=True)
+
+            async def _r():
+                _refresh_folder()
+            _run_task(_r)
+        _run_bg_action(f"Déplacement vers {os.path.basename(dest)}", work)
 
     def _on_bg_ctx_menu(event):
         # Clic droit sur le fond (pas sur une tuile) : agit sur la
@@ -6684,6 +6724,11 @@ def main(page: ft.Page):
             bgcolor=SURFACE_ACCENT.get(key, BLUE) if is_active else None,
         )
         rail_tabs[key] = {"container": tab, "icon": icon_ctrl, "label": label_ctrl}
+        if key == "kanban":
+            return _files_drop(tab, lambda ps: _task_selected(ps))
+        if key == "ia":
+            return _files_drop(
+                tab, lambda ps: ajouter_ia_btn.on_click(None))
         return tab
 
     left_rail = ft.Container(
@@ -10125,7 +10170,7 @@ def main(page: ft.Page):
         notes_toggle_btn.update()
 
     mails_btn_icon = ft.Icon(ft.Icons.MAIL_OUTLINE,
-                             size=CONSTANTS.ICON_SM, color=WHITE)
+                             size=CONSTANTS.ICON_SM, color=MAGENTA)
     mails_btn_text = ft.Text("Mails", size=CONSTANTS.TEXT_SM, color=WHITE)
     mails_toggle_btn = ft.TextButton(
         content=ft.Row([mails_btn_icon, mails_btn_text], spacing=6,
@@ -10137,8 +10182,8 @@ def main(page: ft.Page):
         active = _mails["mails_panel"].visible
         _sync_dock_inset()
         mails_toggle_btn.style = ft.ButtonStyle(
-            bgcolor=BLUE if active else None)
-        mails_btn_icon.color = DARK if active else WHITE
+            bgcolor=MAGENTA if active else None)
+        mails_btn_icon.color = DARK if active else MAGENTA
         mails_btn_text.color = DARK if active else WHITE
         try:
             mails_toggle_btn.update()
@@ -10155,7 +10200,7 @@ def main(page: ft.Page):
             actions_btn,
             terminal_toggle_btn,
             notes_toggle_btn,
-            mails_toggle_btn,
+            _files_drop(mails_toggle_btn, lambda ps: _mail_selected(ps)),
             ft.Container(
                 content=ft.Row([
                     tariff_wrap,
@@ -10634,7 +10679,7 @@ print("[délai dépassé]")
         (ft.Icons.BLUETOOTH, "Recevoir un fichier via Bluetooth", BLUE,
          _launch_bluetooth),
         (ft.Icons.PRINT_OUTLINED, "Imprimer la sélection (ou le dossier)",
-         MINT, _launch_print),
+         CARAMEL, _launch_print),
         (ft.Icons.PUBLIC, "Ouvrir le navigateur web", BLUE, _open_browser),
         (ft.Icons.OPEN_IN_NEW, "Ouvrir l'explorateur", GREEN,
          _open_in_file_explorer),
@@ -10643,10 +10688,11 @@ print("[délai dépassé]")
     ]
     accessory_row = ft.Container(
         content=ft.Row([
-            ft.IconButton(
+            (lambda b, h: _files_drop(b, lambda ps: _launch_print())
+             if h is _launch_print else b)(ft.IconButton(
                 icon, icon_size=CONSTANTS.ICON_LG,
                 height=CONSTANTS.HUB_TITLEBAR_TAP_HEIGHT,
-                icon_color=color, on_click=handler, tooltip=tip)
+                icon_color=color, on_click=handler, tooltip=tip), handler)
             for icon, tip, color, handler in _TITLEBAR_ACCESSORY_TOOLS
         ], spacing=0, tight=True),
         border=ft.Border.all(1, ORANGE), border_radius=8,

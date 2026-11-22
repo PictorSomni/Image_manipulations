@@ -443,9 +443,11 @@ def show_dialog(page, dlg):
     page.update() s'alourdissaient au fil de la journée (audit, piste du
     gel après envoi de mail).
     """
-    for old in [d for d in _TEMP_DIALOGS if not d.open]:
-        _TEMP_DIALOGS.remove(old)
-        if old in page.overlay:
-            page.overlay.remove(old)
+    # Comparaisons par identité : == des contrôles Flet est profond.
+    closed = {id(d) for d in _TEMP_DIALOGS if not d.open}
+    _TEMP_DIALOGS[:] = [d for d in _TEMP_DIALOGS if id(d) not in closed]
+    page.overlay[:] = [c for c in page.overlay if id(c) not in closed]
     _TEMP_DIALOGS.append(dlg)
-    show_dialog(page, dlg)
+    page.overlay.append(dlg)
+    dlg.open = True
+    page.update()
