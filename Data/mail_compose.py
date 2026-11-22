@@ -156,6 +156,14 @@ def build(ui, bg, show, close, seg, field, dock=None):
             _render()
             page.update()
 
+        def _dropped(e):
+            # Photos glissées depuis Fichiers : la sélection entière si la
+            # tuile en fait partie (même règle que les autres dépôts).
+            path = e.src.data
+            sel = list(getattr(ui, "selected", []))
+            paths = sel if path in sel else [path]
+            _add([p for p in paths if os.path.isfile(p)])
+
         def _files():
             out = []
             for p in joined:
@@ -233,8 +241,10 @@ def build(ui, bg, show, close, seg, field, dock=None):
                 hint,
                 ui._dlg_btn("Rédiger", color=ui.VIOLET,
                             on_click=_draft)]),
-            _card("Réponse" if reply else "Message", ui.BLUE, [
-                body, names, status])],
+            ft.DragTarget(
+                group="files", on_accept=_dropped,
+                content=_card("Réponse" if reply else "Message", ui.BLUE,
+                              [body, names, status]))],
             tight=True, spacing=14, scroll=ft.ScrollMode.AUTO)
         actions = [*extra_actions,
                    ui._dlg_btn("Joindre", color=CONSTANTS.COLOR_MINT,
@@ -251,6 +261,8 @@ def build(ui, bg, show, close, seg, field, dock=None):
                               scroll=ft.ScrollMode.AUTO,
                               horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
             for c in content.controls:
+                c = getattr(c, "content", c) if isinstance(
+                    c, ft.DragTarget) else c
                 if isinstance(c, ft.Container):
                     c.content.horizontal_alignment = \
                         ft.CrossAxisAlignment.STRETCH
