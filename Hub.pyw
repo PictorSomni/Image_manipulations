@@ -10882,9 +10882,19 @@ print("[délai dépassé]")
                          or _history_idx["ai"] is not None)):
                 _history_navigate("ai", event.key, ai_input_field)
                 return
+        # Ctrl+1..7 : onglets dans l'ordre du rail (audit, comptoir).
+        if (ctrl and not event.shift and not _focused_input["name"]
+                and (event.key or "") in "1234567" and event.key):
+            i = int(event.key) - 1
+            if i < len(SURFACES):
+                _select_surface(SURFACES[i][0])
+            return
         if _kb_suspend["count"] > 0 or _dialog_open() or state["surface"] != "files":
             return
         key = (event.key or "").upper()
+        if event.key == "F2" and selected:
+            _rename_item(list(selected))
+            return
         if ctrl:
             if key == "A":
                 _toggle_all(None)
@@ -10902,6 +10912,12 @@ print("[délai dépassé]")
                 _create_folder_here()
             elif key == "R":
                 _refresh_folder()
+            elif key == "P" and selected:
+                _launch_print()
+            elif key == "M" and selected:
+                _mail_selected(list(selected))
+            elif key == "T" and selected:
+                _task_selected(list(selected))
         elif event.key == "Delete" and selected:
             _do_delete(list(selected))
 
