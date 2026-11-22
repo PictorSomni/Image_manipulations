@@ -23,6 +23,7 @@ import datetime
 import hashlib
 import importlib.machinery
 import importlib.util
+import collections
 import io
 import json
 import math
@@ -599,7 +600,28 @@ def main(page: ft.Page):
     # Liste (pas un set) — ordre de clic préservé, comme Dashboard.pyw
     # (selected_files) : "Renommer séquence" numérote dans cet ordre-là
     # quand une sélection est fournie (retour user).
-    selected = []                        # chemins sélectionnés (images + dossiers)
+    class _Selection(list):
+        # Liste ordonnée + set miroir : « p in selected » en O(1) au lieu
+        # de O(n) par tuile (audit : 2,25 M comparaisons sur 1500 photos).
+        def __init__(self):
+            super().__init__()
+            self._set = set()
+
+        def __contains__(self, item):
+            return item in self._set
+
+        def append(self, item):
+            super().append(item)
+            self._set.add(item)
+
+        def remove(self, item):
+            super().remove(item)
+            self._set.discard(item)
+
+        def clear(self):
+            super().clear()
+            self._set.clear()
+    selected = _Selection()              # chemins sélectionnés (images + dossiers)
     clipboard = {"paths": [], "mode": None}   # mode: "copy" | "cut" | None
     # Sous-processus d'un outil lancé par _launch_tool (Montage,
     # Redimensionner, etc.) — pour le bouton STOP du terminal (retour
@@ -711,7 +733,14 @@ def main(page: ft.Page):
         end = len(field.value)
         field.selection = ft.TextSelection(base_offset=end, extent_offset=end)
         field.update()
-    thumb_mem = {}                       # cache mémoire path -> bytes miniature
+    class _ThumbLRU(collections.OrderedDict):
+        # Plafonné (audit) : sinon la RAM grossit toute la journée.
+        def __setitem__(self, key, value):
+            super().__setitem__(key, value)
+            self.move_to_end(key)
+            if len(self) > 5000:
+                self.popitem(last=False)
+    thumb_mem = _ThumbLRU()              # cache mémoire path -> bytes miniature
     card_icon_refs = []                  # Icon des cartes dossier/fichier en
                                           # vue vignettes, pour un resize live
                                           # avec le curseur (cf. _card_icon_size)
@@ -2891,6 +2920,34 @@ def main(page: ft.Page):
         tabs[:] = [t for t in tabs if t["id"] != tab_id]
         _render_folder_tabs()
 
+    _scan_pool = concurrent.futures.ThreadPoolExecutor(2)
+
+    def _scan_folder(path, hide_hidden):
+        # Thread-safe : aucune touche à l'UI (lu hors thread si lent).
+        entries = list(os.scandir(path))
+        exts = (CONSTANTS.IMAGE_EXTS | CONSTANTS.HUB_VECTOR_EXTS
+                | CONSTANTS.RAW_EXTS | CONSTANTS.VIDEO_EXTS)
+        dirs, imgs, other = [], [], []
+        mtimes = {}
+        for e in entries:
+            if CONSTANTS.is_os_junk(e.name, e.is_dir()):
+                continue
+            if hide_hidden and _is_hidden_entry(e):
+                continue
+            try:
+                # entry.stat() vient du scandir déjà fait (gratuit sous
+                # Windows) — alimente le cache mtime lu par _sort_key.
+                mtimes[e.path] = e.stat().st_mtime
+            except OSError:
+                pass
+            if e.is_dir():
+                dirs.append(e.path)
+            elif os.path.splitext(e.name)[1].lower() in exts:
+                imgs.append(e.path)
+            else:
+                other.append(e.path)
+        return dirs, imgs, other, mtimes
+
     def _navigate(path):
         path = os.path.normpath(path)
         if not os.path.isdir(path):
@@ -2909,9 +2966,36 @@ def main(page: ft.Page):
         _search_debounce["token"] += 1   # annule un rendu de frappe en attente
         state["search"] = ""
         search_field.value = ""
+        token = state["thumb_token"]
+        fut = _scan_pool.submit(_scan_folder, path, state["hide_hidden"])
         try:
-            entries = list(os.scandir(path))
+            # Dossier normal : rendu synchrone comme avant. NAS/SD lente :
+            # Hub ne se fige plus (audit), on finit quand le scan revient.
+            res = fut.result(timeout=0.3)
+        except concurrent.futures.TimeoutError:
+            files_list.controls.clear()
+            files_list.controls.append(ft.Row([
+                ft.ProgressRing(color=BLUE, width=28, height=28),
+                ft.Text("Lecture du dossier…", color=WHITE)]))
+            files_body.content = files_list
+            page.update()
+
+            async def _finish():
+                try:
+                    r = await asyncio.wrap_future(fut)
+                except OSError as exc:
+                    r = exc
+                if state["thumb_token"] == token:
+                    _navigate_done(path, r)
+            _run_task(_finish)
+            return
         except OSError as exc:
+            res = exc
+        _navigate_done(path, res)
+
+    def _navigate_done(path, res):
+        if isinstance(res, OSError):
+            exc = res
             content["dirs"], content["imgs"], content["other"] = [], [], []
             files_list.controls.clear()
             files_list.controls.append(ft.Text(str(exc), color=WHITE))
@@ -2919,27 +3003,7 @@ def main(page: ft.Page):
             _render_folder_tabs()
             page.update()
             return
-        exts = (CONSTANTS.IMAGE_EXTS | CONSTANTS.HUB_VECTOR_EXTS
-                | CONSTANTS.RAW_EXTS | CONSTANTS.VIDEO_EXTS)
-        dirs, imgs, other = [], [], []
-        mtimes = {}
-        for e in entries:
-            if CONSTANTS.is_os_junk(e.name, e.is_dir()):
-                continue
-            if state["hide_hidden"] and _is_hidden_entry(e):
-                continue
-            try:
-                # entry.stat() vient du scandir déjà fait (gratuit sous
-                # Windows) — alimente le cache mtime lu par _sort_key.
-                mtimes[e.path] = e.stat().st_mtime
-            except OSError:
-                pass
-            if e.is_dir():
-                dirs.append(e.path)
-            elif os.path.splitext(e.name)[1].lower() in exts:
-                imgs.append(e.path)
-            else:
-                other.append(e.path)
+        dirs, imgs, other, mtimes = res
         content["mtime"] = mtimes
         content["dirs"] = sorted(dirs, key=lambda p: os.path.basename(p).lower())
         content["imgs"] = sorted(imgs, key=lambda p: os.path.basename(p).lower())

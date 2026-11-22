@@ -1521,6 +1521,14 @@ function showLogin() {
   tab(S.tab);
   refresh(false);
   setInterval(() => refresh(false), 3600e3);
+  // Retour sur l'app (iPhone) : données fraîches tout de suite (audit).
+  let hidden = 0;
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) { hidden = Date.now(); return; }
+    if (Date.now() - hidden < 30e3) return;
+    refresh(false);
+    if (S.tab === "lists") loadLists();
+  });
 })();
 </script>
 <script>

@@ -61,7 +61,7 @@ def _skill_text(name):
             "toujours avec le seul résultat, en français) :\n\n" + text)
 os.makedirs(CLAUDE_CWD, exist_ok=True)
 CLAUDE_SYSTEM = (
-    "Tu es Claude. L'équipe du Studio Cleuze, studio photo, t'écrit "
+    "Tu es Claude. L'équipe du Studio C, studio photo à Leuze, t'écrit "
     "depuis son app Hub. Réponds en français, en tutoyant, de façon directe "
     "et concise. Mise en forme Markdown légère si utile.")
 
