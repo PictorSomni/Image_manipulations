@@ -6787,6 +6787,25 @@ def main(page: ft.Page):
     # Flet — l'extension seule ne suffit pas à détecter une vraie appli GUI.
     _GUI_TOOLS_PY_EXT = set()
 
+    def _notify_done(name, ok):
+        """Bip + notification système quand un outil long se termine."""
+        title = os.path.splitext(name)[0].replace('"', "")
+        msg = "Terminé" if ok else "Erreur"
+        try:
+            if sys.platform == "win32":
+                import winsound
+                winsound.MessageBeep()
+            elif sys.platform == "darwin":
+                subprocess.Popen(["osascript", "-e",
+                                  f'display notification "{msg}" '
+                                  f'with title "{title}" sound name "Glass"'])
+            else:
+                print("\a", end="", flush=True)
+                if shutil.which("notify-send"):
+                    subprocess.Popen(["notify-send", title, msg])
+        except Exception:
+            pass
+
     def _launch_tool(script_name, is_local=False, extra_env=None):
         app_path = os.path.join(_APP_DIR, "Data", script_name)
         if not os.path.exists(app_path):
@@ -6873,6 +6892,7 @@ def main(page: ft.Page):
             # ci-dessous, y compris si le process plante avant la fin.
             running_proc["proc"] = proc
             running_proc["stopped"] = False
+            t_start = time.monotonic()
             # Outil avec sa propre fenêtre Flet (.pyw) : minimiser Hub le
             # temps qu'il tourne, comme Dashboard.pyw:8992-9004/9058-9068.
             is_gui_tool = (app_path.endswith(".pyw")
@@ -6929,6 +6949,9 @@ def main(page: ft.Page):
             proc.wait()
             t_out.join()
             t_err.join()
+            if (not is_gui_tool and not running_proc.get("stopped")
+                    and time.monotonic() - t_start > 30):
+                _notify_done(script_name, proc.returncode == 0)
             if is_gui_tool:
                 async def _restore_window():
                     # Un outil lancé depuis la visionneuse plein écran
