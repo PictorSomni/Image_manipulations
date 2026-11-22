@@ -941,7 +941,8 @@ function viewLists() {
   // Colonnes à peu de valeurs répétées : menu de choix direct (comme Hub).
   const choices = {};
   const keys = [...new Set(rows.flatMap(r => Object.keys(r)))]
-    .filter(k => !["catégorie", "fait", "détails"].includes(k));
+    .filter(k => !["catégorie", "fait", "détails", "participants"]
+      .includes(k));
   for (const k of keys) {
     const v = [...new Set([...rows.map(r => String(r[k] ?? "").trim()),
       ...(LIST_EXTRA[k] || [])])].filter(Boolean).sort();
@@ -974,11 +975,20 @@ function viewLists() {
     [rows[a], rows[b]] = [rows[b], rows[a]];
     saveList(name);
   };
+  // Tiroirs fermés par défaut quand il y a plusieurs catégories.
+  const drawers = cats.length > 1;
+  S.openCats = S.openCats || {};
   cats.forEach((cat, i) => {
+    const key = name + "\u0000" + cat, open = !drawers || S.openCats[key];
     out.push(h("div", {class: "cat", style: {background:
       alpha(LIST_COLORS[i % LIST_COLORS.length], .25), display: "flex",
-      alignItems: "center"}}, h("span", {style: {flex: 1}},
-      cat || "Sans catégorie"), ...arrows(d => moveCat(cat, d))));
+      alignItems: "center", cursor: drawers ? "pointer" : ""},
+      onclick: () => { if (!drawers) return;
+        S.openCats[key] = !S.openCats[key]; render(); }},
+      drawers ? ic(open ? "expand_more" : "chevron_right") : null,
+      h("span", {style: {flex: 1}}, cat || "Sans catégorie"),
+      ...arrows(d => moveCat(cat, d))));
+    if (!open) return;
     for (const r of rows.filter(r => catOf(r) === cat)) {
       if (name === "liste") {
         const done = isDone(r);
@@ -995,11 +1005,13 @@ function viewLists() {
       } else if (name !== "prix") {
         const [first, ...rest] = keys;
         out.push(h("div", {class: "item", onclick: () => listEdit(name, r)},
-          h("div", {class: "t"}, String(r[first] ?? ""),
+          h("div", {class: "t", style: {minWidth: 0,
+            overflowWrap: "anywhere"}}, String(r[first] ?? ""),
             ...rest.filter(k => !choices[k]).map(k => h("div",
               {class: "d"}, String(r[k] ?? "")))),
           ...rest.filter(k => choices[k]).map(k => h("select", {
-            style: {width: "auto", flex: "none"},
+            style: {width: "auto", flex: "0 1 auto", maxWidth: "50%",
+              minWidth: 0},
             onclick: e => e.stopPropagation(),
             onchange: e => { r[k] = e.target.value; saveList(name); }},
             ...["", ...choices[k]].map(v => h("option", {value: v,
