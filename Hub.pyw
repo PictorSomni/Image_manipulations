@@ -417,6 +417,8 @@ def main(page: ft.Page):
     MINT       = CONSTANTS.COLOR_MINT
     YELLOW_GREEN = CONSTANTS.COLOR_YELLOW_GREEN
     LIGHT_GREY = CONSTANTS.COLOR_LIGHT_GREY
+    CARAMEL    = CONSTANTS.COLOR_CARAMEL
+    MAGENTA    = CONSTANTS.COLOR_MAGENTA
     ICON_ACTION = CONSTANTS.ICON_ACTION
 
     # Boutons du bas des dialogues, un seul style partout (retour user :
@@ -489,13 +491,13 @@ def main(page: ft.Page):
     TOOLBAR_H = 60
 
     SURFACE_ACCENT = {"files": BLUE, "liste": PINK, "kanban": MINT,
-                      "ia": YELLOW, "actus": RED,
+                      "ia": YELLOW, "actus": LIGHT_GREY,
                       "agenda": YELLOW_GREEN, "briefing": ORANGE}
 
     # Couleur par valeur, comme dans Notion (cf. _kanban_prop_menu).
-    KANBAN_PROJET_COLORS = {"Pas de projet": GREY, "Faire projet": BLUE,
-                            "Projet envoyé": YELLOW, "Projet validé": VIOLET,
-                            "Fichiers prêts": VIOLET}
+    KANBAN_PROJET_COLORS = {"Pas de projet": LIGHT_GREY, "Faire projet": BLUE,
+                            "Projet envoyé": YELLOW, "Projet validé": GREEN,
+                            "Fichiers prêts": CARAMEL}
     KANBAN_PAYE_COLORS = {"Non payé": RED, "Payé": GREEN}
     KANBAN_PREVENU_COLORS = {"Appeler quand prêt": BLUE,
                              "Pas de messagerie": ORANGE,
@@ -6814,6 +6816,12 @@ def main(page: ft.Page):
                     text=True, encoding="utf-8", errors="replace", bufsize=1)
             except Exception as exc:
                 _log_to_terminal(f"[ERREUR] {script_name} : {exc}", RED)
+
+                async def _stop_bar():
+                    # Lancement raté : la barre tournait à l'infini (audit).
+                    action_progress_bar.visible = False
+                    page.update()
+                _run_task(_stop_bar)
                 return
             # Pour le bouton STOP du terminal (retour user : mauvais
             # réglage repéré en plein batch) — nettoyé dans le finally
@@ -8526,8 +8534,8 @@ def main(page: ft.Page):
     _fichier_icon_actions += [
         None,
         # Couleurs distinctes de Zipper (orange) juste à côté (retour user).
-        ("Imprimer", ft.Icons.PRINT_OUTLINED, MINT, _launch_print),
-        ("Nombre d'impressions", ft.Icons.NUMBERS, YELLOW,
+        ("Imprimer", ft.Icons.PRINT_OUTLINED, CARAMEL, _launch_print),
+        ("Nombre d'impressions", ft.Icons.NUMBERS, CARAMEL,
          lambda e: _run_action(_set_print_count, list(selected))),
         None,
         # Zipper et IA juste avant la corbeille, comme dans la barre
@@ -8536,11 +8544,11 @@ def main(page: ft.Page):
          zipper_btn.on_click),
         ("Partager le lien", ft.Icons.LINK, BLUE,
          lambda e: _run_action(_share_link, list(selected))),
-        ("Envoyer par mail", ft.Icons.MAIL_OUTLINE, YELLOW,
+        ("Envoyer par mail", ft.Icons.MAIL_OUTLINE, MAGENTA,
          lambda e: _run_action(_mail_selected, list(selected))),
         ("Ajouter à une tâche", ft.Icons.TASK_OUTLINED, MINT,
          lambda e: _run_action(_task_selected, list(selected))),
-        ("Ajouter à l'IA", ft.Icons.SMART_TOY_OUTLINED, VIOLET,
+        ("Ajouter à l'IA", ft.Icons.SMART_TOY_OUTLINED, YELLOW,
          ajouter_ia_btn.on_click),
         ("Supprimer", ft.Icons.DELETE_OUTLINE, RED,
          supprimer_btn.on_click),
@@ -8827,12 +8835,13 @@ def main(page: ft.Page):
         "Fichier": BLUE,
         "Préparation": VIOLET,
         "Sélection": GREEN,
-        "Kiosque": MINT,
+        "Kiosque": CARAMEL,
+        "Renommage": BLUE_DARK,
         "Recadrage": RED,
         "Retouche": YELLOW,
         "Montage": PINK,
         "Export & livrables": ORANGE,
-        "Maintenance": BLUE_DARK,
+        "Maintenance": LIGHT_GREY,
     }
 
     def _mail_selected(paths):

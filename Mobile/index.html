@@ -43,7 +43,13 @@ nav button { flex: 1; background: none; border: 0; color: var(--grey);
   line-height: 1; vertical-align: -0.2em; font-weight: normal; }
 nav button span { display: block; font-size: 24px;
   font-family: "Material Symbols Rounded"; line-height: 1; }
-nav button.on { color: var(--blue); background: #45B8F522; }
+nav button.on { color: var(--c, var(--blue)); background: #ffffff14; }
+nav button[data-k="home"] { --c: var(--orange); }
+nav button[data-k="tasks"] { --c: #51DBC3; }
+nav button[data-k="agenda"] { --c: #A3C94C; }
+nav button[data-k="lists"] { --c: var(--pink); }
+nav button[data-k="ia"] { --c: var(--yellow); }
+nav button[data-k="news"] { --c: var(--grey); }
 button, .btn { font: inherit; border-radius: var(--r); border: 0;
   padding: 10px 14px; background: var(--blue); color: var(--dark);
   font-weight: 600; cursor: pointer; text-decoration: none;
@@ -234,9 +240,9 @@ const JOURS = ["dimanche", "lundi", "mardi", "mercredi", "jeudi",
 const MOIS = ["janvier", "février", "mars", "avril", "mai", "juin",
   "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
 // Noms Material Symbols (mêmes icônes que Hub).
-const TABS = [["home", "home", "Accueil"],
+const TABS = [["home", "home", "Briefing"],
   ["tasks", "view_kanban", "Tâches"], ["agenda", "calendar_month", "Agenda"],
-  ["lists", "checklist", "Listes"], ["ia", "auto_awesome", "IA"],
+  ["lists", "checklist", "Liste"], ["ia", "auto_awesome", "IA"],
   ["news", "newspaper", "Actus"]];
 
 const S = {tab: "home", open: "À faire", q: "", tasks: [], agenda: [],
@@ -350,7 +356,7 @@ function render() {
     ...VIEWS[S.tab]());
   main.scrollTop = keep;
   $("#nav").replaceChildren(...TABS.map(([id, icon, label]) =>
-    h("button", {class: id === S.tab ? "on" : "", onclick: () => tab(id)},
+    h("button", {class: id === S.tab ? "on" : "", "data-k": id, onclick: () => tab(id)},
       h("span", {}, icon), label)));
 }
 function tab(id) {

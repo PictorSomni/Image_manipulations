@@ -122,6 +122,8 @@ COLOR_HOVER_YELLOW = "#F9BA4E"
 COLOR_ORANGE       = "#FFA071"
 COLOR_RED          = "#F17171"
 COLOR_PINK         = "#F471B7"
+COLOR_CARAMEL      = "#D9A066"  # impression
+COLOR_MAGENTA      = "#E07BFF"  # mails
 COLOR_WHITE        = "#eef0f4"
 
 

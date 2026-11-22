@@ -1083,7 +1083,16 @@ def build(ui):
                 names = hub_sync.list_files(page_id)
             except Exception:
                 names = []
-            files_row.controls = [_chip(n, _thumb(n)) for n in names]
+            # Téléchargements ici (thread), UI dans la boucle Flet (audit :
+            # update() depuis un thread = plantages aléatoires).
+            thumbs = [_thumb(n) for n in names]
+
+            async def _apply():
+                _apply_files(names, thumbs)
+            page.run_task(_apply)
+
+        def _apply_files(names, thumbs):
+            files_row.controls = [_chip(n, t) for n, t in zip(names, thumbs)]
             if not read_only:
                 files_row.controls.append(ft.TextButton(
                     content=ft.Row([
