@@ -1431,15 +1431,6 @@ function viewHome() {
       S.digest.entries.map(e => h("div", {class: "slot digest",
         onclick: () => readArticle(e.item)}, md(e.md))) :
       [h("div", {class: "digest"}, md(S.digest.text))])));
-  // Dernières actus
-  if (S.news) out.push(glass("Actus", "Toutes ›", () => tab("news"),
-    ...S.news.items.slice(0, 3).map(it => h("div", {class: "slot",
-      onclick: () => readArticle(it)}, h("div", {class: "thumbs"},
-        it.image ? h("img", {src: it.image, alt: "",
-          onerror: e => e.target.remove()}) : null,
-        h("div", {class: "tx"}, it.title || "",
-          h("div", {style: {fontSize: "12px",
-            color: newsColor(it.category)}}, newsMeta(it))))))));
   return out;
 }
 

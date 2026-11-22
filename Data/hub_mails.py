@@ -570,8 +570,7 @@ def build(ui):
             result])
 
     def _extra_cards(b):
-        """Comme l'accueil de la webapp : anecdotes et actus (échéances et
-        tâches sont déjà dans le texte du briefing)."""
+        """Anecdotes du jour tirées des actus (onglet Actus à part)."""
         cards = []
         if b.get("digest"):
             cards.append(_card("Le saviez-tu ?", accent, [ft.Container(
@@ -581,13 +580,6 @@ def build(ui):
                 on_click=lambda e, u=d["link"]: u and hooks.get(
                     "open_news", webbrowser.open)(u))
                 for d in b["digest"]]))
-        if b.get("news"):
-            cards.append(_card("Actus", BLUE, [ft.ListTile(
-                title=ft.Text(n.get("title") or "", color=WHITE),
-                subtitle=ft.Text(n.get("source") or "", color=LIGHT_GREY),
-                on_click=lambda e, u=n.get("link"): u and hooks.get(
-                    "open_news", webbrowser.open)(u))
-                for n in b["news"]]))
         return cards
 
     def _task_cards(refill, b):
