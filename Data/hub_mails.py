@@ -657,6 +657,30 @@ def build(ui):
                                  selectable=True),
                 trailing=ft.Row(btns, tight=True, spacing=0),
                 on_click=lambda e, r=row: hooks["open_task"](r))
+        # Le matin : ce qui part aujourd'hui, ce qui est prêt, à encaisser.
+        today = datetime.date.today().isoformat()
+        open_ = [r for r in rows if r["etat"] != "Terminé"]
+        urgent = [r for r in open_
+                  if (r.get("deadline") or "9")[:10] <= today]
+        ready = [r for r in open_ if r.get("projet") == "Fichiers prêts"]
+        unpaid = [r for r in rows if r["etat"] == "Terminé"
+                  and r.get("paye") == "Non payé"
+                  and r.get("prevenu") in ("Prévenu", "Viendra d'office")]
+
+        def _plain(row):
+            return ft.ListTile(
+                title=ft.Text(row["demande"] or "(sans titre)",
+                              color=WHITE),
+                subtitle=ft.Text(row["deadline"][:10], color=LIGHT_GREY)
+                if row.get("deadline") else None,
+                on_click=lambda e, r=row: hooks["open_task"](r))
+        for title, color, lst in (
+                ("Pour aujourd'hui", RED, urgent),
+                ("Fichiers prêts", CONSTANTS.COLOR_CARAMEL, ready),
+                ("À encaisser", YELLOW, unpaid)):
+            if lst:
+                cards.append(_card(f"{title} · {len(lst)}", color,
+                                   [_plain(r) for r in lst[:8]]))
         if waiting:
             cards.append(_card(f"À prévenir · {len(waiting)}", green,
                                [_wait_line(r) for r in waiting]))

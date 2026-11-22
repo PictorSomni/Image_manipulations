@@ -1347,17 +1347,35 @@ def main(page: ft.Page):
             on_secondary_tap_up=lambda e, p=path: _on_ctx_menu(p, e),
             content=control)
         # Glisser vers Tâches/IA/Mails/Imprimer ou un dossier (audit D1-D5).
-        n = len(selected) if path in selected else 1
+        # Taille et décoration explicites : hors Material, Flutter
+        # affichait le texte énorme et souligné de jaune.
+        label = ft.Text(_drag_label(path), size=14, style=ft.TextStyle(
+            color=DARK, weight=ft.FontWeight.W_700,
+            decoration=ft.TextDecoration.NONE))
+
+        def _start(e, p=path, t=label):
+            # Compté au départ du glisser : la sélection a pu changer
+            # depuis le rendu de la tuile (retour user).
+            t.value = _drag_label(p)
+            t.update()
         drag = ft.Draggable(
             key=f"{state['render_gen']}|{path}", group="files", data=path,
-            content=tile, content_feedback=ft.Container(
-                ft.Text(f"{n} fichier{'s' if n > 1 else ''}", color=DARK,
-                        weight=ft.FontWeight.W_700),
-                bgcolor=BLUE, border_radius=14,
-                padding=ft.Padding.symmetric(horizontal=12, vertical=6)))
+            on_drag_start=_start,
+            content=tile, content_feedback=ft.Card(
+                ft.Container(label, padding=ft.Padding.symmetric(
+                    horizontal=12, vertical=6)),
+                bgcolor=BLUE, shape=ft.RoundedRectangleBorder(radius=14)))
         if os.path.isdir(path):
             return _files_drop(drag, lambda ps, d=path: _drop_move(ps, d))
         return drag
+
+    def _drag_label(path):
+        items = list(selected) if path in selected else [path]
+        d = sum(os.path.isdir(p) for p in items)
+        f = len(items) - d
+        parts = ([f"{d} dossier{'s' if d > 1 else ''}"] if d else []) + (
+            [f"{f} fichier{'s' if f > 1 else ''}"] if f else [])
+        return " + ".join(parts)
 
     def _dragged(event):
         # Sélection si la tuile en fait partie, sinon la tuile seule ;
@@ -1371,7 +1389,14 @@ def main(page: ft.Page):
 
     def _files_drop(control, action):
         def _accept(e):
-            action(_dragged(e))
+            paths = _dragged(e)
+
+            # Après la fin du glisser : un dialogue ouvert pendant le
+            # dépôt laissait le voile flou bloqué (retour user).
+            async def _later():
+                await asyncio.sleep(0.3)
+                action(paths)
+            _run_task(_later)
         return ft.DragTarget(group="files", content=control,
                              on_accept=_accept)
 
@@ -8942,6 +8967,7 @@ def main(page: ft.Page):
             threading.Thread(target=work, daemon=True).start()
 
         dlg = ft.AlertDialog(
+            modal=True,
             title=ft.Text("Ajouter à une tâche", color=WHITE),
             bgcolor=DARK,
             content=ft.Container(width=520, height=480, content=ft.ListView(
