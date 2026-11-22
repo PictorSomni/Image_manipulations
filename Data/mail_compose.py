@@ -185,8 +185,9 @@ def build(ui, bg, show, close, seg, field, dock=None):
                 o["touched"] = True
 
         def _send(e):
-            if not (body.value or "").strip():
+            if not (body.value or "").strip() or o.get("sending"):
                 return
+            o["sending"] = True  # double clic = double envoi (audit)
             status.value = "Envoi…"
             page.update()
             if reply:
@@ -200,6 +201,7 @@ def build(ui, bg, show, close, seg, field, dock=None):
             bg(work, _sent)
 
         def _sent(out):
+            o["sending"] = False
             if isinstance(out, Exception):
                 status.value = f"Erreur : {out}"
                 return

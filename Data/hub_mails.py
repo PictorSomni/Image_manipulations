@@ -17,6 +17,7 @@ import CONSTANTS
 import hub_sync
 import mail_compose
 import thumb_cache
+import ui_helpers
 
 # Le message de Charles, mot pour mot (+ le prix s'il est connu).
 READY = ("Bonjour,\n\nVotre commande est prête, vous pouvez venir la "
@@ -56,9 +57,7 @@ def build(ui):
         threading.Thread(target=_run, daemon=True).start()
 
     def _show(dlg):
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        ui_helpers.show_dialog(page, dlg)
 
     def _close(dlg):
         if dlg is _DOCK:

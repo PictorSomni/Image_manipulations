@@ -592,9 +592,7 @@ def build(ui):
                     c.read_only = True
                 elif isinstance(c, ft.CupertinoSlidingSegmentedButton):
                     c.disabled = True
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        ui_helpers.show_dialog(page, dlg)
         _viewer_split_front(dlg)
 
         def _load_content():
@@ -958,9 +956,7 @@ def build(ui):
                      _dlg_btn("Créer", "primary", on_click=_confirm)],
             inset_padding=ft.Padding(20, 40, 20, 40),
         )
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        ui_helpers.show_dialog(page, dlg)
         _viewer_split_front(dlg)
 
     # Voile par-dessus le tableau pendant une synchro Notion (retour
@@ -1232,9 +1228,7 @@ def build(ui):
             actions=[_dlg_btn("Fermer", "cancel",
                               on_click=lambda e: (setattr(dlg, "open", False),
                                                   page.update()))])
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        ui_helpers.show_dialog(page, dlg)
         _viewer_split_front(dlg)
 
     def _sync_label(cache_file=None):

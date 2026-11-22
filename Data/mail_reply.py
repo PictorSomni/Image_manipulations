@@ -416,7 +416,7 @@ def send(to, subject, text, reply_to=None, files=()):
         smtp.login(ADDRESS, pw)
         smtp.send_message(msg)
     try:  # copie dans « Éléments envoyés » (le SMTP ne la range pas)
-        with imaplib.IMAP4_SSL(HOST) as imap:
+        with imaplib.IMAP4_SSL(HOST, timeout=30) as imap:
             imap.login(ADDRESS, pw)
             imap.append(_sent_folder(imap), "\\Seen",
                         imaplib.Time2Internaldate(time.time()),

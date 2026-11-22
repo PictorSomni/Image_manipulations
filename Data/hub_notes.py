@@ -14,6 +14,7 @@ import os
 import platform
 import subprocess
 import sys
+import ui_helpers
 
 
 def build(ui):
@@ -244,9 +245,7 @@ def build(ui):
                 _dlg_btn("Enregistrer", "primary", on_click=_do_home(False)),
             ],
         )
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        ui_helpers.show_dialog(page, dlg)
 
     def _notes_toggle_preview(event=None):
         notes_is_preview["value"] = not notes_is_preview["value"]

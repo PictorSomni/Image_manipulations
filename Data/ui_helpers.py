@@ -196,9 +196,7 @@ def text_prompt_dialog(page, title, on_confirm, colors, label=None,
         actions=[ft.TextButton(cancel_label, on_click=_cancel),
                  ft.TextButton(confirm_label, on_click=_confirm)],
     )
-    page.overlay.append(dlg)
-    dlg.open = True
-    page.update()
+    show_dialog(page, dlg)
     page.run_task(_focus_soon, field)
     return dlg
 
@@ -245,9 +243,7 @@ def confirm_dialog(page, title, on_confirm, colors, message=None,
                       if confirm_color else None)),
         ],
     )
-    page.overlay.append(dlg)
-    dlg.open = True
-    page.update()
+    show_dialog(page, dlg)
     return dlg
 
 
@@ -435,3 +431,21 @@ def seg_grid_set(grid, index):
         on = i == index
         c.bgcolor = d["colors"][i] if on else None
         c.content.color = d["dark"] if on else d["light"]
+
+
+_TEMP_DIALOGS = []
+
+
+def show_dialog(page, dlg):
+    """Ouvre un dialogue jetable et retire de l'overlay ceux déjà fermés.
+
+    Avant, chaque dialogue restait dans page.overlay après fermeture : les
+    page.update() s'alourdissaient au fil de la journée (audit, piste du
+    gel après envoi de mail).
+    """
+    for old in [d for d in _TEMP_DIALOGS if not d.open]:
+        _TEMP_DIALOGS.remove(old)
+        if old in page.overlay:
+            page.overlay.remove(old)
+    _TEMP_DIALOGS.append(dlg)
+    show_dialog(page, dlg)

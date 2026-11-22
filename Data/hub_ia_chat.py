@@ -20,6 +20,7 @@ import flet as ft
 import io
 import os
 import threading
+import ui_helpers
 
 
 def build(ui):
@@ -429,9 +430,7 @@ def build(ui):
         )
 
         async def _open_dlg():
-            page.overlay.append(dlg)
-            dlg.open = True
-            page.update()
+            ui_helpers.show_dialog(page, dlg)
             try:
                 await page.window.to_front()
             except Exception:

@@ -1647,9 +1647,7 @@ def main(page: ft.Page):
             )
 
             async def _open_dlg():
-                page.overlay.append(dlg)
-                dlg.open = True
-                page.update()
+                ui_helpers.show_dialog(page, dlg)
             _run_task(_open_dlg)
             choice_event.wait(timeout=300)
             return choice["value"], choice["apply_all"]
@@ -1756,9 +1754,7 @@ def main(page: ft.Page):
                 import_btn,
             ],
         )
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        ui_helpers.show_dialog(page, dlg)
 
         # On coche des DOSSIERS, pas des photos : la sélection fine se fait
         # ensuite dans le panneau Fichiers, avec les vignettes, le plein
@@ -2010,9 +2006,7 @@ def main(page: ft.Page):
                 color=WHITE),
             actions=actions,
         )
-        page.overlay.append(ask_dlg)
-        ask_dlg.open = True
-        page.update()
+        ui_helpers.show_dialog(page, ask_dlg)
 
     def _confirm_mtp_import(dlg, folders):
         _close_mtp_dialog(dlg)
@@ -2439,9 +2433,7 @@ def main(page: ft.Page):
                 _dlg_btn("Renommer", "primary", on_click=_confirm),
             ],
         )
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        ui_helpers.show_dialog(page, dlg)
         _run_task(_focus_dialog_field, name_field)
 
     _KEYPAD_COLORS = {"dark": DARK, "red": RED, "grey": GREY,
@@ -2613,9 +2605,7 @@ def main(page: ft.Page):
             content=ft.Column([count_field], spacing=12, tight=True),
             actions=[_dlg_btn("Annuler", "cancel", on_click=_cancel)],
         )
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        ui_helpers.show_dialog(page, dlg)
         _run_task(_focus_dialog_field, count_field)
 
     def _folder_unit_price(format_name, total_count):
@@ -2760,9 +2750,7 @@ def main(page: ft.Page):
                 _dlg_btn("Ajouter", "primary", on_click=_confirm),
             ],
         )
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        ui_helpers.show_dialog(page, dlg)
         _run_task(_focus_dialog_field, label_field)
 
     # ─── Onglets multi-dossiers (suite) ─────────────────────────────────
@@ -3204,9 +3192,7 @@ def main(page: ft.Page):
                               height=min(400, len(rows) * 48 + 70), width=250),
             actions=[_dlg_btn("Fermer", "cancel", on_click=_close)],
         )
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        ui_helpers.show_dialog(page, dlg)
 
     def _order_badge(path):
         entry = order.get(path, {})
@@ -5750,9 +5736,7 @@ def main(page: ft.Page):
             actions=[_dlg_btn("Annuler", "cancel", on_click=_cancel),
                      _dlg_btn("Enregistrer", "primary", on_click=_confirm)],
         )
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        ui_helpers.show_dialog(page, dlg)
         _run_task(_focus_dialog_field,
                  fields[columns.index(text_columns[0])])
 
@@ -6352,9 +6336,7 @@ def main(page: ft.Page):
             actions=[_dlg_btn("Fermer", "cancel",
                               on_click=lambda e: (setattr(dlg, "open", False),
                                                   page.update()))])
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        ui_helpers.show_dialog(page, dlg)
 
     liste_trash_btn = ft.IconButton(
         ft.Icons.DELETE_OUTLINE, **SQUARE_BTN,
@@ -6415,9 +6397,7 @@ def main(page: ft.Page):
             actions=[_dlg_btn("Annuler", "cancel", on_click=_cancel),
                      _dlg_btn("Créer", "primary", on_click=_confirm)],
         )
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        ui_helpers.show_dialog(page, dlg)
         _run_task(_focus_dialog_field, name_field)
 
     liste_surface = ft.Column([
@@ -6966,9 +6946,7 @@ def main(page: ft.Page):
             actions=[_dlg_btn("Annuler", "cancel", on_click=_cancel),
                      _dlg_btn("Lancer", "primary", on_click=_confirm)],
         )
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        ui_helpers.show_dialog(page, dlg)
         _run_task(_focus_dialog_field, name_field)
 
     def _launch_two_in_one(event=None):
@@ -7004,9 +6982,7 @@ def main(page: ft.Page):
             actions=[_dlg_btn("Annuler", "cancel", on_click=_cancel)],
             actions_alignment=ft.MainAxisAlignment.END,
         )
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        ui_helpers.show_dialog(page, dlg)
 
     def _launch_transfert_temp(event=None):
         # Même choix conserver/supprimer qu'au Dashboard.pyw:9024-9044
@@ -7084,7 +7060,8 @@ def main(page: ft.Page):
                         img = img.convert("RGB")
                     w, h = img.size
                     buf = io.BytesIO()
-                    img.save(buf, "JPEG", quality=97, subsampling=0)
+                    # Sans perte : jamais de recompression (retour user).
+                    img.save(buf, "PNG", compress_level=1)
                     data = buf.getvalue()
                     del img
             page = doc.new_page(width=w * 72 / dpi, height=h * 72 / dpi)
@@ -7353,9 +7330,7 @@ def main(page: ft.Page):
             actions=[_dlg_btn("Annuler", "cancel", on_click=_cancel),
                      _dlg_btn("Lancer", "primary", on_click=_confirm)],
         )
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        ui_helpers.show_dialog(page, dlg)
 
     def _launch_redimensionner(event=None):
         _launch_number_prompt("Redimensionner", [
@@ -8356,9 +8331,7 @@ def main(page: ft.Page):
             actions=[_dlg_btn("Annuler", "cancel", on_click=_cancel),
                      _dlg_btn("Lancer", "primary", on_click=_confirm)],
         )
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        ui_helpers.show_dialog(page, dlg)
 
     async def _sync_two_folders(event=None):
         """Comme Dashboard.pyw:9692-9782 (_sync_two_folders) : synchronise
@@ -8838,9 +8811,7 @@ def main(page: ft.Page):
                     on_click=lambda e, r=r: _pick(r)) for r in rows])),
             actions=[ft.TextButton("Annuler", on_click=lambda e: (
                 setattr(dlg, "open", False), page.update()))])
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        ui_helpers.show_dialog(page, dlg)
 
     def _action_category(label, tools):
         # GREY sur le fond DARK de l'overlay est quasi illisible, deux
@@ -9319,9 +9290,7 @@ def main(page: ft.Page):
                 _dlg_btn("Exécuter", "primary", on_click=_confirm),
             ],
         )
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        ui_helpers.show_dialog(page, dlg)
         _run_task(_focus_dialog_field, pwd_field)
 
     def _update_app(event=None):
@@ -10585,9 +10554,7 @@ print("[délai dépassé]")
                 tight=True, spacing=CONSTANTS.SPACE_SM),
             actions=[_dlg_btn("Annuler", "cancel", on_click=_cancel),
                      _dlg_btn("Enregistrer", "primary", on_click=_save)])
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        ui_helpers.show_dialog(page, dlg)
 
     _TITLEBAR_ACCESSORY_TOOLS = [
         (ft.Icons.KEY_OUTLINED, "Identifiants", YELLOW, _open_identifiants),
@@ -10911,9 +10878,7 @@ print("[délai dépassé]")
                 content=ft.Text(f"{done[0]} → {done[1]}", color=WHITE),
                 actions=[_dlg_btn("Plus tard", "cancel", on_click=_close),
                          _dlg_btn("Relancer", "primary", on_click=_now)])
-            page.overlay.append(dlg)
-            dlg.open = True
-            page.update()
+            ui_helpers.show_dialog(page, dlg)
         _run_task(_tell)
 
     threading.Thread(target=_auto_update, daemon=True).start()

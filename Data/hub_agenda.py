@@ -12,6 +12,7 @@ import flet as ft
 import json
 import hub_sync
 import threading
+import ui_helpers
 
 
 def build(ui):
@@ -182,9 +183,7 @@ def build(ui):
                          _agenda_new_entry(day))),
                      _dlg_btn("Fermer", "cancel", on_click=lambda e: (
                          setattr(dlg, "open", False), page.update()))])
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        ui_helpers.show_dialog(page, dlg)
 
     agenda_drag = []  # événements glissables de la grille affichée
 
@@ -699,9 +698,7 @@ def build(ui):
             actions=actions,
             inset_padding=ft.Padding(20, 40, 20, 40))
         _build_extras(AGENDA_SOURCES[seg.selected_index][0])
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        ui_helpers.show_dialog(page, dlg)
 
         def _load_notes():
             raw = _notion_call("mcp__notion__notion-fetch",
