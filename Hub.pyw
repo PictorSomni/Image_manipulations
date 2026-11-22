@@ -7312,8 +7312,60 @@ def main(page: ft.Page):
                 return
             _log_to_terminal(
                 f"[OK] Impression lancée pour {count} fichier(s)", GREEN)
+            _print_history_add(paths)
 
         threading.Thread(target=_run, daemon=True).start()
+
+    _PRINT_HISTORY = CONSTANTS.state_file(".print_history.json")
+
+    def _print_history_load():
+        try:
+            with open(_PRINT_HISTORY, encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return []
+
+    def _print_history_add(paths):
+        hist = _print_history_load()
+        hist.insert(0, {"at": time.time(), "paths": list(paths)})
+        try:
+            with open(_PRINT_HISTORY, "w", encoding="utf-8") as f:
+                json.dump(hist[:30], f, ensure_ascii=False)
+        except OSError:
+            pass
+
+    def _print_history(event=None):
+        """Impressions récentes, Réimprimer en un clic."""
+        def _again(paths):
+            dlg.open = False
+            page.update()
+            _print_paths([p for p in paths if os.path.exists(p)])
+
+        def _line(h):
+            names = [os.path.basename(p) for p in h["paths"]]
+            when = datetime.datetime.fromtimestamp(h["at"])
+            return ft.ListTile(
+                title=ft.Text(", ".join(names[:3]) + (
+                    f" + {len(names) - 3}" if len(names) > 3 else ""),
+                    color=WHITE),
+                subtitle=ft.Text(when.strftime("%d/%m %H:%M") + " · "
+                                 + os.path.dirname(h["paths"][0]),
+                                 color=LIGHT_GREY, size=12),
+                trailing=ft.Button(
+                    "Réimprimer", icon=ft.Icons.PRINT, color=DARK,
+                    bgcolor=CARAMEL,
+                    on_click=lambda e, ps=h["paths"]: _again(ps)))
+        hist = [h for h in _print_history_load() if h.get("paths")]
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Impressions", color=CARAMEL),
+            bgcolor=DARK,
+            content=ft.Container(width=620, height=480, content=ft.ListView(
+                [_line(h) for h in hist] or [ft.Text(
+                    "Aucune impression.", color=LIGHT_GREY)])),
+            actions=[ft.TextButton("Fermer", on_click=lambda e: (
+                setattr(dlg, "open", False), page.update()))])
+        ui_helpers.show_dialog(page, dlg)
 
     def _launch_print(event=None):
         paths = list(selected) or content["imgs"]
@@ -10727,7 +10779,8 @@ print("[délai dépassé]")
         (ft.Icons.KEY_OUTLINED, "Identifiants", YELLOW, _open_identifiants),
         (ft.Icons.BLUETOOTH, "Recevoir un fichier via Bluetooth", BLUE,
          _launch_bluetooth),
-        (ft.Icons.PRINT_OUTLINED, "Imprimer la sélection (ou le dossier)",
+        (ft.Icons.PRINT_OUTLINED,
+         "Imprimer · clic droit : impressions récentes",
          CARAMEL, _launch_print),
         (ft.Icons.PUBLIC, "Ouvrir le navigateur web", BLUE, _open_browser),
         (ft.Icons.OPEN_IN_NEW, "Ouvrir l'explorateur", GREEN,
@@ -10737,7 +10790,9 @@ print("[délai dépassé]")
     ]
     accessory_row = ft.Container(
         content=ft.Row([
-            (lambda b, h: _files_drop(b, lambda ps: _launch_print())
+            (lambda b, h: _files_drop(ft.GestureDetector(
+                b, on_secondary_tap_up=_print_history),
+                lambda ps: _launch_print())
              if h is _launch_print else b)(ft.IconButton(
                 icon, icon_size=CONSTANTS.ICON_LG,
                 height=CONSTANTS.HUB_TITLEBAR_TAP_HEIGHT,
