@@ -707,13 +707,19 @@ function filesBox(row) {
       h("button", {class: "btn out", onclick: () => pick.click()},
         ic("attach_file"), " Joindre"), pick);
   };
-  pick.onchange = async () => {
+  const send = async files => {
     box.firstChild.textContent = "Envoi…";
-    for (const f of pick.files)
+    for (const f of files)
       await fetch(`/api/attach?id=${id}&n=${encodeURIComponent(f.name)}`,
         {method: "POST", body: f});
     load();
   };
+  pick.onchange = () => send(pick.files);
+  box.ondragover = e => { e.preventDefault();
+    box.style.outline = "2px dashed var(--accent, #4fc3f7)"; };
+  box.ondragleave = () => { box.style.outline = ""; };
+  box.ondrop = e => { e.preventDefault(); box.style.outline = "";
+    if (e.dataTransfer.files.length) send(e.dataTransfer.files); };
   load();
   return box;
 }
