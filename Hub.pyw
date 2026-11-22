@@ -5953,20 +5953,36 @@ def main(page: ft.Page):
         CONSTANTS.COLOR_PINK, CONSTANTS.COLOR_BLUE_DARK]
 
 
-    def _liste_group_title(category, entry, first):
+    # Tiroirs de catégories ouverts, par (fichier, catégorie) : fermés
+    # par défaut (retour user, comme la webapp).
+    _liste_open = set()
+
+    def _liste_group_title(category, entry, first, drawer=False):
+        key = (_liste_file["path"], category)
+
         def _pick(e):
             # Clic sur un titre : la prochaine tâche ira dans ce groupe.
-            liste_quick_cat_field.data = category
-            liste_quick_cat_field.value = category
-            page.update()
+            if _liste_is_todo_shaped():
+                liste_quick_cat_field.data = category
+                liste_quick_cat_field.value = category
+            if drawer:
+                _liste_open.symmetric_difference_update({key})
+                _liste_render()
+            else:
+                page.update()
+        label = ft.Text(category.upper(),
+                        size=CONSTANTS.TEXT_SM + 5, color=WHITE,
+                        weight=ft.FontWeight.W_600,
+                        text_align=ft.TextAlign.CENTER)
         title = ft.Container(
-            ft.Text(category.upper(),
-                    size=CONSTANTS.TEXT_SM + 5, color=WHITE,
-                    weight=ft.FontWeight.W_600,
-                    text_align=ft.TextAlign.CENTER),
+            ft.Row([ft.Icon(ft.Icons.EXPAND_MORE if key in _liste_open
+                            else ft.Icons.CHEVRON_RIGHT, color=WHITE),
+                    ft.Container(label, expand=True,
+                                 alignment=ft.Alignment(0, 0)),
+                    ft.Container(width=24)]) if drawer else label,
             alignment=ft.Alignment(0, 0),
             bgcolor=_liste_row_color(entry), border_radius=6, ink=True,
-            on_click=_pick if _liste_is_todo_shaped() else None,
+            on_click=_pick if drawer or _liste_is_todo_shaped() else None,
             padding=ft.Padding(10, 8, 10, 8), margin=ft.Margin(0, 10, 0, 2))
         # Glisser un titre déplace tout le groupe (retour user).
         return _liste_drop_target(ft.Column([ft.Container(), ft.Draggable(
@@ -6279,12 +6295,19 @@ def main(page: ft.Page):
         else:
             last_group = None
             choices = _liste_choices()
+            # Tiroirs seulement s'il y a plusieurs catégories, hors
+            # recherche (les résultats restent visibles).
+            drawer = not query and len({str(e.get(
+                _LISTE_GROUP_COLUMN, "")).strip() for _, e in rows}) > 1
             for i, e in rows:
                 group = str(e.get(_LISTE_GROUP_COLUMN, "")).strip()
                 if group and group != last_group:
                     liste_list_view.controls.append(
-                        _liste_group_title(group, e, i))
+                        _liste_group_title(group, e, i, drawer))
                 last_group = group
+                if (drawer and group
+                        and (_liste_file["path"], group) not in _liste_open):
+                    continue
                 liste_list_view.controls.append(_liste_row(i, e, choices))
             liste_list_view.controls.append(_liste_drop_target(
                 ft.Column([ft.Container(), ft.Container(height=40)], spacing=0,
