@@ -7051,45 +7051,50 @@ def main(page: ft.Page):
         Un PDF unique = un seul dialogue d'impression, N pages, et le même
         comportement sur macOS/Linux.
         """
-        pages = []
-        dpis = set()
+        # PyMuPDF, une page à la fois : un JPEG déjà sRGB et droit est
+        # intégré tel quel (avant : tout réencodé en JPEG 75 par PIL, perte
+        # de qualité, et toutes les pages en mémoire — audit décembre).
+        # Chaque page garde SA résolution : tirage à 100 %.
+        import pymupdf
+        doc = pymupdf.open()
         total = len(imgs)
         for num, p in enumerate(imgs, start=1):
             _log_to_terminal(
                 f"Préparation {num}/{total} : {os.path.basename(p)}")
             with PILImage.open(p) as src:
-                src.load()
-                # Relevé AVANT conversion : convert_to_srgb reconstruit
-                # l'image via ImageCms et ne recopie pas info["dpi"].
                 dpi = src.info.get("dpi")
-                if dpi:
-                    dpis.add(round(float(dpi[0])))
-                img = image_ops.convert_to_srgb(
-                    src, src.info.get("icc_profile"))
-            img = PILImageOps.exif_transpose(img)
-            if img.mode == "RGBA":
-                bg = PILImage.new("RGB", img.size, (255, 255, 255))
-                bg.paste(img, mask=img.split()[3])
-                img = bg
-            elif img.mode != "RGB":
-                img = img.convert("RGB")
-            pages.append(img)
-        # PIL n'écrit qu'UNE résolution pour tout le PDF (celle passée au
-        # save, cf. PdfImagePlugin._save) : sans elle il retombe sur 72 dpi
-        # et une photo 300 dpi sort en page de 50 cm, que l'imprimante
-        # réduit pour la faire tenir — le tirage n'est plus à 100 %.
-        resolution = float(min(dpis)) if dpis else 300.0
-        if len(dpis) > 1:
-            _log_to_terminal(
-                f"[ATTENTION] DPI mélangés dans la sélection ({sorted(dpis)}) "
-                f"— tout le PDF sort à {resolution:.0f} dpi", ORANGE)
+                dpi = float(dpi[0]) if dpi and dpi[0] else 300.0
+                icc = src.info.get("icc_profile")
+                raw = (src.format == "JPEG" and src.mode == "RGB"
+                       and src.getexif().get(0x0112, 1) == 1
+                       and (not icc or b"sRGB" in icc))
+                w, h = src.size
+                if raw:
+                    with open(p, "rb") as f:
+                        data = f.read()
+                else:
+                    src.load()
+                    img = image_ops.convert_to_srgb(src, icc)
+                    img = PILImageOps.exif_transpose(img)
+                    if img.mode == "RGBA":
+                        bg = PILImage.new("RGB", img.size, (255, 255, 255))
+                        bg.paste(img, mask=img.split()[3])
+                        img = bg
+                    elif img.mode != "RGB":
+                        img = img.convert("RGB")
+                    w, h = img.size
+                    buf = io.BytesIO()
+                    img.save(buf, "JPEG", quality=97, subsampling=0)
+                    data = buf.getvalue()
+                    del img
+            page = doc.new_page(width=w * 72 / dpi, height=h * 72 / dpi)
+            page.insert_image(page.rect, stream=data)
         fd, pdf_path = tempfile.mkstemp(prefix="Hub_impression_",
                                         suffix=".pdf")
         os.close(fd)
-        _log_to_terminal(
-            f"Assemblage du PDF ({total} pages à {resolution:.0f} dpi)…")
-        pages[0].save(pdf_path, "PDF", resolution=resolution, save_all=True,
-                      append_images=pages[1:])
+        _log_to_terminal(f"Assemblage du PDF ({total} pages)…")
+        doc.save(pdf_path)
+        doc.close()
         return pdf_path
 
     def _print_paths(paths):
