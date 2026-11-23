@@ -191,6 +191,8 @@ def build(ui, bg, show, close, seg, field, dock=None):
             else:
                 status.value, body.value = "", out
                 o["touched"] = True
+            # Sans ça, le texte n'apparaissait qu'en changeant d'onglet.
+            page.update()
 
         def _send(e):
             if not (body.value or "").strip() or o.get("sending"):
