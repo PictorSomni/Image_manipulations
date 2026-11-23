@@ -2871,7 +2871,7 @@ def _depth_precise(img, quality=False):
 on_depth = None
 
 
-def depth_map(img, precise=0):
+def _depth_map(img, precise=0):
     """Carte d'éloignement 0 (proche) .. 1 (loin) d'une image float RGB,
     mise en cache par image (calculée une fois, pas à chaque curseur).
     precise : 0 rapide (estimation), 1 équilibré (IA small), 2 qualité
@@ -2903,6 +2903,16 @@ def depth_map(img, precise=0):
             cache.pop(next(iter(cache)))
         cache[key] = far
     return cache[key]
+
+
+# Un seul calcul IA à la fois : deux en parallèle (vignette + rendu)
+# saturent la mémoire du Pi.
+_depth_lock = threading.Lock()
+
+
+def depth_map(img, precise=0):
+    with _depth_lock:
+        return _depth_map(img, precise)
 
 
 def height_map(far, fov=60.0):
@@ -3056,6 +3066,7 @@ _noise_cache = {}
 # thread-safe ; passer seed partout si deux brumes tournent en
 # parallèle).
 _SEED = 0
+_SHIFT = (0.0, 0.0)  # déplacement des nappes (-1..1), posé par add_haze
 _GRAIN = 0.0  # taille du sous-bruit 0..1, posée par add_haze
 _RES = 640.0  # résolution des volutes (grand côté), posée par add_haze
 _VOLUME = False  # volutes en champ de densité éclairé (Nubis/Hillaire)
@@ -3193,20 +3204,26 @@ def _cloud_noise_cached(h, w, size, seed):
         if len(_noise_cache) > 24:
             _noise_cache.pop(next(iter(_noise_cache)))
         _noise_cache[key] = _cloud_noise(h, w, size, seed)
-    return _noise_cache[key]
+    n = _noise_cache[key]
+    if _SHIFT != (0.0, 0.0):
+        m = np.float32([[1, 0, _SHIFT[0] * w * 0.5],
+                        [0, 1, _SHIFT[1] * h * 0.5]])
+        n = cv2.warpAffine(n, m, (w, h), borderMode=cv2.BORDER_REFLECT)
+    return n
 
 
 def add_haze(pil_img, amount, depth, warmth, precise=False,
              clouds=0.0, cloud_size=30.0, show_depth=False,
              ground=0.0, ground_height=0.3,
              bumps=1.0, fond=1.0, contrast=1.0, distort=0.5, edge=0.1, seed=0,
-             visible=0.0, grain=1.0, volume=False, sun=None):
+             visible=0.0, grain=1.0, volume=False, sun=None,
+             sx=0.0, sy=0.0):
     """Brume / voile atmosphérique : mélange vers une couleur laiteuse,
     dense au loin selon la carte de profondeur. depth : 0 uniforme,
     1 = seulement l'arrière-plan. warmth -1 froid .. 1 chaud.
     clouds 0-1 : nappes irrégulières plutôt qu'un voile uni, en
     perspective (plus fines au loin)."""
-    global _SEED, _GRAIN, _RES, _VOLUME, _VOL_LIGHT, _SUN
+    global _SEED, _SHIFT, _GRAIN, _RES, _VOLUME, _VOL_LIGHT, _SUN
     _SUN = sun
     # volume : 1 diffus (boules éclairées en volume), 2 volume.
     # Volume = mer de nuages pleine (cloud_sea), à la place de la brume
@@ -3218,6 +3235,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     _RES = 960.0 if precise < 1 else float(
         np.clip(max(pil_img.size) / 2, 960, 3000))
     _SEED = int(seed)
+    _SHIFT = (float(sx), float(sy))
     # Détail : 1 = petites sous-volutes nombreuses, 0 = grosses.
     _GRAIN = 1.0 - float(grain)
     # Volume : la Densité règle la longueur du dégradé nuage/paysage.
@@ -4498,3 +4516,48 @@ def hsl_mixer(image, bands):
     out = cv2.cvtColor(hsv.astype(np.float32), cv2.COLOR_HSV2RGB)
     return Image.fromarray((np.clip(out, 0, 1) * 255 + 0.5
                             ).astype(np.uint8))
+
+
+def _disc(r):
+    r = max(1, int(round(r)))
+    k = np.zeros((2 * r + 1, 2 * r + 1), np.float32)
+    cv2.circle(k, (r, r), r, 1.0, -1, cv2.LINE_AA)
+    return k / k.sum()
+
+
+def add_bokeh(pil_img, amount=30, focus=0.2, dof=10, highlights=50,
+              depth=None):
+    """Flou d'objectif selon la profondeur : net autour de `focus`
+    (0 proche .. 1 loin) sur `dof` %, disques de bokeh au-delà.
+    amount : rayon max en ‰ du grand côté ; highlights : éclat des
+    points lumineux. Flous calculés à 1500 px au plus (assez pour du
+    flou), la zone nette garde la pleine résolution."""
+    if depth is None or amount <= 0:
+        return pil_img
+    img = np.asarray(pil_img.convert("RGB"), np.float32) / 255.0
+    h, w = img.shape[:2]
+    d = cv2.resize(depth.astype(np.float32), (w, h),
+                   interpolation=cv2.INTER_LINEAR)
+    half = dof / 200.0
+    t = np.clip((np.abs(d - focus) - half) / max(0.05, 0.6 - half), 0, 1)
+    k = min(1.0, 1500 / max(h, w))
+    sw, sh = max(8, int(w * k)), max(8, int(h * k))
+    small = cv2.resize(img, (sw, sh), interpolation=cv2.INTER_AREA)
+    lin = small ** 2.2  # flou en lumière linéaire : vrais disques
+    lum = lin.mean(axis=2, keepdims=True)
+    lin = lin * (1 + highlights / 25 * np.clip(lum - 0.6, 0, 1) / 0.4)
+    rmax = amount / 1000 * max(sw, sh)
+    levels = 5
+    layers = [small]
+    for i in range(1, levels + 1):
+        b = cv2.filter2D(lin, -1, _disc(rmax * i / levels))
+        layers.append(np.clip(b, 0, 1) ** (1 / 2.2))
+    layers = [cv2.resize(x, (w, h), interpolation=cv2.INTER_LINEAR)
+              for x in layers]
+    layers[0] = img
+    idx = t * levels
+    out = np.zeros_like(img)
+    for i, layer in enumerate(layers):
+        wgt = np.clip(1 - np.abs(idx - i), 0, 1)[..., None]
+        out += layer * wgt
+    return Image.fromarray(np.clip(out * 255 + 0.5, 0, 255).astype(np.uint8))

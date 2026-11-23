@@ -184,6 +184,8 @@ def default_params():
             "structure": {"enabled": C.STRUCTURE_ENABLED,
                           "amount": C.STRUCTURE_AMOUNT,
                           "radius": C.STRUCTURE_RADIUS},
+            "bokeh": {"enabled": False, "amount": 30, "focus": 0.2,
+                      "dof": 10, "highlights": 50},
             "vignette": {"enabled": C.VIGNETTE_ENABLED,
                          "amount": C.VIGNETTE_AMOUNT,
                          "size": C.VIGNETTE_SIZE,
@@ -203,6 +205,7 @@ def default_params():
                       "bumps": C.BRUME_BUMPS,
                       "contrast": C.BRUME_CONTRAST,
                       "seed": 0, "visible": 0.0, "grain": 1.0,
+                      "sx": 0.0, "sy": 0.0,
                       "fond": C.BRUME_FOND,
                       "distort": C.BRUME_DISTORT,
                       "ground": C.BRUME_GROUND,
@@ -519,12 +522,14 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
             "cloud_size", "show_depth", "ground",
             "ground_height", "fond", "distort", "edge", "contrast",
             "seed", "visible", "grain",
-            "bumps", "volume")),
+            "bumps", "volume", "sx", "sy")),
           ("rayons", image_ops.add_sunrays,
            ("x", "y", "length", "intensity", "warmth", "threshold",
             "sun_size", "influence", "depth", "precise", "rays",
             "count", "ray_width", "shadows", "parallel",
             "show_depth")),
+          ("bokeh", image_ops.add_bokeh,
+           ("amount", "focus", "dof", "highlights")),
           ("vignette", image_ops.add_vignette,
            ("amount", "size", "feather", "roundness"))]
     # Une seule carte de profondeur, calculée sur la source, pour brume
@@ -538,6 +543,8 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
             if name == "brume" and g["rayons"].get("enabled"):
                 # Volume éclairé depuis le soleil des Rayons.
                 kw["sun"] = (g["rayons"]["x"], g["rayons"]["y"])
+            if name == "bokeh":
+                kw["depth"] = image_ops.source_depth(image)
             result = func(result, **kw)
     if g["grain1"]["enabled"]:
         a = g["grain1"]
@@ -2051,6 +2058,112 @@ def main(page: ft.Page):
     # enterrait plutôt que de les rendre directement accessibles) ───────
     ga = state["params"]["grain"]
 
+    # ── Sélecteur de profondeur (réutilisable) ──────────────────────
+    def _depth_picker(dct, width=330, key=None, after=None):
+        """Vignette de la carte de profondeur (proche clair, loin
+        sombre) : toucher ou glisser choisit la distance. Sans `key` :
+        la tranche `near`..`far` (0-100) se recentre sur le point touché
+        en gardant sa largeur. Avec `key` : seuil 0-1 (la brume du fond
+        commence à cette distance). La zone retenue est teintée."""
+        blank = io.BytesIO()
+        Image.new("RGB", (3, 2), (35, 35, 35)).save(blank, format="PNG")
+        img = ft.Image(src="data:image/png;base64,"
+                       + base64.b64encode(blank.getvalue()).decode(),
+                       width=width,
+                       height=width * 2 // 3, fit=ft.BoxFit.FILL,
+                       gapless_playback=True, border_radius=6)
+        pk = {"d": None, "busy": False}
+
+        def _draw():
+            d = pk["d"]
+            h, w = d.shape
+            if key == "focus":  # zone nette
+                a = (np.abs(d - dct[key]) <= dct["dof"] / 200 + 0.02
+                     ).astype(np.float32)[..., None]
+            elif key:
+                a = np.clip(d / max(0.05, dct[key]), 0, 1)[..., None]
+            else:
+                a = image_ops.mask_array(
+                    {"type": "depth", "near": dct.get("near", 0),
+                     "far": dct.get("far", 40),
+                     "feather": dct.get("feather", 50)},
+                    w, h, d)[..., None]
+            grey = ((1 - d) * 190 + 35)[..., None].repeat(3, 2)
+            rgb = grey * (1 - 0.65 * a) + a * 0.65 * np.array(
+                [190, 90, 255], np.float32)
+            buf = io.BytesIO()
+            Image.fromarray(rgb.astype(np.uint8)).save(buf, format="PNG")
+            img.src = buf.getvalue()
+
+            async def _show():
+                try:
+                    img.update()
+                except Exception:
+                    pass  # pas encore affichée
+            page.run_task(_show)
+
+        def refresh():
+            proxy = state["proxy"]
+            if proxy is None or not box.visible:
+                return
+            if pk["d"] is not None and pk.get("src") is proxy:
+                _draw()
+                return
+            if pk["busy"]:
+                return
+            pk["busy"] = True
+
+            def work():
+                try:
+                    _work()
+                except Exception:
+                    import traceback
+                    traceback.print_exc()
+                    pk["busy"] = False
+
+            def _work():
+                d = image_ops.source_depth(proxy)
+                h = max(1, round(width * d.shape[0] / d.shape[1]))
+                pk["d"] = cv2.resize(d.astype(np.float32), (width, h),
+                                     interpolation=cv2.INTER_AREA)
+                pk["src"] = proxy
+                img.height = h
+                pk["busy"] = False
+                _draw()
+            threading.Thread(target=work, daemon=True).start()
+
+        def _pick(e):
+            d = pk["d"]
+            if d is None:
+                return
+            h, w = d.shape
+            x = int(np.clip(e.local_position.x, 0, w - 1))
+            y = int(np.clip(e.local_position.y * h / (img.height or h),
+                            0, h - 1))
+            if key:
+                dct[key] = round(float(np.clip(d[y, x], 0.05, 1)), 2)
+            else:
+                span = dct.get("far", 40) - dct.get("near", 0)
+                c = float(d[y, x]) * 100
+                near = int(np.clip(c - span / 2, 0, 100 - span))
+                dct["near"], dct["far"] = near, near + span
+            if after:
+                after()
+            _draw()
+            live_preview_tick()
+
+        box = ft.GestureDetector(
+            content=img, on_tap_down=_pick, on_pan_start=_pick,
+            on_pan_update=_pick, mouse_cursor=ft.MouseCursor.PRECISE)
+        box.data = refresh
+        state.setdefault("tick_hooks", []).append(
+            lambda: box.visible and dct.get("enabled", True)
+            and (_draw() if pk["d"] is not None
+                 and pk.get("src") is state["proxy"] else refresh()))
+        return box
+
+    grain_rows = {}
+
     def _grain_section(label, color, icon, sub, field_specs, extra=(),
                        head=()):
         # Curseurs plutôt que champs texte (retour user) ; double-tap
@@ -2129,6 +2242,7 @@ def main(page: ft.Page):
             _seg_ink(vm)
             reset_registry.setdefault("modes", []).append((vm, sub))
             rows.insert(1, ft.Row([vm], expand=True))
+        grain_rows[label] = rows
         rows = [*head, *rows, *extra]
         return _make_section(label, color, icon, sub, rows)
 
@@ -2169,6 +2283,60 @@ def main(page: ft.Page):
             ("amount", "Intensité", 0, 1, 0.01),
             ("softness", "Douceur", 1, 30, 0.5),
             ("shadows", "Ombres", 0, 1, 0.01)])
+    def _brume_refresh():
+        for r in grain_rows.get("Brume", []):
+            if callable(getattr(r, "data", None)):
+                r.data()
+        live_preview_tick()
+
+    # Préréglages à la Luminar : point de départ, curseurs ensuite.
+    BRUME_LOOKS = {
+        "Au sol": dict(amount=1.0, depth=0.0, ground=1.0,
+                       ground_height=0.35, contrast=0.5, distort=0.5),
+        "Voile": dict(amount=0.7, depth=1.0, ground=0.0, contrast=0.2,
+                      distort=0.3, fond=0.6),
+        "Dense": dict(amount=2.0, depth=0.3, ground=0.3,
+                      ground_height=0.6, contrast=0.7, distort=0.8),
+    }
+
+    def _brume_look(name):
+        def handler(e):
+            ga["brume"].update(BRUME_LOOKS[name], enabled=True)
+            _brume_refresh()
+        return handler
+
+    def _shift_pad(dct, color, w=330, h=90):
+        """Pavé : glisser déplace les nappes (sx, sy -1..1)."""
+        dot = ft.Container(width=14, height=14, bgcolor=color,
+                           border_radius=7)
+
+        def _place():
+            dot.left = (dct.get("sx", 0) + 1) / 2 * w - 7
+            dot.top = (dct.get("sy", 0) + 1) / 2 * h - 7
+
+        def _move(e):
+            p = e.local_position
+            dct["sx"] = round(float(np.clip(p.x / w * 2 - 1, -1, 1)), 2)
+            dct["sy"] = round(float(np.clip(p.y / h * 2 - 1, -1, 1)), 2)
+            _place()
+            dot.update()
+            live_preview_tick()
+        _place()
+        return ft.GestureDetector(
+            on_tap_down=_move, on_pan_start=_move, on_pan_update=_move,
+            content=ft.Container(
+                width=w, height=h, border_radius=8,
+                bgcolor="#1c2230", border=ft.Border.all(1, color),
+                content=ft.Stack([dot], width=w, height=h)))
+
+    brume_head = [
+        ft.Row([ft.OutlinedButton(
+            n, on_click=_brume_look(n), expand=True,
+            style=ft.ButtonStyle(color=WHITE,
+                                 side=ft.BorderSide(1, BLUE_LIGHT)))
+            for n in BRUME_LOOKS]),
+        _depth_picker(ga["brume"], key="fond", after=_brume_refresh),
+        _shift_pad(ga["brume"], BLUE_LIGHT)]
     section_brume = _grain_section(
         "Brume", BLUE_LIGHT, ft.Icons.FOGGY, ga["brume"], [
             ("amount", "Intensité", 0, 3, 0.01),
@@ -2186,7 +2354,7 @@ def main(page: ft.Page):
             ("bumps", "Taille des volutes", 0.5, 2, 0.01),
             ("grain", "Détail", 0, 1, 0.01),
             ("edge", "Fondu des bords", 0, 1, 0.01),
-            ("seed", "Variante", 0, 20, 1)])
+            ("seed", "Variante", 0, 20, 1)], head=brume_head)
     sun_btn = ft.OutlinedButton(
         "Placer le soleil", icon=ft.Icons.WB_SUNNY_OUTLINED,
         on_click=lambda e: _toggle_sun(), expand=True,
@@ -2211,6 +2379,19 @@ def main(page: ft.Page):
             ("depth", "Profondeur", 0, 3, 0.01),
             ("shadows", "Ombres projetées", 0, 1, 0.01)],
         head=[ft.Row([sun_btn])])
+    def _bokeh_refresh():
+        for r in grain_rows.get("Flou de profondeur", []):
+            if callable(getattr(r, "data", None)):
+                r.data()
+        live_preview_tick()
+
+    section_bokeh = _grain_section(
+        "Flou de profondeur", BLUE, ft.Icons.CAMERA, ga["bokeh"], [
+            ("amount", "Flou", 0, 100, 1),
+            ("dof", "Zone nette", 0, 100, 1),
+            ("highlights", "Bokeh", 0, 100, 1)],
+        head=[_depth_picker(ga["bokeh"], key="focus",
+                            after=_bokeh_refresh)])
     section_vignette = _grain_section(
         "Vignette", BLUE_DARK, ft.Icons.VIGNETTE, ga["vignette"], [
             ("amount", "Intensité", -100, 100, 1),
@@ -2798,7 +2979,7 @@ def main(page: ft.Page):
         _group("Détail", [section_nettete, section_denoise]),
         _group("Ambiance",
                [section_structure, section_mystique, section_brume,
-                section_rayons, section_vignette]),
+                section_rayons, section_bokeh, section_vignette]),
         _group("Effets pellicule",
                [section_grain1, section_grain2, section_halation,
                 section_bloom, section_ca, section_desat]),
@@ -2812,97 +2993,6 @@ def main(page: ft.Page):
         ft.Row([save_preset_button]),
         ft.Row([load_params_button]),
     ], spacing=CONSTANTS.SPACE_MD, expand=True, visible=False)
-
-    # ── Sélecteur de profondeur (réutilisable) ──────────────────────
-    def _depth_picker(dct, width=330):
-        """Vignette de la carte de profondeur (proche clair, loin
-        sombre) : toucher ou glisser choisit la distance — la tranche
-        `near`..`far` (0-100) se recentre sur le point touché, en gardant
-        sa largeur. La tranche retenue est teintée en violet."""
-        blank = io.BytesIO()
-        Image.new("RGB", (3, 2), (35, 35, 35)).save(blank, format="PNG")
-        img = ft.Image(src="data:image/png;base64,"
-                       + base64.b64encode(blank.getvalue()).decode(),
-                       width=width,
-                       height=width * 2 // 3, fit=ft.BoxFit.FILL,
-                       gapless_playback=True, border_radius=6)
-        pk = {"d": None, "busy": False}
-
-        def _draw():
-            d = pk["d"]
-            h, w = d.shape
-            a = image_ops.mask_array(
-                {"type": "depth", "near": dct.get("near", 0),
-                 "far": dct.get("far", 40),
-                 "feather": dct.get("feather", 50)}, w, h, d)[..., None]
-            grey = ((1 - d) * 190 + 35)[..., None].repeat(3, 2)
-            rgb = grey * (1 - 0.65 * a) + a * 0.65 * np.array(
-                [190, 90, 255], np.float32)
-            buf = io.BytesIO()
-            Image.fromarray(rgb.astype(np.uint8)).save(buf, format="PNG")
-            img.src = buf.getvalue()
-
-            async def _show():
-                try:
-                    img.update()
-                except Exception:
-                    pass  # pas encore affichée
-            page.run_task(_show)
-
-        def refresh():
-            proxy = state["proxy"]
-            if proxy is None or not box.visible:
-                return
-            if pk["d"] is not None and pk.get("src") is proxy:
-                _draw()
-                return
-            if pk["busy"]:
-                return
-            pk["busy"] = True
-
-            def work():
-                try:
-                    _work()
-                except Exception:
-                    import traceback
-                    traceback.print_exc()
-                    pk["busy"] = False
-
-            def _work():
-                d = image_ops.source_depth(proxy)
-                h = max(1, round(width * d.shape[0] / d.shape[1]))
-                pk["d"] = cv2.resize(d.astype(np.float32), (width, h),
-                                     interpolation=cv2.INTER_AREA)
-                pk["src"] = proxy
-                img.height = h
-                pk["busy"] = False
-                _draw()
-            threading.Thread(target=work, daemon=True).start()
-
-        def _pick(e):
-            d = pk["d"]
-            if d is None:
-                return
-            h, w = d.shape
-            x = int(np.clip(e.local_position.x, 0, w - 1))
-            y = int(np.clip(e.local_position.y * h / (img.height or h),
-                            0, h - 1))
-            span = dct.get("far", 40) - dct.get("near", 0)
-            c = float(d[y, x]) * 100
-            near = int(np.clip(c - span / 2, 0, 100 - span))
-            dct["near"], dct["far"] = near, near + span
-            for row in depth_rows[1:]:
-                row.data()
-            _draw()
-            live_preview_tick()
-
-        box = ft.GestureDetector(
-            content=img, on_tap_down=_pick, on_pan_start=_pick,
-            on_pan_update=_pick, mouse_cursor=ft.MouseCursor.PRECISE)
-        box.data = refresh
-        state.setdefault("tick_hooks", []).append(
-            lambda: box.visible and pk["d"] is not None and _draw())
-        return box
 
     # ── Masques locaux (radial / linéaire) ───────────────────────────
     # Le masque sélectionné EST `mask_edit` (même objet dans la liste) :
@@ -3165,7 +3255,8 @@ def main(page: ft.Page):
                             on_change=_on_link)
     feather_row = _slider_row("Contour", mask_edit, "feather", 1, 100,
                               reset=50)
-    depth_rows = [_depth_picker(mask_edit),
+    depth_rows = [_depth_picker(
+        mask_edit, after=lambda: [r.data() for r in depth_rows[1:]]),
                   _slider_row("Proche", mask_edit, "near", 0, 100, reset=0),
                   _slider_row("Loin", mask_edit, "far", 0, 100, reset=40)]
     mask_rows = [feather_row] + depth_rows
@@ -3193,6 +3284,7 @@ def main(page: ft.Page):
     _recolor_sliders(feather_row, VIOLET)
     for row in depth_rows[1:]:
         _recolor_sliders(row, VIOLET)
+    depth_rows[0].visible = False
 
     def _mask_zone(title, color, controls):
         return ft.Container(
