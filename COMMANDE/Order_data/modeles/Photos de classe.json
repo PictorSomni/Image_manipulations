@@ -1,7 +1,7 @@
 {
  "deadline": "28 novembre",
  "note": "Vos commandes sont au profit de l'école !",
- "footer": "à remettre pour le {date}\navec le montant exact en liquide",
+ "footer": "à remettre pour le {date}\nsur le compte {compte}",
  "sections": [
   {
    "name": "Packs photos",
@@ -218,35 +218,35 @@
      "on": true
     },
     {
-     "name": "Cartes de vœux modèle A",
+     "name": "Cartes de vœux - sapin",
      "sub": "X5",
      "price": "6",
      "price2": "",
-     "object": "voeux05",
+     "object": "obj_1795166752",
      "on": true
     },
     {
-     "name": "Cartes de vœux modèle B",
+     "name": "Cartes de vœux - boule",
      "sub": "X5",
      "price": "6",
      "price2": "",
-     "object": "voeux02",
+     "object": "obj_1795167848",
      "on": true
     },
     {
-     "name": "Boule de Noël modèle A",
+     "name": "Boule de Noël - coeur",
      "sub": "avec prénom gravé",
-     "price": "6",
+     "price": "15",
      "price2": "",
-     "object": null,
+     "object": "boule_01",
      "on": true
     },
     {
-     "name": "Boule de Noël modèle B",
+     "name": "Boule de Noël - étoiles",
      "sub": "avec prénom gravé",
-     "price": "6",
+     "price": "15",
      "price2": "",
-     "object": null,
+     "object": "boule_02",
      "on": true
     }
    ]
@@ -289,5 +289,6 @@
     }
    ]
   }
- ]
+ ],
+ "compte": "BE 0123 456 789"
 }

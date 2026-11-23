@@ -1,0 +1,286 @@
+{
+ "mug": {
+  "name": "Tasse",
+  "bg": "MUG.png",
+  "alpha": "MUG_ALPHA.png",
+  "box": [
+   100,
+   420,
+   1510,
+   2080
+  ],
+  "fit": false,
+  "orient": false
+ },
+ "calendrier": {
+  "name": "Calendrier",
+  "bg": "CALENDRIER.png",
+  "alpha": "CALENDRIER_ALPHA.png",
+  "box": [
+   71,
+   72,
+   2302,
+   1513
+  ],
+  "fit": true,
+  "orient": false
+ },
+ "magnet": {
+  "name": "Magnet rond",
+  "bg": "MAGNET_ROND.png",
+  "alpha": "MAGNET_ROND_ALPHA.png",
+  "box": [
+   78,
+   157,
+   1708,
+   1634
+  ],
+  "fit": false,
+  "orient": false,
+  "static": false,
+  "persp": 30
+ },
+ "porte_clef": {
+  "name": "Porte-clef",
+  "bg": "PORTE-CLEF.png",
+  "alpha": "PORTE-CLEF_ALPHA.png",
+  "box": [
+   467,
+   451,
+   1310,
+   1498
+  ],
+  "fit": false,
+  "orient": false
+ },
+ "plumier": {
+  "name": "Plumier",
+  "bg": "PLUMIER.png",
+  "alpha": "PLUMIER_ALPHA.png",
+  "box": [
+   153,
+   302,
+   1980,
+   734
+  ],
+  "fit": false,
+  "orient": false
+ },
+ "cadre": {
+  "name": "Cadre",
+  "bg": "CADRE.png",
+  "alpha": "CADRE_ALPHA.png",
+  "box": [
+   575,
+   390,
+   1585,
+   1800
+  ],
+  "fit": false,
+  "orient": true
+ },
+ "passe": {
+  "name": "Passe-partout",
+  "bg": "PASSE.png",
+  "alpha": "PASSE_ALPHA.png",
+  "box": [
+   316,
+   541,
+   1138,
+   1647
+  ],
+  "fit": false,
+  "orient": true
+ },
+ "bois": {
+  "name": "Support bois",
+  "bg": "SUPPORT_BOIS.png",
+  "alpha": "SUPPORT_BOIS_ALPHA.png",
+  "box": [
+   442,
+   442,
+   1348,
+   1601
+  ],
+  "fit": false,
+  "orient": true
+ },
+ "neige": {
+  "name": "Boule à neige",
+  "bg": "NEIGE.png",
+  "alpha": "NEIGE_ALPHA.png",
+  "box": [
+   176,
+   235,
+   1610,
+   1483
+  ],
+  "fit": false,
+  "orient": false
+ },
+ "voeux01": {
+  "name": "Carte de vœux 1",
+  "bg": "VOEUX01.png",
+  "alpha": "VOEUX01_ALPHA.png",
+  "box": [
+   72,
+   592,
+   1132,
+   1669
+  ],
+  "fit": false,
+  "orient": false
+ },
+ "voeux02": {
+  "name": "Carte de vœux 2",
+  "bg": "VOEUX02.png",
+  "alpha": "VOEUX02_ALPHA.png",
+  "box": [
+   0,
+   0,
+   1205,
+   1364
+  ],
+  "fit": false,
+  "orient": false
+ },
+ "voeux04": {
+  "name": "Carte de vœux 4",
+  "bg": "VOEUX04.png",
+  "alpha": "VOEUX04_ALPHA.png",
+  "box": [
+   130,
+   118,
+   1075,
+   1064
+  ],
+  "fit": false,
+  "orient": false
+ },
+ "voeux05": {
+  "name": "Carte de vœux 5",
+  "bg": "VOEUX05.png",
+  "alpha": "VOEUX05_ALPHA.png",
+  "box": [
+   96,
+   89,
+   1108,
+   1239
+  ],
+  "fit": false,
+  "orient": false
+ },
+ "gourde": {
+  "name": "Gourde",
+  "bg": "GOURDE.png",
+  "alpha": "GOURDE_ALPHA.png",
+  "box": [
+   613,
+   910,
+   1538,
+   2106
+  ],
+  "fit": true,
+  "orient": false
+ },
+ "portefeuille": {
+  "name": "Portefeuille",
+  "bg": "PORTEFEUILLE.png",
+  "alpha": "PORTEFEUILLE_ALPHA.png",
+  "box": [
+   280,
+   534,
+   2023,
+   1574
+  ],
+  "fit": true,
+  "orient": false
+ },
+ "boite": {
+  "name": "Boîte à tartines",
+  "bg": "BOITE-TARTINE.png",
+  "alpha": "BOITE-TARTINE_ALPHA.png",
+  "box": [
+   313,
+   566,
+   1842,
+   1311
+  ],
+  "fit": false,
+  "orient": false,
+  "persp": 60
+ },
+ "voeux03": {
+  "name": "Carte de vœux 3",
+  "bg": "VOEUX03.png",
+  "alpha": "VOEUX03_ALPHA.png",
+  "box": [
+   0,
+   0,
+   1796,
+   1205
+  ],
+  "fit": false,
+  "orient": false
+ },
+ "boule_01": {
+  "name": "Boule de Noël gravée A",
+  "bg": "BOULE_03.png",
+  "alpha": "",
+  "box": [
+   0,
+   0,
+   487,
+   487
+  ],
+  "static": true,
+  "fit": false,
+  "orient": false,
+  "persp": 0
+ },
+ "boule_02": {
+  "name": "Boule de Noël gravée B",
+  "bg": "BOULE_04.png",
+  "alpha": "",
+  "box": [
+   0,
+   0,
+   487,
+   487
+  ],
+  "static": true,
+  "fit": false,
+  "orient": false,
+  "persp": 0
+ },
+ "obj_1795166752": {
+  "name": "Carte de Voeux 6",
+  "bg": "VOEUX06.png",
+  "alpha": "VOEUX06_ALPHA.png",
+  "box": [
+   214,
+   315,
+   1046,
+   1215
+  ],
+  "fit": false,
+  "orient": false,
+  "static": false,
+  "persp": 0
+ },
+ "obj_1795167848": {
+  "name": "Carte de voeux 7",
+  "bg": "VOEUX07.png",
+  "alpha": "VOEUX07_ALPHA.png",
+  "box": [
+   169,
+   523,
+   1067,
+   1413
+  ],
+  "fit": false,
+  "orient": false,
+  "static": false,
+  "persp": 0
+ }
+}
