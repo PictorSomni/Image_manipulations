@@ -6767,25 +6767,28 @@ def main(page: ft.Page):
                              weight=ft.FontWeight.W_700 if is_active
                              else ft.FontWeight.NORMAL)
         tab = ft.Container(
+            # RotatedBox : vraie hauteur du texte, même écart partout.
             content=ft.Column([
                 icon_ctrl,
-                ft.Container(content=label_ctrl, rotate=ft.Rotate(-1.5708),
-                            alignment=ft.Alignment.CENTER, height=58),
-            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=0,
+                ft.RotatedBox(quarter_turns=3, content=label_ctrl),
+            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8,
                alignment=ft.MainAxisAlignment.CENTER),
-            expand=True, alignment=ft.Alignment.CENTER,
-            margin=ft.Margin.symmetric(horizontal=8, vertical=6),
+            # Hauteur fixe : tous les onglets identiques (retour user).
+            height=92, alignment=ft.Alignment.CENTER,
+            margin=ft.Margin.symmetric(horizontal=8, vertical=4),
             border_radius=8,
             ink=True, on_click=lambda e, k=key: _select_surface(k),
             bgcolor=SURFACE_ACCENT.get(key, BLUE) if is_active else None,
         )
         rail_tabs[key] = {"container": tab, "icon": icon_ctrl, "label": label_ctrl}
         if key == "kanban":
-            return _files_drop(tab, lambda ps: _task_selected(ps))
-        if key == "ia":
-            return _files_drop(
+            drop = _files_drop(tab, lambda ps: _task_selected(ps))
+        elif key == "ia":
+            drop = _files_drop(
                 tab, lambda ps: ajouter_ia_btn.on_click(None))
-        return tab
+        else:
+            return tab
+        return drop
 
     left_rail = ft.Container(
         # Séparateurs entre onglets pour bien les distinguer (retour user).
@@ -6795,7 +6798,7 @@ def main(page: ft.Page):
                                          horizontal=16),
                                      bgcolor=ft.Colors.with_opacity(0.2, WHITE))]
                        if i else []) + [_rail_tab(*s_)]],
-            spacing=0, expand=True),
+            spacing=0, expand=True, scroll=ft.ScrollMode.HIDDEN),
         width=60, bgcolor=GREY,
     )
 
@@ -10946,7 +10949,8 @@ print("[délai dépassé]")
     # onglets garde toute la hauteur (retour user).
     center_box = ft.Container(center, expand=True,
                               padding=ft.Padding.only(bottom=0))
-    main_row = ft.Row([left_rail, center_box], expand=True, spacing=0)
+    main_row = ft.Row([left_rail, center_box], expand=True, spacing=0,
+                      vertical_alignment=ft.CrossAxisAlignment.STRETCH)
     # Bloc-notes + Terminal en calque par-dessus l'onglet (retour user :
     # ne plus écraser les onglets), côte à côte quand les deux sont
     # ouverts. left=60 : le rail gauche reste entièrement visible.
