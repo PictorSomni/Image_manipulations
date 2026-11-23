@@ -205,7 +205,8 @@ def default_params():
                       "bumps": C.BRUME_BUMPS,
                       "contrast": C.BRUME_CONTRAST,
                       "seed": 0, "visible": 0.0, "grain": 1.0,
-                      "sx": 0.0, "sy": 0.0,
+                      "sx": 0.0, "sy": 0.0, "zone": 0.5,
+                      "zone_w": 100, "zone_soft": 30,
                       "fond": C.BRUME_FOND,
                       "distort": C.BRUME_DISTORT,
                       "ground": C.BRUME_GROUND,
@@ -545,7 +546,20 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
                 kw["sun"] = (g["rayons"]["x"], g["rayons"]["y"])
             if name == "bokeh":
                 kw["depth"] = image_ops.source_depth(image)
+            before = result
             result = func(result, **kw)
+            if name == "brume" and a.get("zone_w", 100) < 100:
+                # Zone d'action choisie sur la vignette de profondeur.
+                d = cv2.resize(image_ops.source_depth(image),
+                               result.size, interpolation=cv2.INTER_LINEAR)
+                half = a["zone_w"] / 200
+                soft = max(0.01, a.get("zone_soft", 30) / 200)
+                m = np.clip(1 - (np.abs(d - a["zone"]) - half) / soft,
+                            0, 1)[..., None]
+                b = np.asarray(before.convert("RGB"), np.float32)
+                h_ = np.asarray(result.convert("RGB"), np.float32)
+                result = Image.fromarray(
+                    (b + (h_ - b) * m).astype(np.uint8))
     if g["grain1"]["enabled"]:
         a = g["grain1"]
         result = image_ops.add_film_grain(
@@ -2077,8 +2091,9 @@ def main(page: ft.Page):
         def _draw():
             d = pk["d"]
             h, w = d.shape
-            if key == "focus":  # zone nette
-                a = (np.abs(d - dct[key]) <= dct["dof"] / 200 + 0.02
+            if key in ("focus", "zone"):  # zone d'action
+                wk = "dof" if key == "focus" else "zone_w"
+                a = (np.abs(d - dct[key]) <= dct[wk] / 200 + 0.02
                      ).astype(np.float32)[..., None]
             elif key:
                 a = np.clip(d / max(0.05, dct[key]), 0, 1)[..., None]
@@ -2142,6 +2157,8 @@ def main(page: ft.Page):
                             0, h - 1))
             if key:
                 dct[key] = round(float(np.clip(d[y, x], 0.05, 1)), 2)
+                if key == "zone" and dct.get("zone_w", 100) >= 100:
+                    dct["zone_w"] = 30  # 1er toucher : zone autour
             else:
                 span = dct.get("far", 40) - dct.get("near", 0)
                 c = float(d[y, x]) * 100
@@ -2335,10 +2352,12 @@ def main(page: ft.Page):
             style=ft.ButtonStyle(color=WHITE,
                                  side=ft.BorderSide(1, BLUE_LIGHT)))
             for n in BRUME_LOOKS]),
-        _depth_picker(ga["brume"], key="fond", after=_brume_refresh),
+        _depth_picker(ga["brume"], key="zone", after=_brume_refresh),
         _shift_pad(ga["brume"], BLUE_LIGHT)]
     section_brume = _grain_section(
         "Brume", BLUE_LIGHT, ft.Icons.FOGGY, ga["brume"], [
+            ("zone_w", "Taille de la zone", 0, 100, 1),
+            ("zone_soft", "Contour", 0, 100, 1),
             ("amount", "Intensité", 0, 3, 0.01),
             ("distort", "Densité", 0, 1, 0.01),
             ("warmth", "Chaleur", -1, 1, 0.01),
@@ -2388,7 +2407,7 @@ def main(page: ft.Page):
     section_bokeh = _grain_section(
         "Flou de profondeur", BLUE, ft.Icons.CAMERA, ga["bokeh"], [
             ("amount", "Flou", 0, 100, 1),
-            ("dof", "Zone nette", 0, 100, 1),
+            ("dof", "Taille de la zone", 0, 100, 1),
             ("highlights", "Bokeh", 0, 100, 1)],
         head=[_depth_picker(ga["bokeh"], key="focus",
                             after=_bokeh_refresh)])
