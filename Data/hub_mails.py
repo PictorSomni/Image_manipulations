@@ -778,8 +778,16 @@ def build(ui):
             vertical_alignment=ft.CrossAxisAlignment.START)]
         if b["at"]:
             when = datetime.datetime.fromtimestamp(b["at"])
-            ctl.insert(0, ft.Text(when.strftime(
-                "Briefing du %d/%m à %H:%M"), size=11, color=LIGHT_GREY))
+            label = when.strftime("Briefing du %d/%m à %H:%M")
+            if (datetime.datetime.now() - when).total_seconds() > 12 * 3600:
+                # Audit : un briefing de la veille passait pour celui du jour.
+                ctl.insert(0, ft.Container(
+                    ft.Text(label, size=13, color=DARK,
+                            weight=ft.FontWeight.W_600),
+                    bgcolor=ui.ORANGE, border_radius=6,
+                    padding=ft.Padding(10, 6, 10, 6)))
+            else:
+                ctl.insert(0, ft.Text(label, size=11, color=LIGHT_GREY))
         return ctl
 
     briefing_view = ft.ListView(expand=True, spacing=10,
