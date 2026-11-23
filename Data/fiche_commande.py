@@ -495,7 +495,8 @@ def _draw_panel(sheet, draw, model, photo, label, bottom):
     y = MARGIN
     lines = model.get("footer", "").split("\n")
     # Cadre réduit à l'essentiel : la photo prend tout le reste.
-    box_h = 30 + 56 + 150 + 56 + 120 + len(lines) * 56 + 30
+    compte = model.get("compte", "").strip()
+    box_h = 30 + 56 + 150 + 56 + 120 + (len(lines) + bool(compte)) * 56 + 30
     photo_h = bottom - y - box_h - 40
     if photo is not None:
         pic = watermarked(photo)
@@ -519,7 +520,7 @@ def _draw_panel(sheet, draw, model, photo, label, bottom):
     draw.text((x0 + 30, y + 30 + 56 + 150), "Montant total :", font=f,
               fill="black")
     date = model.get("deadline", "")
-    ly = y + box_h - 30 - len(lines) * 56
+    ly = y + box_h - 30 - (len(lines) + bool(compte)) * 56
     for ln in lines:
         # La date en rouge, le reste en noir.
         lx = x0 + 30
@@ -529,6 +530,9 @@ def _draw_panel(sheet, draw, model, photo, label, bottom):
             draw.text((lx, ly), txt, font=f, fill=col)
             lx += draw.textlength(txt, font=f)
         ly += 56
+    if compte:  # paiement sur compte, en gras sous le bas de fiche
+        draw.text((x0 + 30, ly), compte,
+                  font=_font("Baloo2-Bold.ttf", 46), fill="black")
 
 
 def photos_in(folder):

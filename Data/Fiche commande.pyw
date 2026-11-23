@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import CONSTANTS  # noqa: E402
 import flet as ft  # noqa: E402
 import fiche_commande as fc  # noqa: E402
+import ui_helpers  # noqa: E402
 from PIL import Image  # noqa: E402
 
 DARK = CONSTANTS.COLOR_DARK
@@ -317,6 +318,8 @@ def main(page: ft.Page):
                                label="Note en rouge",
                                color=RED, border=RED,
                                expand=True)]),
+                    _field(m.get("compte", ""), set_m("compte"),
+                           label="Compte", border=LIGHT_GREY),
                     _field(m.get("footer", ""), set_m("footer"),
                            label="Bas de fiche · {date}",
                            border=LIGHT_GREY, multiline=True,
@@ -638,6 +641,8 @@ def main(page: ft.Page):
         os.makedirs(out, exist_ok=True)
         gen_btn.disabled = True
         progress.visible = True
+        veil_text.value = f"Création des fiches… 0 / {len(photos)}"
+        ui_helpers.set_busy_veil(veil, True)
         page.update()
 
         async def _run():
@@ -650,10 +655,13 @@ def main(page: ft.Page):
                     await job
                     status.value = f"{n} / {len(photos)}"
                     progress.value = n / len(photos)
+                    veil_text.value = (f"Création des fiches… "
+                                       f"{n} / {len(photos)}")
                     page.update()
             status.value = f"{len(photos)} fiches dans « Fiches »"
             progress.visible = False
             gen_btn.disabled = False
+            ui_helpers.set_busy_veil(veil, False)
             page.update()
 
         def _one(f):
@@ -662,6 +670,11 @@ def main(page: ft.Page):
             sheet.save(os.path.join(out, os.path.splitext(f)[0] + ".jpg"),
                        "JPEG", quality=95, subsampling=0, dpi=(300, 300))
         page.run_task(_run)
+
+    veil = ui_helpers.busy_veil("Création des fiches…", BLUE)
+    veil_text = veil.content.controls[1]
+    ui_helpers.set_busy_veil(veil, False)
+    page.overlay.append(veil)
 
     gen_btn = _btn(f"Créer {len(photos)} fiches", ft.Icons.PRINT, BLUE,
                    generate)
