@@ -19,6 +19,7 @@ import shutil
 import sys
 import time
 import warnings
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -42,6 +43,7 @@ ORANGE = CONSTANTS.COLOR_ORANGE
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 FOLDER = os.environ.get("FOLDER_PATH") or os.getcwd()
+LAST_MODEL = CONSTANTS.state_file(".fiche_commande_modele.txt")
 NO_OBJ = "—"
 
 
@@ -111,7 +113,16 @@ def main(page: ft.Page):
     page.window.maximized = True
 
     photos = fc.photos_in(FOLDER) if os.path.isdir(FOLDER) else []
-    st = {"name": fc.list_models()[0], "objects": fc.load_objects(),
+    wanted = set(filter(None, os.environ.get("SELECTED_FILES",
+                                             "").split("|")))
+    if wanted:
+        photos = [f for f in photos if f in wanted] or photos
+    models = fc.list_models()
+    try:
+        last = Path(LAST_MODEL).read_text(encoding="utf-8").strip()
+    except OSError:
+        last = ""
+    st = {"name": last if last in models else models[0], "objects": fc.load_objects(),
           "photo": None, "renders": {}, "dirty": False, "gen": 0,
           "open": set()}
     st["model"] = fc.load_model(st["name"])
@@ -391,7 +402,28 @@ def main(page: ft.Page):
                                     for n in fc.list_models()])
 
     def load(e=None):
+        if st["dirty"] and e is not None:
+            new = model_dd.value
+            model_dd.value = st["name"]
+
+            def _go(e2):
+                page.pop_dialog()
+                st["dirty"] = False
+                model_dd.value = new
+                load()
+            page.show_dialog(ft.AlertDialog(
+                title=ft.Text(f"Abandonner les changements de "
+                              f"« {st['name']} » ?"),
+                actions=[ft.TextButton(
+                    "Annuler", on_click=lambda e2: page.pop_dialog()),
+                    _btn("Abandonner", ft.Icons.CLOSE, RED, _go)]))
+            page.update()
+            return
         st["name"] = model_dd.value
+        try:
+            Path(LAST_MODEL).write_text(st["name"], encoding="utf-8")
+        except OSError:
+            pass
         st["model"] = fc.load_model(st["name"])
         st["dirty"] = False
         save_btn.style.bgcolor = GREEN
@@ -602,8 +634,6 @@ def main(page: ft.Page):
     def generate(e):
         if not photos:
             return
-        if st["dirty"]:
-            save()
         out = os.path.join(FOLDER, "Fiches")
         os.makedirs(out, exist_ok=True)
         gen_btn.disabled = True
@@ -611,11 +641,16 @@ def main(page: ft.Page):
         page.update()
 
         async def _run():
-            for n, f in enumerate(photos, 1):
-                status.value = f"{n} / {len(photos)} · {f}"
-                progress.value = (n - 1) / len(photos)
-                page.update()
-                await asyncio.to_thread(_one, f)
+            loop = asyncio.get_running_loop()
+            workers = max(1, min(4, os.cpu_count() or 1))
+            with ThreadPoolExecutor(workers) as pool:
+                jobs = [loop.run_in_executor(pool, _one, f)
+                        for f in photos]
+                for n, job in enumerate(asyncio.as_completed(jobs), 1):
+                    await job
+                    status.value = f"{n} / {len(photos)}"
+                    progress.value = n / len(photos)
+                    page.update()
             status.value = f"{len(photos)} fiches dans « Fiches »"
             progress.visible = False
             gen_btn.disabled = False
@@ -633,6 +668,11 @@ def main(page: ft.Page):
     if not photos:
         gen_btn.disabled = True
         status.value = "Aucune photo dans le dossier"
+
+    def on_key(e):
+        if e.key.upper() == "S" and (e.ctrl or e.meta):
+            save()
+    page.on_keyboard_event = on_key
 
     draw_sections()
     page.add(ft.Row([

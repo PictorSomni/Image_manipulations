@@ -26,7 +26,7 @@ W, H = 3508, 2480
 MARGIN = 70
 GAP = 50
 PANEL_W = 860            # colonne de droite : photo filigranée + nom
-PHOTO_MAX = 720          # côté max de la photo avant montage (ancien)
+PHOTO_MAX = 1800         # côté max : photo nette à 300 dpi dans le panneau
 Y_OFFSET = 4             # remonte la photo dans la zone : visages visibles
 RED_TXT = (220, 40, 40)
 
@@ -206,6 +206,19 @@ def _asset(name):
     return _img_cache[name]
 
 
+OBJ_WORK = 1200
+
+
+def _scaled(name, k):
+    key = (name, k)
+    if key not in _img_cache:
+        img = _asset(name)
+        _img_cache[key] = img if k == 1 else img.resize(
+            (round(img.width * k), round(img.height * k)),
+            Image.Resampling.LANCZOS)
+    return _img_cache[key]
+
+
 def _perspective(img, p):
     """Rétrécit le bord haut de `p` px de chaque côté (p < 0 : l'élargit)
     et tasse la hauteur, pour une face vue en biais."""
@@ -251,10 +264,20 @@ def combine(photo, bg, box, alpha=None, fit=False, orient=False,
 def render_object(photo, obj):
     if obj.get("static"):
         return _asset(obj["bg"]).copy()
-    out = combine(photo, _asset(obj["bg"]), obj["box"],
-                  _asset(obj["alpha"]) if obj.get("alpha") else None,
+    # Vignette finale ≤ 600 px : on monte à ~1200 px au lieu de la
+    # taille native des objets (×4 plus rapide, retour audit).
+    bg = _asset(obj["bg"])
+    k = min(1.0, OBJ_WORK / max(bg.size))
+    small = getattr(photo, "small", None)
+    if small is None:
+        small = photo.copy()
+        small.thumbnail((OBJ_WORK, OBJ_WORK), Image.Resampling.LANCZOS)
+        photo.small = small
+    out = combine(small, _scaled(obj["bg"], k),
+                  [round(v * k) for v in obj["box"]],
+                  _scaled(obj["alpha"], k) if obj.get("alpha") else None,
                   obj.get("fit", False), obj.get("orient", False),
-                  int(obj.get("persp", 0) or 0))
+                  round(int(obj.get("persp", 0) or 0) * k))
     out.thumbnail((600, 600), Image.Resampling.LANCZOS)
     return out
 
@@ -272,7 +295,9 @@ def watermarked(photo):
 
 
 def open_photo(path):
-    img = ImageOps.exif_transpose(Image.open(path))
+    img = Image.open(path)
+    img.draft("RGB", (PHOTO_MAX, PHOTO_MAX))  # JPEG : décodage réduit
+    img = ImageOps.exif_transpose(img)
     img.thumbnail((PHOTO_MAX, PHOTO_MAX), Image.Resampling.LANCZOS)
     return img.convert("RGBA")
 
@@ -448,7 +473,7 @@ def _draw_panel(sheet, draw, model, photo, label, bottom):
                        fill=(225, 225, 225))
     y += photo_h
     if label:  # tout à droite, sur la ligne de la note
-        draw.text((W - MARGIN, H - MARGIN), label, font=num_font(1),
+        draw.text((W - MARGIN, H - MARGIN), label, font=num_font(1.6),
                   fill="black", anchor="rs")
     y += 40
     draw.rectangle([x0, y, x0 + PANEL_W, y + box_h], outline="black",
