@@ -321,7 +321,7 @@ def main(page: ft.Page):
                     _field(m.get("compte", ""), set_m("compte"),
                            label="Compte", border=LIGHT_GREY),
                     _field(m.get("footer", ""), set_m("footer"),
-                           label="Bas de fiche · {date}",
+                           label="Bas de fiche · {date} · {compte}",
                            border=LIGHT_GREY, multiline=True,
                            min_lines=2)],
                     spacing=18)]), padding=ft.Padding.only(bottom=10))

@@ -496,7 +496,10 @@ def _draw_panel(sheet, draw, model, photo, label, bottom):
     lines = model.get("footer", "").split("\n")
     # Cadre réduit à l'essentiel : la photo prend tout le reste.
     compte = model.get("compte", "").strip()
-    box_h = 30 + 56 + 150 + 56 + 120 + (len(lines) + bool(compte)) * 56 + 30
+    # {compte} dans le bas de fiche : sur la ligne, sinon ligne à part.
+    inline = "{compte}" in model.get("footer", "")
+    alone = bool(compte) and not inline
+    box_h = 30 + 56 + 150 + 56 + 120 + (len(lines) + alone) * 56 + 30
     photo_h = bottom - y - box_h - 40
     if photo is not None:
         pic = watermarked(photo)
@@ -520,17 +523,21 @@ def _draw_panel(sheet, draw, model, photo, label, bottom):
     draw.text((x0 + 30, y + 30 + 56 + 150), "Montant total :", font=f,
               fill="black")
     date = model.get("deadline", "")
-    ly = y + box_h - 30 - (len(lines) + bool(compte)) * 56
+    bold = _font("Baloo2-Bold.ttf", 46)
+    ly = y + box_h - 30 - (len(lines) + alone) * 56
     for ln in lines:
         # La date en rouge, le reste en noir.
         lx = x0 + 30
-        for part in re.split(r"(\{date\})", ln):
-            txt, col = (date, RED_TXT) if part == "{date}" else (part,
-                                                                "black")
-            draw.text((lx, ly), txt, font=f, fill=col)
-            lx += draw.textlength(txt, font=f)
+        for part in re.split(r"(\{date\}|\{compte\})", ln):
+            ff, col, txt = f, "black", part
+            if part == "{date}":
+                txt, col = date, RED_TXT
+            elif part == "{compte}":
+                txt, ff = compte, bold
+            draw.text((lx, ly), txt, font=ff, fill=col)
+            lx += draw.textlength(txt, font=ff)
         ly += 56
-    if compte:  # paiement sur compte, en gras sous le bas de fiche
+    if alone:  # paiement sur compte, en gras sous le bas de fiche
         draw.text((x0 + 30, ly), compte,
                   font=_font("Baloo2-Bold.ttf", 46), fill="black")
 
