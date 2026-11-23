@@ -205,6 +205,13 @@ def build(ui):
         _bg(lambda: hub_sync.mail("recent", limit=80, known=list(cache)),
             _got)
 
+    def _fetch(e):
+        # Relève tout de suite la boîte (sinon toutes les 15 min).
+        _recent["loading"] = True
+        _idle_fill()
+        page.update()
+        _bg(lambda: hub_sync.mail("fetch"), lambda out: _recent_load())
+
     def _idle():
         return mails_body.content is None or \
             getattr(mails_body.content, "data", None) == "idle"
@@ -230,6 +237,9 @@ def build(ui):
                     icon_color=DARK if _recent["todo"] else BLUE,
                     bgcolor=BLUE if _recent["todo"] else None,
                     on_click=_toggle_todo),
+                ft.IconButton(ft.Icons.REFRESH, icon_color=BLUE,
+                              tooltip="Rafraîchir", on_click=_fetch,
+                              disabled=_recent["loading"]),
                 ft.IconButton(ft.Icons.SEARCH, icon_color=BLUE,
                               tooltip="Rechercher", on_click=search_mails),
                 ft.IconButton(ft.Icons.EDIT, icon_color=BLUE,

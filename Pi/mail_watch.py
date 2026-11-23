@@ -20,6 +20,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 
 import mail_reply
@@ -322,7 +323,16 @@ def _auto_reply(msg, name, addr, subject, body):
 ALWAYS = ("inbox.photo", "lamapix")
 
 
+_RUN_LOCK = threading.Lock()
+
+
 def run():
+    # Bouton « Rafraîchir » de Hub et veille : jamais deux en même temps.
+    with _RUN_LOCK:
+        _run()
+
+
+def _run():
     pending = mail_reply._read()
     known = {m["message_id"] for m in pending}
     for msg in _new_mails():

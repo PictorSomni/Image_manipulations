@@ -205,8 +205,12 @@ class H(http.server.BaseHTTPRequestHandler):
             # Mails du studio (Data/mail_reply.py), envoyés après validation.
             size = int(self.headers.get("Content-Length", 0))
             try:
-                out = {"ok": mail_reply.call(json.loads(
-                    self.rfile.read(min(size, 40_000_000))))}
+                req = json.loads(self.rfile.read(min(size, 40_000_000)))
+                if req.get("action") == "fetch":  # bouton Rafraîchir
+                    mail_watch.run()
+                    out = {"ok": True}
+                else:
+                    out = {"ok": mail_reply.call(req)}
             except Exception as exc:
                 out = {"error": str(exc)}
             self._reply(200, json.dumps(out, ensure_ascii=False).encode(),
