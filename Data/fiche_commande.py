@@ -384,7 +384,7 @@ def render_sheet(model, objects, photo=None, label="", renders=None):
     col_of = [min(2, max(0, int(sec.get("col", 0))))
               for sec in model["sections"]]
     n_secs = [col_of.count(c) for c in range(3)]
-    bottom = max(cols) - GAP
+    bottom = avail  # colonnes jusqu'au texte rouge (retour user)
     for sec, h, c in zip(model["sections"], heights, col_of):
         extra = max(0, bottom - (cols[c] - GAP)) / n_secs[c]
         n_on = sum(1 for it in sec["items"] if it.get("on", True))
