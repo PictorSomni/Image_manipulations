@@ -145,8 +145,10 @@ def default_params():
             "highlights": C.RETOUCHE_LOT_COULEUR_HIGHLIGHTS,
             "whites": C.RETOUCHE_LOT_COULEUR_WHITES,
             "blacks": C.RETOUCHE_LOT_COULEUR_BLACKS,
-            "hsl": {b: {"h": 0, "s": 0, "l": 0}
-                    for b in list(image_ops.HSL_BANDS) + ["autres"]},
+            "hsl": {**{b: {"h": 0, "s": 0, "l": 0}
+                       for b in list(image_ops.HSL_BANDS) + ["autres"]},
+                    "plage": {"h": 0, "s": 0, "l": 0, "from": 0,
+                              "to": 120}},
         },
         "virage": _default_virage(),
         "lut": {
@@ -436,6 +438,10 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
             groups[-1].append(m)
         else:
             groups.append([m])
+    depth = None
+    if any(m.get("type") == "depth" and m.get("enabled", True)
+           for m in params.get("masques", [])):
+        depth = image_ops.source_depth(image)
     for lead, *linked in groups:
         if not lead.get("enabled", True) or not any(
                 lead.get(k) for k in image_ops.MASK_ADJ_KEYS):
@@ -444,7 +450,7 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
         for m in [lead] + linked:
             if m.get("enabled", True):
                 a = image_ops.mask_array({**m, "invert": False},
-                                         *result.size)
+                                         *result.size, depth)
                 alpha = a if alpha is None else np.maximum(alpha, a)
         if lead.get("invert"):
             alpha = 1 - alpha
@@ -1785,20 +1791,30 @@ def main(page: ft.Page):
                   "jaune": "#F2D22E", "vert": "#3AC06A",
                   "cyan": "#2EC8D8", "bleu": "#3A6CE0",
                   "violet": "#8A4FE0", "magenta": "#D83AB0",
-                  "autres": "#9A9A9A"}
+                  "autres": "#9A9A9A", "plage": "#FFFFFF"}
 
     class _BandView(dict):
         def __getitem__(self, k):
             if k == "enabled":
                 return co["enabled"]
-            return co["hsl"][mix["band"]][k]
+            if k in ("from", "to"):
+                return _band("plage")[k]
+            return _band(mix["band"])[k]
 
         def __setitem__(self, k, v):
             if k == "enabled":
                 co["enabled"] = v
                 return
-            co["hsl"][mix["band"]][k] = v
+            _band("plage" if k in ("from", "to") else mix["band"])[k] = v
             _paint_chips()
+            if k in ("from", "to"):
+                _paint_rails()
+
+    def _band(b):
+        # Anciens réglages sans « plage » : ajoutée à la volée.
+        return co["hsl"].setdefault(b, {"h": 0, "s": 0, "l": 0, "from": 0,
+                                        "to": 120} if b == "plage"
+                                    else {"h": 0, "s": 0, "l": 0})
 
     band_view = _BandView()
     _dct_to_section[id(band_view)] = "Lumière et couleur"
@@ -1806,7 +1822,7 @@ def main(page: ft.Page):
 
     def _paint_chips():
         for b, chip in chips.items():
-            touched = any(co["hsl"][b].values())
+            touched = any(_band(b).get(c) for c in "hsl")
             chip.border = ft.Border.all(
                 3 if b == mix["band"] else 1,
                 WHITE if b == mix["band"] else GREY)
@@ -1824,6 +1840,12 @@ def main(page: ft.Page):
         """Rails des 3 curseurs à la couleur de la bande : teinte de
         −30° à +30° autour d'elle, saturation gris → couleur,
         luminosité sombre → claire."""
+        if b == "plage":
+            a, z = _band(b)["from"], _band(b)["to"]
+            span = (z - a) % 360 or 360
+            hues = [_hex_hsv(a + span * i / 4) for i in range(5)]
+            return [CONSTANTS.RETOUCHE_LOT_GRADIENT_HUE,
+                    ["#808080"] + hues, ["#202020", "#F0F0F0"]]
         if b == "autres":
             return [CONSTANTS.RETOUCHE_LOT_GRADIENT_HUE,
                     CONSTANTS.RETOUCHE_LOT_GRADIENT_SAT,
@@ -1844,17 +1866,27 @@ def main(page: ft.Page):
 
     def _select_band(b):
         mix["band"] = b
+        for row in range_rows:
+            row.visible = b == "plage"
         _paint_chips()
         _paint_rails()
-        for row in band_rows:
+        for row in band_rows + range_rows:
             row.data()
+        try:
+            mixer_col.update()
+        except Exception:
+            pass  # pas encore affichée
 
     def _chip(b):
         dot = ft.Container(width=8, height=8, border_radius=4,
                            bgcolor="#10141A", visible=False)
+        rainbow = ft.SweepGradient(colors=[_hex_hsv(h) for h in
+                                           range(0, 361, 60)])
         chips[b] = ft.Container(
             content=dot, width=28, height=28, border_radius=14,
-            bgcolor=MIX_COLORS[b], alignment=ft.Alignment.CENTER,
+            bgcolor=None if b == "plage" else MIX_COLORS[b],
+            gradient=rainbow if b == "plage" else None,
+            alignment=ft.Alignment.CENTER,
             tooltip=b.capitalize(), on_click=lambda e: _select_band(b))
         return chips[b]
 
@@ -1880,10 +1912,17 @@ def main(page: ft.Page):
         _slider_row("Luminosité", band_view, "l", -100, 100,
                    gradient=["#202020", "#F0F0F0"]),
     ]
+    range_rows = [
+        _slider_row("De", band_view, "from", 0, 360,
+                    gradient=[_hex_hsv(h) for h in range(0, 361, 60)]),
+        _slider_row("À", band_view, "to", 0, 360,
+                    gradient=[_hex_hsv(h) for h in range(0, 361, 60)])]
+    for row in range_rows:
+        row.visible = False
     mixer_col = ft.Column([
         ft.Row([_chip(b) for b in MIX_COLORS] + [pipette_btn],
                spacing=6, wrap=True),
-    ] + band_rows, spacing=CONSTANTS.SPACE_XS)
+    ] + range_rows + band_rows, spacing=CONSTANTS.SPACE_XS)
     mixer_col.data = _paint_chips
     _paint_rails()
     reset_registry["sliders"].append((mixer_col, "mix", co, "hsl"))
@@ -2775,7 +2814,7 @@ def main(page: ft.Page):
     # Le masque sélectionné EST `mask_edit` (même objet dans la liste) :
     # curseurs et poignées écrivent directement dedans ; changer de
     # sélection y recopie le masque choisi et rend une copie au précédent.
-    mask_edit = image_ops.new_mask("radial")
+    mask_edit = {**image_ops.new_mask("radial"), "near": 0, "far": 40}
     mask_ui = {"sel": None, "drag": None}
 
     def _masks():
@@ -2797,6 +2836,8 @@ def main(page: ft.Page):
 
     def _mask_handles(m):
         """Poignées (nom, x, y) en pixels d'affichage."""
+        if m["type"] == "depth":
+            return []  # réglé aux curseurs Proche / Loin
         if m["type"] == "radial":
             return [("c", *_frac_to_disp(m["cx"], m["cy"])),
                     ("rx", *_frac_to_disp(m["cx"] + m["rx"], m["cy"])),
@@ -2811,6 +2852,8 @@ def main(page: ft.Page):
         if state["proxy"] is not None:
             for i, m in enumerate(_masks()):
                 hs = _mask_handles(m)
+                if not hs:
+                    continue
                 if i != mask_ui["sel"]:
                     shapes.append(cv.Circle(hs[0][1], hs[0][2], 6, paint=ft.Paint(
                         color=WHITE, style=ft.PaintingStyle.STROKE,
@@ -2906,11 +2949,14 @@ def main(page: ft.Page):
         mask_ui["sel"] = i
         if i is not None:
             mask_edit.clear()
-            mask_edit.update(copy.deepcopy(masks[i]))
+            mask_edit.update({"near": 0, "far": 40},
+                             **copy.deepcopy(masks[i]))
             masks[i] = mask_edit
             invert_switch.value = mask_edit["invert"]
             stops_switch.value = bool(mask_edit.get("exposure_stops"))
-            feather_row.visible = mask_edit["type"] == "radial"
+            feather_row.visible = mask_edit["type"] in ("radial", "depth")
+            for row in depth_rows:
+                row.visible = mask_edit["type"] == "depth"
             linked = bool(mask_edit.get("link")) and i > 0
             link_switch.value = linked
             link_switch.visible = i > 0
@@ -2956,17 +3002,18 @@ def main(page: ft.Page):
 
     def _render_mask_list():
         rows = []
-        counts = {"radial": 0, "linear": 0}
+        counts = {"radial": 0, "linear": 0, "depth": 0}
+        names = {"radial": "Radial ", "linear": "Linéaire ",
+                 "depth": "Profondeur "}
+        icons = {"radial": ft.Icons.RADIO_BUTTON_UNCHECKED,
+                 "linear": ft.Icons.GRADIENT, "depth": ft.Icons.LANDSCAPE}
         for i, m in enumerate(_masks()):
             counts[m["type"]] += 1
-            label = ("Radial " if m["type"] == "radial" else "Linéaire ") \
-                + str(counts[m["type"]])
+            label = names[m["type"]] + str(counts[m["type"]])
             on = m.get("enabled", True)
             rows.append(ft.Container(
                 content=ft.Row([
-                    ft.Icon(ft.Icons.RADIO_BUTTON_UNCHECKED
-                            if m["type"] == "radial" else ft.Icons.GRADIENT,
-                            size=CONSTANTS.ICON_SM,
+                    ft.Icon(icons[m["type"]], size=CONSTANTS.ICON_SM,
                             color=WHITE if on else LIGHT_GREY),
                     ft.Text(label, expand=True, size=CONSTANTS.TEXT_SM,
                             color=WHITE if on else LIGHT_GREY),
@@ -3024,7 +3071,9 @@ def main(page: ft.Page):
                             on_change=_on_link)
     feather_row = _slider_row("Contour", mask_edit, "feather", 1, 100,
                               reset=50)
-    mask_rows = [feather_row]
+    depth_rows = [_slider_row("Proche", mask_edit, "near", 0, 100, reset=0),
+                  _slider_row("Loin", mask_edit, "far", 0, 100, reset=40)]
+    mask_rows = [feather_row] + depth_rows
     light_rows = [_slider_row(lbl, mask_edit, key, -100, 100)
                   for lbl, key in (("Exposition", "exposure"),
                                    ("Contraste", "contrast"),
@@ -3047,6 +3096,8 @@ def main(page: ft.Page):
     for col in color_rows:
         _recolor_sliders(col, GREEN)
     _recolor_sliders(feather_row, VIOLET)
+    for row in depth_rows:
+        _recolor_sliders(row, VIOLET)
 
     def _mask_zone(title, color, controls):
         return ft.Container(
@@ -3062,7 +3113,7 @@ def main(page: ft.Page):
     color_zone = _mask_zone("Couleur", GREEN, color_rows)
     mask_editor = ft.Column([
         _mask_zone("Masque", VIOLET,
-                   [link_switch, invert_switch, feather_row]),
+                   [link_switch, invert_switch, *depth_rows, feather_row]),
         light_zone,
         color_zone,
     ], spacing=CONSTANTS.SPACE_MD, visible=False)
@@ -3073,7 +3124,9 @@ def main(page: ft.Page):
                       _add_mask("radial")),
             _rect_btn("Linéaire", ft.Icons.GRADIENT, BLUE,
                       _add_mask("linear")),
-        ]),
+            _rect_btn("Profondeur", ft.Icons.LANDSCAPE, GREEN,
+                      _add_mask("depth")),
+        ], wrap=True),
         mask_list,
         mask_editor,
     ], spacing=CONSTANTS.SPACE_MD, expand=True, visible=False,

@@ -4350,19 +4350,45 @@ def new_mask(kind):
     m.update({k: 0 for k in MASK_ADJ_KEYS})
     if kind == "radial":
         m.update(cx=0.5, cy=0.5, rx=0.25, ry=0.25)
+    elif kind == "depth":
+        m.update(near=0, far=40)  # % de la carte : 0 proche, 100 loin
     else:
         m.update(x0=0.5, y0=0.25, x1=0.5, y1=0.6)
     return m
 
 
-def mask_array(m, w, h):
+_src_depth = {}
+
+
+def source_depth(pil_img):
+    """Carte de profondeur (0 proche .. 1 loin) de la photo source, pour
+    les masques Profondeur ; gardée tant que la source ne change pas."""
+    key = (id(pil_img), pil_img.size)
+    if _src_depth.get("key") != key:
+        src = np.asarray(pil_img.convert("RGB"), np.float32) / 255.0
+        _src_depth.update(key=key, map=_snap(src, depth_map(src)))
+    return _src_depth["map"]
+
+
+def mask_array(m, w, h, depth=None):
     """Masque float32 (h, w) dans [0, 1] : 1 = effet complet. Calculé
     à 1024 px au plus puis agrandi (masque lisse : rien ne se perd, et
     pas de grilles de 100 Mo sur un plein format)."""
     k = min(1.0, 1024 / max(w, h))
     if k < 1:
-        small = mask_array(m, max(1, round(w * k)), max(1, round(h * k)))
+        small = mask_array(m, max(1, round(w * k)), max(1, round(h * k)),
+                           depth)
         return cv2.resize(small, (w, h), interpolation=cv2.INTER_LINEAR)
+    if m["type"] == "depth":
+        if depth is None:
+            return np.zeros((h, w), np.float32)
+        d = cv2.resize(depth.astype(np.float32), (w, h),
+                       interpolation=cv2.INTER_LINEAR)
+        f = max(m.get("feather", 50), 1) / 200
+        t = np.clip(np.minimum(d - m["near"] / 100,
+                               m["far"] / 100 - d) / f + 1, 0, 1)
+        t = t * t * (3 - 2 * t)
+        return 1 - t if m.get("invert") else t
     ys, xs = np.mgrid[0:h, 0:w].astype(np.float32)
     xs = (xs + 0.5) / w
     ys = (ys + 0.5) / h
@@ -4409,6 +4435,17 @@ def nearest_hsl_band(rgb):
     return max(w, key=lambda k: float(w[k]))
 
 
+def _range_weight(hue, start, end, soft=15.0):
+    """Poids 0..1 d'une plage de teintes de `start` à `end` (degrés, sens
+    croissant, passe par 0 si end < start), bords fondus sur `soft`°."""
+    span = (end - start) % 360 or 360
+    pos = (hue - start) % 360
+    inside = np.minimum(pos, span - pos)
+    out = np.minimum(np.abs(pos - span), 360 - pos)
+    return np.where(pos <= span, np.clip(inside / soft + 0.5, 0, 1),
+                    np.clip(0.5 - out / soft, 0, 1))
+
+
 def hsl_mixer(image, bands):
     """Teinte / saturation / luminosité par couleur. `bands` :
     {nom: {"h", "s", "l"}} en -100..100, « autres » couvrant tout ce
@@ -4429,7 +4466,12 @@ def hsl_mixer(image, bands):
                         cv2.COLOR_RGB2HSV)
     hb, sb = soft[..., 0], soft[..., 1]
     weights = _hsl_weights(hb)
-    other = 1 - sum(w for k, w in weights.items() if k in touched)
+    pl = touched.get("plage")
+    if pl:
+        weights["plage"] = _range_weight(hb, pl.get("from", 0),
+                                         pl.get("to", 120))
+    other = np.clip(1 - sum(w for k, w in weights.items()
+                            if k in touched), 0, 1)
     # Chair : teinte ~10-45°, saturation moyenne.
     skin = (np.exp(-0.5 * (((hb - 25 + 180) % 360 - 180) / 14) ** 2)
             * np.clip((sb - 0.1) / 0.15, 0, 1) * np.clip((0.75 - sb) / 0.2,
