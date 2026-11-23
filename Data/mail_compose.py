@@ -208,6 +208,15 @@ def build(ui, bg, show, close, seg, field, dock=None):
                     text=body.value, files=_files())
             bg(work, _sent)
 
+        def _proof(e):
+            if not (body.value or "").strip():
+                return
+            status.value = "Relecture…"
+            page.update()
+            text = body.value
+            bg(lambda: hub_sync.ask_claude(  # noqa: E731
+                hub_sync.claude_prompt(text, "proof")), _drafted)
+
         def _sent(out):
             o["sending"] = False
             if isinstance(out, Exception):
@@ -249,6 +258,8 @@ def build(ui, bg, show, close, seg, field, dock=None):
         actions = [*extra_actions,
                    ui._dlg_btn("Joindre", color=CONSTANTS.COLOR_MINT,
                                on_click=_join),
+                   ui._dlg_btn("Relecture", color=ui.VIOLET,
+                               on_click=_proof),
                    ui._dlg_btn("Envoyer", "primary", on_click=_send)]
         if dock:
             # Pleine largeur : reçu + consignes à gauche, réponse à droite.
