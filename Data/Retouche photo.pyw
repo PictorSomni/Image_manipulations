@@ -28,6 +28,8 @@ Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 import asyncio
 import base64
 import copy
+import ctypes
+import gc
 import io
 import json
 import os
@@ -1194,6 +1196,15 @@ def main(page: ft.Page):
         apply_sel_btn.disabled = not state["checked"]
         apply_sel_btn.update()
 
+    def _trim_memory():
+        """Rend au système la mémoire des photos quittées (audit : +5 Mo
+        par photo sous Linux, glibc garde ses arènes)."""
+        gc.collect()
+        try:
+            ctypes.CDLL("libc.so.6").malloc_trim(0)
+        except (OSError, AttributeError):
+            pass  # ponytail: macOS/Windows rendent déjà la mémoire
+
     def load_representative(idx):
         # Voile si décodage + premier rendu dépassent 300 ms (le rendu
         # demandé en fin de fonction sera le n° live_req + 1).
@@ -1221,6 +1232,11 @@ def main(page: ft.Page):
         preview_viewer.update()
         counter_text.value = f"{idx + 1} / {len(file_names)} — {name}"
         _refresh_filmstrip()
+        # Miniature courante toujours visible (retour audit).
+        _trim_memory()
+        pitch = _FILMSTRIP_H - 4 + CONSTANTS.SPACE_SM
+        page.run_task(filmstrip.scroll_to,
+                      offset=max(0, idx * pitch - 3 * pitch), duration=200)
         _sync_controls_from_params()
         live_preview_tick()
 
@@ -3151,6 +3167,10 @@ def main(page: ft.Page):
             _prev(e)
         elif e.key == "Arrow Right":
             _next(e)
+        elif e.key == "Home":
+            load_representative(0)
+        elif e.key == "End":
+            load_representative(len(file_names) - 1)
     page.on_keyboard_event = _on_key
 
     retouche_view = ft.Row([
