@@ -547,6 +547,8 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
             if name == "bokeh":
                 kw["depth"] = image_ops.source_depth(image)
             before = result
+            if name == "brume":
+                kw.update(depth=0.0, fond=1.0, visible=0.0, ground=0.0)
             result = func(result, **kw)
             if name == "brume" and a.get("zone_w", 100) < 100:
                 # Zone d'action choisie sur la vignette de profondeur.
@@ -2308,12 +2310,12 @@ def main(page: ft.Page):
 
     # Préréglages à la Luminar : point de départ, curseurs ensuite.
     BRUME_LOOKS = {
-        "Au sol": dict(amount=1.0, depth=0.0, ground=1.0,
-                       ground_height=0.35, contrast=0.5, distort=0.5),
-        "Voile": dict(amount=0.7, depth=1.0, ground=0.0, contrast=0.2,
-                      distort=0.3, fond=0.6),
-        "Dense": dict(amount=2.0, depth=0.3, ground=0.3,
-                      ground_height=0.6, contrast=0.7, distort=0.8),
+        "Au sol": dict(amount=1.0, zone=0.15, zone_w=30, contrast=0.5,
+                       distort=0.5),
+        "Voile": dict(amount=0.7, zone=0.8, zone_w=50, contrast=0.2,
+                      distort=0.3),
+        "Dense": dict(amount=2.0, zone=0.5, zone_w=100, contrast=0.7,
+                      distort=0.8),
     }
 
     def _brume_look(name):
@@ -2361,13 +2363,6 @@ def main(page: ft.Page):
             ("amount", "Intensité", 0, 3, 0.01),
             ("distort", "Densité", 0, 1, 0.01),
             ("warmth", "Chaleur", -1, 1, 0.01),
-            "Fond",
-            ("depth", "Éloignement", 0, 3, 0.01),
-            ("fond", "Début du fond", 0.05, 1, 0.01),
-            ("visible", "Fond visible", 0, 1, 0.01),
-            "Sol",
-            ("ground", "Brume au sol", 0, 1, 0.01),
-            ("ground_height", "Hauteur", 0, 1, 0.005),
             "Volutes",
             ("contrast", "Volutes", 0, 1, 0.01),
             ("bumps", "Taille des volutes", 0.5, 2, 0.01),
