@@ -6020,7 +6020,13 @@ def main(page: ft.Page):
         # d'occuper la place avec les champs.
         app.custom_dims_zone.visible = not is_ratio
 
+    def _restyle_crop_mode():
+        # Curseur bleu, libellé sélectionné en sombre (comme _seg).
+        for i, t in enumerate(crop_mode_seg.controls):
+            t.color = DARK if i == crop_mode_seg.selected_index else WHITE
+
     def _on_crop_mode_change_and_sync(e):
+        _restyle_crop_mode()
         app.on_crop_mode_change(e)
         _sync_custom_unit_for_crop_mode()
         page.update()
@@ -6121,11 +6127,13 @@ def main(page: ft.Page):
                 ft.Text("Ratio", size=12),
             ],
             on_change=_on_crop_mode_change_and_sync,
+            thumb_color=BLUE, bgcolor=DARK,
             padding=ft.Padding.symmetric(horizontal=4, vertical=4),
             # Intégré : toute la largeur de la colonne commune.
             width=(page.panel_w - 2 * CONSTANTS.SPACE_MD if embedded
                    else RIGHT_COL_WIDTH),
         )
+    _restyle_crop_mode()
     right_scroll_body = ft.Column([
         crop_mode_seg,
         app.format_list_container,
@@ -6504,6 +6512,7 @@ def main(page: ft.Page):
             CONSTANTS.state_file(".recadrage_onglet.json"), {}) or {}
         if saved.get("ratio"):
             crop_mode_seg.selected_index = 1
+            _restyle_crop_mode()
             app.crop_mode = "ratio"
         if saved.get("w"):
             app.custom_w_field.value = saved["w"]
