@@ -155,11 +155,17 @@ def main(page: ft.Page):
             src = await asyncio.to_thread(_png_src, img)
         except Exception as exc:  # objet manquant, image illisible…
             status.value = f"Aperçu impossible : {exc}"
+            _boot_done()
             page.update()
             return
         if gen == st["gen"]:
             preview.src = src
+            _boot_done()
             page.update()
+
+    def _boot_done():
+        if st.pop("boot", False):
+            ui_helpers.set_busy_veil(veil, False)
 
     def changed(redraw=False):
         st["dirty"] = True
@@ -709,6 +715,10 @@ def main(page: ft.Page):
             border=ft.Border(left=ft.BorderSide(1, GREY)))],
         expand=True, spacing=0,
         vertical_alignment=ft.CrossAxisAlignment.STRETCH))
+    st["boot"] = True
+    veil_text.value = "Préparation de l'aperçu…"
+    ui_helpers.set_busy_veil(veil, True)
+    page.update()
     refresh(0)
 
 

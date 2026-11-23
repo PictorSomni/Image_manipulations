@@ -163,9 +163,11 @@ def build(ui):
                 color, icon = GREY, ft.Icons.DRAFTS_OUTLINED
             todo = not m.get("done")
             # Clic droit : marquer comme lu sans ouvrir (retour user).
+            box = _tile_box(m, color, icon, todo)
+            if not todo:  # sans handler, GestureDetector plante
+                return box
             return ft.GestureDetector(
-                on_secondary_tap=(lambda e: _dismiss(m)) if todo else None,
-                content=_tile_box(m, color, icon, todo))
+                on_secondary_tap=lambda e: _dismiss(m), content=box)
 
         def _tile_box(m, color, icon, todo):
             return ft.Container(ft.ListTile(
