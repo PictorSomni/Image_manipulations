@@ -523,7 +523,7 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
             "cloud_size", "show_depth", "ground",
             "ground_height", "fond", "distort", "edge", "contrast",
             "seed", "visible", "grain",
-            "bumps", "volume", "sx", "sy")),
+            "bumps", "volume")),
           ("rayons", image_ops.add_sunrays,
            ("x", "y", "length", "intensity", "warmth", "threshold",
             "sun_size", "influence", "depth", "precise", "rays",
@@ -550,18 +550,27 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
             if name == "brume":
                 kw.update(depth=0.0, fond=1.0, visible=0.0, ground=0.0)
             result = func(result, **kw)
-            if name == "brume" and a.get("zone_w", 100) < 100:
-                # Zone d'action choisie sur la vignette de profondeur.
-                d = cv2.resize(image_ops.source_depth(image),
-                               result.size, interpolation=cv2.INTER_LINEAR)
-                half = a["zone_w"] / 200
-                soft = max(0.01, a.get("zone_soft", 30) / 200)
-                m = np.clip(1 - (np.abs(d - a["zone"]) - half) / soft,
-                            0, 1)[..., None]
+            if name == "brume":
                 b = np.asarray(before.convert("RGB"), np.float32)
-                h_ = np.asarray(result.convert("RGB"), np.float32)
+                delta = np.asarray(result.convert("RGB"), np.float32) - b
+                hh, ww = b.shape[:2]
+                sx, sy = a.get("sx", 0), a.get("sy", 0)
+                if sx or sy:
+                    # Pavé : déplace les nappes (toute la couche brume).
+                    mat = np.float32([[1, 0, sx * ww * 0.5],
+                                      [0, 1, sy * hh * 0.5]])
+                    delta = cv2.warpAffine(delta, mat, (ww, hh),
+                                           borderMode=cv2.BORDER_REFLECT)
+                if a.get("zone_w", 100) < 100:
+                    # Zone d'action choisie sur la vignette de profondeur.
+                    d = cv2.resize(image_ops.source_depth(image), (ww, hh),
+                                   interpolation=cv2.INTER_LINEAR)
+                    half = a["zone_w"] / 200
+                    soft = max(0.01, a.get("zone_soft", 30) / 200)
+                    delta *= np.clip(1 - (np.abs(d - a["zone"]) - half)
+                                     / soft, 0, 1)[..., None]
                 result = Image.fromarray(
-                    (b + (h_ - b) * m).astype(np.uint8))
+                    np.clip(b + delta + 0.5, 0, 255).astype(np.uint8))
     if g["grain1"]["enabled"]:
         a = g["grain1"]
         result = image_ops.add_film_grain(
