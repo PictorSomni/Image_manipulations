@@ -1152,20 +1152,37 @@ def main(page: ft.Page):
             state["base"] is not None
             and _photo_params(name) != state["base"])
 
-    def _apply_to(names):
-        """Déploie les réglages de la photo affichée sur `names`."""
-        for n in names:
-            if n != state["cur"]:
-                state["overrides"][n] = copy.deepcopy(state["params"])
-        _refresh_filmstrip()
+    def _apply_to(names, after=None):
+        """Déploie les réglages de la photo affichée sur `names`.
+
+        Confirmation si ça écrase des retouches propres à d'autres photos
+        (retour audit : « Appliquer à toutes » effaçait tout en silence).
+        """
+        def _go():
+            for n in names:
+                if n != state["cur"]:
+                    state["overrides"][n] = copy.deepcopy(state["params"])
+            _refresh_filmstrip()
+            if after:
+                after()
+        lost = [n for n in names if n != state["cur"] and _is_edited(n)
+                and _photo_params(n) != state["params"]]
+        if not lost:
+            return _go()
+        ui_helpers.confirm_dialog(
+            page, f"Remplacer {len(lost)} retouche"
+                  f"{'s' if len(lost) > 1 else ''} ?",
+            _go, {"white": WHITE}, confirm_label="Remplacer",
+            confirm_color=RED)
 
     def _apply_to_checked(e):
-        _apply_to(state["checked"])
-        state["checked"].clear()
-        for c in thumb_checks:
-            c.value = False
-        apply_sel_btn.disabled = True
-        page.update()
+        def _clear():
+            state["checked"].clear()
+            for c in thumb_checks:
+                c.value = False
+            apply_sel_btn.disabled = True
+            page.update()
+        _apply_to(list(state["checked"]), _clear)
 
     def _apply_to_all(e):
         _apply_to(file_names)
