@@ -2253,8 +2253,11 @@ class PhotoCropper:
     async def _render_preview_async(self) -> None:
         """`_render_preview` calculé hors du fil UI (après un traitement
         long, sous le voile) : l'interface ne gèle pas pendant le rendu."""
+        shown = getattr(self, "_loaded_path", None)
         payload = await asyncio.to_thread(self._compute_preview_payload)
-        if payload is None:
+        # Un aperçu fini après le passage à la photo suivante réaffichait
+        # l'ancienne (retour user : photo 2 vue deux fois).
+        if payload is None or shown != getattr(self, "_loaded_path", None):
             return
         self.image_display.src = payload[0]
         self.image_display.update()
@@ -2493,6 +2496,7 @@ class PhotoCropper:
     def _live_preview_loop(self):
         while True:
             request_seen = self._live_req
+            shown = getattr(self, "_loaded_path", None)
             try:
                 payload = self._compute_preview_payload()
             except Exception:
@@ -2500,7 +2504,9 @@ class PhotoCropper:
             if payload is not None:
                 preview_src = payload[0]
 
-                async def _apply(src=preview_src):
+                async def _apply(src=preview_src, shown=shown):
+                    if shown != getattr(self, "_loaded_path", None):
+                        return
                     self.image_display.src = src
                     try:
                         self.image_display.update()
