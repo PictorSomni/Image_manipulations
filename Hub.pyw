@@ -809,6 +809,7 @@ def main(page: ft.Page):
     # aux enfants -> zone effondrée, cf. incident précédent). On échange le
     # contenu, comme Dashboard.
     files_body = ft.Container(content=files_list, expand=True)
+    files_veil = ui_helpers.busy_veil("Lecture du dossier…", BLUE)
 
     def _update_sel_count():
         # Barre du bas (pas le header) : total d'abord, puis la sélection
@@ -3050,11 +3051,7 @@ def main(page: ft.Page):
             # Hub ne se fige plus (audit), on finit quand le scan revient.
             res = fut.result(timeout=0.3)
         except concurrent.futures.TimeoutError:
-            files_list.controls.clear()
-            files_list.controls.append(ft.Row([
-                ft.ProgressRing(color=BLUE, width=28, height=28),
-                ft.Text("Lecture du dossier…", color=WHITE)]))
-            files_body.content = files_list
+            ui_helpers.set_busy_veil(files_veil, True)
             page.update()
 
             async def _finish():
@@ -3071,6 +3068,7 @@ def main(page: ft.Page):
         _navigate_done(path, res)
 
     def _navigate_done(path, res):
+        ui_helpers.set_busy_veil(files_veil, False)
         if isinstance(res, OSError):
             exc = res
             content["dirs"], content["imgs"], content["other"] = [], [], []
@@ -5340,7 +5338,7 @@ def main(page: ft.Page):
         files_header,
         folder_tabs_bar,
         ft.Divider(height=1, color=GREY),
-        files_body,
+        ft.Stack([files_body, files_veil], expand=True),
     ], expand=True, spacing=0)
 
     # → Data/hub_notes.py
