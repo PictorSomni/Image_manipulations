@@ -9133,7 +9133,7 @@ def main(page: ft.Page):
     def _actions_matches():
         q = _fold(actions_filter.value or "")
         return [t for _, tools in _ACTION_CATEGORIES for t in tools
-                if q in _fold(t[0])]
+                if t and q in _fold(t[0])]
 
     def _actions_all():
         return ([_action_category(label, tools)
