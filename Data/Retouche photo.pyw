@@ -2358,14 +2358,13 @@ def main(page: ft.Page):
         _shift_pad(ga["brume"], BLUE_LIGHT)]
     section_brume = _grain_section(
         "Brume", BLUE_LIGHT, ft.Icons.FOGGY, ga["brume"], [
-            ("zone_w", "Taille de la zone", 0, 100, 1),
-            ("zone_soft", "Contour", 0, 100, 1),
             ("amount", "Intensité", 0, 3, 0.01),
+            ("zone_w", "Hauteur", 0, 100, 1),
+            ("contrast", "Irrégularité", 0, 1, 0.01),
+            ("bumps", "Taille des nuages", 0.5, 2, 0.01),
+            ("zone_soft", "Contour", 0, 100, 1),
             ("distort", "Densité", 0, 1, 0.01),
             ("warmth", "Chaleur", -1, 1, 0.01),
-            "Volutes",
-            ("contrast", "Volutes", 0, 1, 0.01),
-            ("bumps", "Taille des volutes", 0.5, 2, 0.01),
             ("grain", "Détail", 0, 1, 0.01),
             ("edge", "Fondu des bords", 0, 1, 0.01),
             ("seed", "Variante", 0, 20, 1)], head=brume_head)

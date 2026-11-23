@@ -2811,7 +2811,8 @@ def _depth_precise(img, quality=False):
     kind = "base" if quality else "small"
     d = _disparity(img, 518, kind)
     if quality:
-        fine = _disparity(img, 1036, kind)
+        # Pi (8 Go) : passe fine à 742 px, 1036 sature la mémoire.
+        fine = _disparity(img, 742 if _LOW_RAM else 1036, kind)
         g = cv2.resize(d, fine.shape[::-1], interpolation=cv2.INTER_CUBIC)
         # Même échelle que la passe globale, puis détail haute fréquence.
         fine = (fine - fine.mean()) / max(1e-6, float(fine.std())) \
@@ -2908,6 +2909,11 @@ def _depth_map(img, precise=0):
 # Un seul calcul IA à la fois : deux en parallèle (vignette + rendu)
 # saturent la mémoire du Pi.
 _depth_lock = threading.Lock()
+try:
+    _LOW_RAM = (os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+                < 12 * 2 ** 30)
+except (ValueError, OSError, AttributeError):  # Windows
+    _LOW_RAM = False
 
 
 def depth_map(img, precise=0):
@@ -2969,8 +2975,7 @@ def pin_depth(pil_img):
     appliqués avant eux. None pour retirer."""
     _depth_state["pin"] = None
     if pil_img is not None:
-        src = np.asarray(pil_img.convert("RGB"), np.float32) / 255.0
-        _depth_state["pin"] = _snap(src, depth_map(src))
+        _depth_state["pin"] = source_depth(pil_img)
 
 
 def _snap(img, m):
@@ -3223,6 +3228,21 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     1 = seulement l'arrière-plan. warmth -1 froid .. 1 chaud.
     clouds 0-1 : nappes irrégulières plutôt qu'un voile uni, en
     perspective (plus fines au loin)."""
+    if max(pil_img.size) > 1600:
+        # ponytail: brume calculée à 1600 px et reportée en différence
+        # sur la pleine définition (3 Go sinon : le Pi coupe l'app).
+        small = pil_img.convert("RGB")
+        small.thumbnail((1600, 1600))
+        args = dict(locals())
+        for k in ("pil_img", "small", "args"):
+            args.pop(k, None)
+        hz = add_haze(small, **args)
+        delta = (np.asarray(hz, np.float32)
+                 - np.asarray(small, np.float32))
+        delta = cv2.resize(delta, pil_img.size,
+                           interpolation=cv2.INTER_LINEAR)
+        out = np.asarray(pil_img.convert("RGB"), np.float32) + delta
+        return Image.fromarray(np.clip(out + 0.5, 0, 255).astype(np.uint8))
     global _SEED, _SHIFT, _GRAIN, _RES, _VOLUME, _VOL_LIGHT, _SUN
     _SUN = sun
     # volume : 1 diffus (boules éclairées en volume), 2 volume.
@@ -4383,7 +4403,11 @@ def source_depth(pil_img):
     les masques Profondeur ; gardée tant que la source ne change pas."""
     key = (id(pil_img), pil_img.size)
     if _src_depth.get("key") != key:
-        src = np.asarray(pil_img.convert("RGB"), np.float32) / 255.0
+        # 1280 px suffisent (masques et zones sont agrandis ensuite) :
+        # en pleine définition, 2 Go de mémoire sur le Pi.
+        small = pil_img.convert("RGB")
+        small.thumbnail((1280, 1280))
+        src = np.asarray(small, np.float32) / 255.0
         _src_depth.update(key=key, map=_snap(src, depth_map(src)))
     return _src_depth["map"]
 
