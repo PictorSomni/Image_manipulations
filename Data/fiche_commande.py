@@ -329,25 +329,34 @@ def _layout(model, s, draw):
     heights = []
     for sec in model["sections"]:
         items = [i for i in sec["items"] if i.get("on", True)]
+        strip = _has_strip(sec)
         h = 150 * s + 30 * s
         for it in items:
-            h += _item_h(it, s, col_w, draw)
+            h += _item_h(it, s, col_w, draw, strip)
         heights.append(h + 30 * s)
     return col_w, heights
 
 
 THUMB = 230
+STRIP = 175            # largeur de la bande d'images d'une rubrique
 
 
-def _text_w(it, s, col_w):
-    """Largeur du libellé : colonne moins vignette, prix et case."""
-    thumb = (THUMB + 20) * s if it.get("object") else 0
+def _has_strip(sec):
+    """Rubrique avec au moins une image : bande d'images à gauche."""
+    return any(i.get("object") and i.get("on", True) for i in sec["items"])
+
+
+def _text_w(it, s, col_w, strip=False):
+    """Largeur du libellé : colonne moins bande d'images, prix et case."""
+    thumb = (STRIP + 15) * s if strip else 0
     return col_w - 60 * s - thumb - 78 * s - 25 * s - 130 * s
 
 
-def _item_h(it, s, col_w, draw):
-    thumb = THUMB * s if it.get("object") else 0
-    text_w = _text_w(it, s, col_w)
+def _item_h(it, s, col_w, draw, strip=False):
+    # Les images ne fixent plus la hauteur des lignes : elles sont
+    # réparties dans la bande de gauche (comme l'ancien Order.pyw).
+    thumb = 0
+    text_w = _text_w(it, s, col_w, strip)
     lines = len(_wrap(draw, it["name"], item_font(s), text_w))
     th = lines * 52 * s + (36 * s if it.get("sub") else 0)
     box = 150 * s if it.get("price2") else 80 * s
@@ -388,13 +397,18 @@ def render_sheet(model, objects, photo=None, label="", renders=None):
         draw.text((x + col_w / 2, y + 95 * s), sec["name"], font=tf,
                   fill="black", anchor="mm")
         cy = y + 180 * s
+        strip = _has_strip(sec)
+        top = cy
         for it in sec["items"]:
             if not it.get("on", True):
                 continue
-            ih = _item_h(it, s, col_w, draw) + extra / max(1, n_on)
+            ih = _item_h(it, s, col_w, draw, strip) + extra / max(1, n_on)
             _draw_item(sheet, draw, it, objects, photo, renders,
-                       x, cy, col_w, ih, s)
+                       x, cy, col_w, ih, s, strip)
             cy += ih
+        if strip:
+            _draw_strip(sheet, sec, objects, photo, renders,
+                        x + 30 * s, top, cy, s)
     # Note en bas à gauche.
     draw.text((MARGIN, H - MARGIN), model.get("note", ""),
               font=_font("Baloo2-Regular.ttf", 56), fill=RED_TXT,
@@ -403,11 +417,33 @@ def render_sheet(model, objects, photo=None, label="", renders=None):
     return sheet
 
 
+def _draw_strip(sheet, sec, objects, photo, renders, x, top, bottom, s):
+    """Images de la rubrique réparties sur toute la hauteur de la bande,
+    dans l'ordre des articles."""
+    keys = [i["object"] for i in sec["items"] if i.get("on", True)
+            and i.get("object") in objects]
+    if not keys:
+        return
+    slot = (bottom - top) / len(keys)
+    size = round(min(slot * 0.9, STRIP * s))
+    for n, key in enumerate(keys):
+        if photo is not None:
+            if key not in renders:
+                renders[key] = render_object(photo, objects[key])
+            th = renders[key].copy()
+        else:
+            th = _asset(objects[key]["bg"]).copy()
+        th.thumbnail((size, size), Image.Resampling.LANCZOS)
+        cy = top + slot * (n + 0.5)
+        sheet.paste(th, (round(x + (STRIP * s - th.width) / 2),
+                         round(cy - th.height / 2)), th)
+
+
 def _draw_item(sheet, draw, it, objects, photo, renders, x, y, col_w, ih,
-               s):
+               s, strip=False):
     pad = 30 * s
-    tx = x + pad
-    obj = objects.get(it.get("object") or "")
+    tx = x + pad + ((STRIP + 15) * s if strip else 0)
+    obj = None
     if obj:
         size = round(THUMB * s)
         if photo is not None:
@@ -424,7 +460,7 @@ def _draw_item(sheet, draw, it, objects, photo, renders, x, y, col_w, ih,
     box = round(78 * s)
     bx = x + col_w - pad - box
     px = bx - 25 * s
-    text_w = _text_w(it, s, col_w)
+    text_w = _text_w(it, s, col_w, strip)
     lines = _wrap(draw, it["name"], item_font(s), text_w)
     sub = it.get("sub", "")
     th = len(lines) * 52 * s + (36 * s if sub else 0)
