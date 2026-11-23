@@ -5584,14 +5584,18 @@ class PhotoCropper:
                 and not self.rotation and not self.rembg_btn.selected):
             return None  # image entière, intacte : rien à valider
         # Préfixe du fichier validé (« 13x18_ »), comme Recadrage manuel.
-        # Sans format nommé : dimensions en pixels (« 2400x1800_ »).
+        # Hors mode 300 DPI : « Ratio_13x18_ » ou « Ratio_2400x1800_ ».
         short = (self.current_format_label or "").split(" ")[0]
         img = self._compute_crop_from_snapshot(self._snapshot_current())
-        if re.match(r"^\d+(?:[.,]\d+)?x\d", short):
+        named = re.match(r"^\d+(?:[.,]\d+)?x\d", short)
+        if named and getattr(self, "crop_mode",
+                             "resolution") == "resolution":
             self.embedded_format = short
+        elif img is not None:
+            self.embedded_format = (
+                f"Ratio_{short if named else f'{img.width}x{img.height}'}")
         else:
-            self.embedded_format = (f"{img.width}x{img.height}"
-                                    if img is not None else None)
+            self.embedded_format = None
         return img
 
     async def close_window(self, e=None):

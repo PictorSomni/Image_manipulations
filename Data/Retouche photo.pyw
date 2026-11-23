@@ -82,6 +82,9 @@ EXTENSION = (".JPG", ".JPEG", ".PNG", ".BMP", ".TIFF", ".TIF", ".WEBP",
 #############################################################
 #                    RÉGLAGES PAR DÉFAUT                    #
 #############################################################
+_FMT_PREFIX = re.compile(
+    r"^(?:(?:Ratio_)?\d+(?:[.,]\d+)?x\d+(?:[.,]\d+)?_)+")
+
 def _default_virage():
     # Pas de remontée des ombres ici : gérée par la section "Réglages
     # couleur" (slider Ombres) — les deux se chevauchaient (retour user).
@@ -2305,17 +2308,21 @@ def main(page: ft.Page):
                        or image_ops.open_srgb(src_path))
             except Exception:
                 continue
-            dest = originaux_folder / name
-            if not dest.exists():
+            # Préfixes de recadrage retirés : une seule copie par original.
+            stem = _FMT_PREFIX.sub("", Path(name).stem)
+            if not (originaux_folder.is_dir() and any(
+                    Path(f).stem == stem
+                    for f in os.listdir(originaux_folder))):
                 originaux_folder.mkdir(exist_ok=True)
-                shutil.copy2(src_path, dest)
-            stem = Path(name).stem
+                shutil.copy2(src_path, originaux_folder / name)
             file_params = state["overrides"][name]
             result = run_pipeline(img, file_params,
                                   date_label=date_label, filename_stem=stem)
             fmt = state.get("crop_fmt", {}).pop(name, None)
-            if fmt and not stem.startswith(fmt + "_"):
+            if fmt:
                 stem = f"{fmt}_{stem}"
+            elif stem != Path(name).stem:
+                stem = Path(name).stem  # pas recadré : nom inchangé
             out_path = folder_path / f"{stem}.jpg"
             result.save(str(out_path), format="JPEG",
                        subsampling=0, quality=100,
