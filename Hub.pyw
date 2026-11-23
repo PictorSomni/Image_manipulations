@@ -1444,6 +1444,15 @@ def main(page: ft.Page):
         list_visual_refs.clear()
         grid_card_refs.clear()
         sel_checkbox_refs.clear()
+        # Pousser la grille vide AVANT de la remplir : sinon Flet gardait
+        # parfois les cartes de l'ancien dossier après les nouvelles
+        # (retour user : « Allard… » sous la case vide).
+        for ctl in (files_list, files_grid):
+            try:
+                if ctl.page:
+                    ctl.update()
+            except Exception:
+                pass
         if not dirs and not imgs and not other:
             if state["only_selected"]:
                 msg = "Aucun élément sélectionné."
