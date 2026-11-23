@@ -2304,6 +2304,8 @@ def main(page: ft.Page):
             try:
                 with Image.open(src_path) as raw:
                     date_label = image_ops.get_date_taken(raw)
+                    src_dpi = raw.info.get("dpi")
+                    src_exif = raw.getexif()
                 img = (state["staged"].get(name)
                        or image_ops.open_srgb(src_path))
             except Exception:
@@ -2324,9 +2326,18 @@ def main(page: ft.Page):
             elif stem != Path(name).stem:
                 stem = Path(name).stem  # pas recadré : nom inchangé
             out_path = folder_path / f"{stem}.jpg"
+            # Métadonnées gardées ; recadrage en mode résolution = 300 DPI
+            # pour que Photoshop retrouve la taille d'impression.
+            dpi = (300, 300) if fmt and not fmt.startswith("Ratio_") \
+                else (src_dpi or (300, 300))
+            src_exif[0x0112] = 1  # orientation déjà appliquée
+            # Photoshop lit la résolution EXIF avant celle du JFIF.
+            src_exif[0x011A], src_exif[0x011B] = dpi
+            src_exif[0x0128] = 2  # pouces
             result.save(str(out_path), format="JPEG",
-                       subsampling=0, quality=100,
-                       icc_profile=image_ops._SRGB_ICC)
+                        subsampling=0, quality=100, dpi=dpi,
+                        exif=src_exif.tobytes(),
+                        icc_profile=image_ops._SRGB_ICC)
             state["staged"].pop(name, None)
             # L'original est déjà en sécurité dans ORIGINAUX/ : on retire
             # la source d'extension différente pour ne garder qu'une seule
