@@ -2944,7 +2944,10 @@ def height_map(far, fov=60.0):
     # que le ciel du même pixel, sinon liseré sans brume. Sous
     # l'horizon (hs nul, vue plongeante de drone) : hauteur réelle, sinon
     # tout passe pour du sol et la brume couvre l'image entière.
-    ht = np.where(hs > 0, np.minimum(ht, hs), ht)
+    # Plafond relâché en approchant de l'horizon : hs y tombe à 0, d'où
+    # une ligne de brume dense d'un bord à l'autre (photo de drone).
+    near = np.clip(1 - (y_hz - yy) / (0.08 * sh), 0, 1)
+    ht = np.where(hs > 0, np.minimum(ht, np.maximum(hs, near)), ht)
     ht = cv2.GaussianBlur(ht, (0, 0), 1.0)
     cam = float(np.clip((-coef[2] - lo) / max(1e-6, hi - lo), 0, 1))
     return cv2.resize(ht, (w, h), interpolation=cv2.INTER_LINEAR), cam
