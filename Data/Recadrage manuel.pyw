@@ -5097,6 +5097,21 @@ class PhotoCropper:
             # chemin réseau, centralisé dans CONSTANTS.TRAVAUX_EN_COURS
             # (un seul endroit à changer au changement d'année).
             output_directory = CONSTANTS.TRAVAUX_EN_COURS
+            parts = output_directory.split(os.sep)
+            mac_unmounted = (output_directory.startswith("/Volumes/")
+                             and not os.path.ismount(os.sep.join(parts[:3])))
+            try:
+                if mac_unmounted:
+                    raise OSError("partage non monté")
+                os.makedirs(output_directory, exist_ok=True)
+            except OSError:
+                # Partage absent : on garde le travail en local plutôt que
+                # de le perdre (retour audit), et on le dit clairement.
+                output_directory = os.path.join(job["source_folder"],
+                                                format_short_name)
+                self._status_from_thread(
+                    "[ERREUR] Réseau indisponible : enregistré dans "
+                    f"{output_directory}")
         else:
             output_directory = os.path.join(job["source_folder"],
                                             format_short_name)
