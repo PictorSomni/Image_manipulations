@@ -309,21 +309,21 @@ def main(page: ft.Page):
         sections_col.header = ft.Container(_drawer(
                 "Fiche", f"Pour le {m.get('deadline', '')}", LIGHT_GREY,
                 "fiche" in st["open"], toggle_fiche, [ft.Column([
+                    _field(m.get("note", ""), set_m("note"),
+                           label="Note en rouge",
+                           color=RED, border=RED),
+                    _field(m.get("footer", ""), set_m("footer"),
+                           label="Message · {date} · {compte}",
+                           border=LIGHT_GREY, multiline=True,
+                           min_lines=2),
                     ft.Row([
                         _field(m.get("deadline", ""), set_m("deadline"),
                                label="Date limite",
                                color=ORANGE, border=ORANGE,
                                width=200),
-                        _field(m.get("note", ""), set_m("note"),
-                               label="Note en rouge",
-                               color=RED, border=RED,
-                               expand=True)]),
-                    _field(m.get("compte", ""), set_m("compte"),
-                           label="Compte", border=LIGHT_GREY),
-                    _field(m.get("footer", ""), set_m("footer"),
-                           label="Bas de fiche · {date} · {compte}",
-                           border=LIGHT_GREY, multiline=True,
-                           min_lines=2)],
+                        _field(m.get("compte", ""), set_m("compte"),
+                               label="Compte", border=LIGHT_GREY,
+                               expand=True)])],
                     spacing=18)]), padding=ft.Padding.only(bottom=10))
         sections_col.header = ft.Column(
             [sections_col.header,
