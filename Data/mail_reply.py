@@ -421,6 +421,12 @@ def send(to, subject, text, reply_to=None, files=()):
             imap.append(_sent_folder(imap), "\\Seen",
                         imaplib.Time2Internaldate(time.time()),
                         msg.as_bytes())
+            if reply_to:  # flèche verte « répondu » dans les clients mail
+                imap.select("INBOX")
+                _, ids = imap.search(None, "HEADER", "Message-ID",
+                                     f'"{reply_to}"')
+                for num in ids[0].split():
+                    imap.store(num, "+FLAGS", "\\Answered")
     except (imaplib.IMAP4.error, OSError) as exc:
         print(f"[Mail] copie envoyés : {exc}", flush=True)
 
