@@ -51,6 +51,7 @@ import image_ops
 import ui_helpers
 import flet as ft
 import flet.canvas as cv
+import cv2
 import numpy as np
 from PIL import Image, ImageDraw
 
@@ -1127,6 +1128,8 @@ def main(page: ft.Page):
             pass
 
     def live_preview_tick():
+        for hook in state.setdefault("tick_hooks", []):
+            hook()
         with state["live_lock"]:
             state["live_req"] += 1
             # Plus de voile sur un réglage (retour user : il cachait la
@@ -2810,6 +2813,97 @@ def main(page: ft.Page):
         ft.Row([load_params_button]),
     ], spacing=CONSTANTS.SPACE_MD, expand=True, visible=False)
 
+    # ── Sélecteur de profondeur (réutilisable) ──────────────────────
+    def _depth_picker(dct, width=330):
+        """Vignette de la carte de profondeur (proche clair, loin
+        sombre) : toucher ou glisser choisit la distance — la tranche
+        `near`..`far` (0-100) se recentre sur le point touché, en gardant
+        sa largeur. La tranche retenue est teintée en violet."""
+        blank = io.BytesIO()
+        Image.new("RGB", (3, 2), (35, 35, 35)).save(blank, format="PNG")
+        img = ft.Image(src="data:image/png;base64,"
+                       + base64.b64encode(blank.getvalue()).decode(),
+                       width=width,
+                       height=width * 2 // 3, fit=ft.BoxFit.FILL,
+                       gapless_playback=True, border_radius=6)
+        pk = {"d": None, "busy": False}
+
+        def _draw():
+            d = pk["d"]
+            h, w = d.shape
+            a = image_ops.mask_array(
+                {"type": "depth", "near": dct.get("near", 0),
+                 "far": dct.get("far", 40),
+                 "feather": dct.get("feather", 50)}, w, h, d)[..., None]
+            grey = ((1 - d) * 190 + 35)[..., None].repeat(3, 2)
+            rgb = grey * (1 - 0.65 * a) + a * 0.65 * np.array(
+                [190, 90, 255], np.float32)
+            buf = io.BytesIO()
+            Image.fromarray(rgb.astype(np.uint8)).save(buf, format="PNG")
+            img.src = buf.getvalue()
+
+            async def _show():
+                try:
+                    img.update()
+                except Exception:
+                    pass  # pas encore affichée
+            page.run_task(_show)
+
+        def refresh():
+            proxy = state["proxy"]
+            if proxy is None or not box.visible:
+                return
+            if pk["d"] is not None and pk.get("src") is proxy:
+                _draw()
+                return
+            if pk["busy"]:
+                return
+            pk["busy"] = True
+
+            def work():
+                try:
+                    _work()
+                except Exception:
+                    import traceback
+                    traceback.print_exc()
+                    pk["busy"] = False
+
+            def _work():
+                d = image_ops.source_depth(proxy)
+                h = max(1, round(width * d.shape[0] / d.shape[1]))
+                pk["d"] = cv2.resize(d.astype(np.float32), (width, h),
+                                     interpolation=cv2.INTER_AREA)
+                pk["src"] = proxy
+                img.height = h
+                pk["busy"] = False
+                _draw()
+            threading.Thread(target=work, daemon=True).start()
+
+        def _pick(e):
+            d = pk["d"]
+            if d is None:
+                return
+            h, w = d.shape
+            x = int(np.clip(e.local_position.x, 0, w - 1))
+            y = int(np.clip(e.local_position.y * h / (img.height or h),
+                            0, h - 1))
+            span = dct.get("far", 40) - dct.get("near", 0)
+            c = float(d[y, x]) * 100
+            near = int(np.clip(c - span / 2, 0, 100 - span))
+            dct["near"], dct["far"] = near, near + span
+            for row in depth_rows[1:]:
+                row.data()
+            _draw()
+            live_preview_tick()
+
+        box = ft.GestureDetector(
+            content=img, on_tap_down=_pick, on_pan_start=_pick,
+            on_pan_update=_pick, mouse_cursor=ft.MouseCursor.PRECISE)
+        box.data = refresh
+        state.setdefault("tick_hooks", []).append(
+            lambda: box.visible and pk["d"] is not None and _draw())
+        return box
+
     # ── Masques locaux (radial / linéaire) ───────────────────────────
     # Le masque sélectionné EST `mask_edit` (même objet dans la liste) :
     # curseurs et poignées écrivent directement dedans ; changer de
@@ -3071,7 +3165,8 @@ def main(page: ft.Page):
                             on_change=_on_link)
     feather_row = _slider_row("Contour", mask_edit, "feather", 1, 100,
                               reset=50)
-    depth_rows = [_slider_row("Proche", mask_edit, "near", 0, 100, reset=0),
+    depth_rows = [_depth_picker(mask_edit),
+                  _slider_row("Proche", mask_edit, "near", 0, 100, reset=0),
                   _slider_row("Loin", mask_edit, "far", 0, 100, reset=40)]
     mask_rows = [feather_row] + depth_rows
     light_rows = [_slider_row(lbl, mask_edit, key, -100, 100)
@@ -3096,7 +3191,7 @@ def main(page: ft.Page):
     for col in color_rows:
         _recolor_sliders(col, GREEN)
     _recolor_sliders(feather_row, VIOLET)
-    for row in depth_rows:
+    for row in depth_rows[1:]:
         _recolor_sliders(row, VIOLET)
 
     def _mask_zone(title, color, controls):
@@ -3126,7 +3221,7 @@ def main(page: ft.Page):
                       _add_mask("linear")),
             _rect_btn("Profondeur", ft.Icons.LANDSCAPE, GREEN,
                       _add_mask("depth")),
-        ], wrap=True),
+        ]),
         mask_list,
         mask_editor,
     ], spacing=CONSTANTS.SPACE_MD, expand=True, visible=False,
