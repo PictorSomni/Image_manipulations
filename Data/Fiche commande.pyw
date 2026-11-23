@@ -462,7 +462,7 @@ def main(page: ft.Page):
                                 for n in fc.list_models()]
             model_dd.value = name
             page.update()
-        ask_name("Nom du modèle", _do, st["name"] + " copie")
+        ask_name("Nouveau modèle", _do, "")
 
     def delete(e):
         if len(fc.list_models()) <= 1:
@@ -679,9 +679,10 @@ def main(page: ft.Page):
         ft.Container(preview, expand=True, padding=CONSTANTS.SPACE_MD),
         ft.Container(ft.Column([
             ft.Row([model_dd, save_btn,
-                    ft.IconButton(ft.Icons.COPY_ALL, icon_color=BLUE,
-                                  tooltip="Enregistrer sous",
-                                  on_click=save_as),
+                    ft.IconButton(ft.Icons.ADD, icon_color=DARK,
+                                  tooltip="Nouveau modèle",
+                                  on_click=save_as,
+                                  style=ft.ButtonStyle(bgcolor=BLUE)),
                     ft.IconButton(ft.Icons.DELETE_OUTLINE, icon_color=RED,
                                   tooltip="Supprimer le modèle",
                                   on_click=delete),
