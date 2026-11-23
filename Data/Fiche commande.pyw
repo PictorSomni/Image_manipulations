@@ -696,7 +696,8 @@ def main(page: ft.Page):
 
     draw_sections()
     page.add(ft.Row([
-        ft.Container(ft.Stack([preview, boot_veil], expand=True),
+        ft.Container(ft.Stack([preview, boot_veil], expand=True,
+                              alignment=ft.Alignment.CENTER),
                      expand=True, padding=CONSTANTS.SPACE_MD),
         ft.Container(ft.Column([
             ft.Row([model_dd, save_btn,
