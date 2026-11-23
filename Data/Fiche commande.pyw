@@ -165,7 +165,7 @@ def main(page: ft.Page):
 
     def _boot_done():
         if st.pop("boot", False):
-            ui_helpers.set_busy_veil(veil, False)
+            ui_helpers.set_busy_veil(boot_veil, False)
 
     def changed(redraw=False):
         st["dirty"] = True
@@ -681,6 +681,7 @@ def main(page: ft.Page):
     veil_text = veil.content.controls[1]
     ui_helpers.set_busy_veil(veil, False)
     page.overlay.append(veil)
+    boot_veil = ui_helpers.busy_veil("Préparation de l'aperçu…", BLUE)
 
     gen_btn = _btn(f"Créer {len(photos)} fiches", ft.Icons.PRINT, BLUE,
                    generate)
@@ -695,7 +696,8 @@ def main(page: ft.Page):
 
     draw_sections()
     page.add(ft.Row([
-        ft.Container(preview, expand=True, padding=CONSTANTS.SPACE_MD),
+        ft.Container(ft.Stack([preview, boot_veil], expand=True),
+                     expand=True, padding=CONSTANTS.SPACE_MD),
         ft.Container(ft.Column([
             ft.Row([model_dd, save_btn,
                     ft.IconButton(ft.Icons.ADD, icon_color=DARK,
@@ -716,8 +718,7 @@ def main(page: ft.Page):
         expand=True, spacing=0,
         vertical_alignment=ft.CrossAxisAlignment.STRETCH))
     st["boot"] = True
-    veil_text.value = "Préparation de l'aperçu…"
-    ui_helpers.set_busy_veil(veil, True)
+    ui_helpers.set_busy_veil(boot_veil, True)
     page.update()
     refresh(0)
 
