@@ -6773,8 +6773,8 @@ def main(page: ft.Page):
                 ft.RotatedBox(quarter_turns=3, content=label_ctrl),
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8,
                alignment=ft.MainAxisAlignment.CENTER),
-            # Hauteur fixe : tous les onglets identiques (retour user).
-            height=92, alignment=ft.Alignment.CENTER,
+            # Toute la hauteur, partagée à parts égales (retour user).
+            expand=1, alignment=ft.Alignment.CENTER,
             margin=ft.Margin.symmetric(horizontal=8, vertical=4),
             border_radius=8,
             ink=True, on_click=lambda e, k=key: _select_surface(k),
@@ -6788,7 +6788,8 @@ def main(page: ft.Page):
                 tab, lambda ps: ajouter_ia_btn.on_click(None))
         else:
             return tab
-        return drop
+        # DragTarget ignore expand : Container autour.
+        return ft.Container(drop, expand=1)
 
     left_rail = ft.Container(
         # Séparateurs entre onglets pour bien les distinguer (retour user).
@@ -6798,7 +6799,7 @@ def main(page: ft.Page):
                                          horizontal=16),
                                      bgcolor=ft.Colors.with_opacity(0.2, WHITE))]
                        if i else []) + [_rail_tab(*s_)]],
-            spacing=0, expand=True, scroll=ft.ScrollMode.HIDDEN),
+            spacing=0, expand=True),
         width=60, bgcolor=GREY,
     )
 
