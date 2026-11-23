@@ -167,6 +167,13 @@ for (front_left, front_right), (back_left, back_right) in \
 # sources sont normalement déjà imprimées dans cette appli.
 pdf_path = (PATH / f"{LIVRET_NAME} - Livret.pdf" if LIVRET_NAME
            else PATH / "Livret.pdf")
+# Jamais d'écrasement : « livret.pdf » et « Livret.pdf » sont le même
+# fichier sous Windows/macOS (audit).
+_n = 2
+_stem = pdf_path.stem
+while pdf_path.exists():
+    pdf_path = pdf_path.with_name(f"{_stem} ({_n}).pdf")
+    _n += 1
 output_pages[0].save(str(pdf_path), "PDF", resolution=float(CONSTANTS.DPI),
                      save_all=True, append_images=output_pages[1:])
 

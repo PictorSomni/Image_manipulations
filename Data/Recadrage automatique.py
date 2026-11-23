@@ -566,7 +566,7 @@ else:
     ok_count = 0
     err_count = 0
     
-    for index, filename in enumerate(images, start=1):
+    def _crop_one(index, filename):
         source_path = PATH / filename
         print(f"[{index}/{total}] {filename}")
 
@@ -610,15 +610,23 @@ else:
                        subsampling=0, quality=100,
                        icc_profile=image_ops._SRGB_ICC)
 
-            ok_count += 1
+            return True
         except Exception as exc:
-            err_count += 1
             print(f"[ERREUR] {filename} : {exc}")
+            return False
+
+    # Pillow lâche le GIL (décodage, redimension, encodage) : 4 threads
+    # occupent les cœurs (audit : un seul cœur avant).
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max(1, min(4, os.cpu_count() or 1))) as pool:
+        results = list(pool.map(_crop_one, range(1, total + 1), images))
+    ok_count = sum(results)
+    err_count = len(results) - ok_count
 
 print("#" * 40)
 if fit_mode:
-    print(f"Termine ! {ok_count} canvas genere(e)s.")
+    print(f"Terminé ! {ok_count} canevas généré(s).")
 elif fitin_mode:
-    print(f"Termine ! {ok_count} image(s) fit-in, {err_count} erreur(s).")
+    print(f"Terminé ! {ok_count} image(s) fit-in, {err_count} erreur(s).")
 else:
-    print(f"Termine ! {ok_count} image(s) recadree(s), {err_count} erreur(s).")
+    print(f"Terminé ! {ok_count} image(s) recadrée(s), {err_count} erreur(s).")

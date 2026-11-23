@@ -230,8 +230,11 @@ def main(page: ft.Page):
     image_left  = ft.Image(src=_BLANK, fit=ft.BoxFit.CONTAIN, expand=True, gapless_playback=True)
     image_right = ft.Image(src=_BLANK, fit=ft.BoxFit.CONTAIN, expand=True, gapless_playback=True)
 
-    cont_left  = ft.Container(content=image_left,  expand=True)
-    cont_right = ft.Container(content=image_right, expand=True)
+    # Centrées dans leur volet (audit : calées à gauche).
+    cont_left  = ft.Container(content=image_left,  expand=True,
+                              alignment=ft.Alignment(0, 0))
+    cont_right = ft.Container(content=image_right, expand=True,
+                              alignment=ft.Alignment(0, 0))
 
     # Overlay du dossier choisi (bordure colorée sur le panneau sélectionné)
     border_left  = ft.Container(
@@ -257,9 +260,9 @@ def main(page: ft.Page):
     )
 
     # ── Labels ───────────────────────────────────────────────────────────
-    folder1_lbl  = ft.Text("", size=11, color=LIGHT_GREY, max_lines=1,
+    folder1_lbl  = ft.Text("", size=13, color=WHITE, max_lines=1,
                            overflow=ft.TextOverflow.ELLIPSIS, expand=True)
-    folder2_lbl  = ft.Text("", size=11, color=LIGHT_GREY, max_lines=1,
+    folder2_lbl  = ft.Text("", size=13, color=WHITE, max_lines=1,
                            overflow=ft.TextOverflow.ELLIPSIS, expand=True)
     fname1_text  = ft.Text("—", size=12, color=WHITE, max_lines=1,
                            overflow=ft.TextOverflow.ELLIPSIS, expand=True,
@@ -267,9 +270,9 @@ def main(page: ft.Page):
     fname2_text  = ft.Text("—", size=12, color=WHITE, max_lines=1,
                            overflow=ft.TextOverflow.ELLIPSIS, expand=True,
                            text_align=ft.TextAlign.CENTER)
-    resolution1_text = ft.Text("", size=10, color=LIGHT_GREY,
+    resolution1_text = ft.Text("", size=12, color=WHITE,
                                text_align=ft.TextAlign.CENTER, expand=True)
-    resolution2_text = ft.Text("", size=10, color=LIGHT_GREY,
+    resolution2_text = ft.Text("", size=12, color=WHITE,
                                text_align=ft.TextAlign.CENTER, expand=True)
     counter_text = ft.Text("0 / 0", size=12, color=LIGHT_GREY,
                            text_align=ft.TextAlign.CENTER, width=80)
@@ -592,8 +595,8 @@ def main(page: ft.Page):
         current_pair_index = 0
         selected_side      = 0
 
-        folder1_lbl.value = f"◀  {folder1_path}"
-        folder2_lbl.value = f"▶  {folder2_label}"
+        folder1_lbl.value = f"◀  {os.path.basename(os.path.normpath(folder1_path))}"
+        folder2_lbl.value = f"▶  {os.path.basename(os.path.normpath(folder2_label)) or folder2_label}"
 
         setup_overlay.visible = False
         main_col.visible      = True

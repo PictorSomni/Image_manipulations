@@ -89,6 +89,13 @@ for img in images:
 # Sauvegarder le PDF
 first = rgb_images[0]
 pdf_path = PATH / f"{PDF_NAME}.pdf"
+# Jamais d'écrasement : « livret.pdf » et « Livret.pdf » sont le même
+# fichier sous Windows/macOS (audit).
+_n = 2
+_stem = pdf_path.stem
+while pdf_path.exists():
+    pdf_path = pdf_path.with_name(f"{_stem} ({_n}).pdf")
+    _n += 1
 
 if len(rgb_images) > 1:
     first.save(str(pdf_path), "PDF", resolution=100.0, save_all=True, append_images=rgb_images[1:])
