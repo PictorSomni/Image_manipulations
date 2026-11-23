@@ -3246,6 +3246,10 @@ def main(page: ft.Page):
                 name = os.path.basename(app.image_paths[0])
                 state.setdefault("crop_fmt", {})[name] = app.embedded_format
                 _on_staged(name, img)
+                # Ce résultat vient du recadrage lui-même : au retour, on
+                # garde le cadrage en cours au lieu de repartir de lui.
+                if crop_page.shown and crop_page.shown[0] == name:
+                    crop_page.shown = (name, id(state["staged"].get(name)))
 
     def _show_redresser(i):
         name = file_names[i]
@@ -3272,6 +3276,7 @@ def main(page: ft.Page):
                          height_offset=_FILMSTRIP_H + 2 * CONSTANTS.SPACE_SM)
     crop_page.panel_w = ia_page.panel_w = _PANEL_W
     crop_page.footer = ft.Container()
+    crop_page.shown = None
     crop_page.side, ia_page.side = crop_side, ia_side
     ia_page.footer = ft.Container()
 
@@ -3281,6 +3286,12 @@ def main(page: ft.Page):
             name = file_names[i]
             path = str(folder_path / name)
             staged = state["staged"].get(name)
+            # Même photo, même image : on garde format, position, zoom…
+            # en revenant d'un autre onglet (retour user).
+            key = (name, id(staged))
+            if crop_page.shown == key:
+                return
+            crop_page.shown = key
             if staged is not None:
                 # Repartir du résultat IA / Redresser en attente : copie
                 # (TIFF, sans perte) sous le même nom dans un dossier temp.
