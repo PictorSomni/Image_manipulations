@@ -2616,8 +2616,9 @@ def main(page: ft.Page):
             fn(v)
 
     _keypad_value_field.on_submit = _apply_keypad_dialog
+    _keypad_title = ft.Text("Valeur", size=CONSTANTS.TEXT_SM, color=WHITE)
     _keypad_dialog = _dialog(
-        title=ft.Text("Valeur", size=CONSTANTS.TEXT_SM, color=WHITE),
+        title=_keypad_title,
         content=ft.Column(
             [_keypad_value_field,
              ui_helpers.numeric_keypad(
@@ -2652,6 +2653,8 @@ def main(page: ft.Page):
                 str(int(current)) if current.is_integer() else str(current))
             _keypad_state["fn"] = _apply
             _keypad_state["refocus_field"] = field
+            _keypad_title.value = "Valeur"
+            _keypad_value_field.hint_text = None
             _keypad_dialog.open = True
             page.update()
         field.on_focus = _open_editor
@@ -2671,34 +2674,11 @@ def main(page: ft.Page):
         match = re.match(r"^(\d+)[xX]_", os.path.basename(targets[0]))
         current_count = int(match.group(1)) if match else 1
 
-        # Champ vide au départ même si un nombre existait déjà : l'usager
-        # tape directement le nouveau nombre sans devoir d'abord effacer
-        # l'ancien (retour user). L'ancien nombre reste visible en filigrane
-        # (hint_text) à titre indicatif.
-        count_field = ft.TextField(
-            value="", autofocus=True, width=100,
-            # Le filigrane n'a de sens que sur un fichier : sur un lot, les
-            # nombres actuels diffèrent d'une photo à l'autre.
-            hint_text=str(current_count) if len(targets) == 1 else "",
-            bgcolor=DARK, border=CONSTANTS.input_border(GREY), color=WHITE,
-            keyboard_type=ft.KeyboardType.NUMBER)
-
-        fired = {"done": False}
-
-        def _cancel(event):
-            dlg.open = False
-            page.update()
-
-        def _confirm(event):
-            if fired["done"]:
-                return
-            fired["done"] = True
-            dlg.open = False
-            page.update()
-            try:
-                count = int(count_field.value)
-            except (TypeError, ValueError):
-                return
+        # Pavé numérique seul, sans dialogue intermédiaire (retour user).
+        # Champ vide : on tape directement le nouveau nombre ; l'ancien
+        # reste en filigrane, sur un seul fichier seulement.
+        def _confirm(v):
+            count = int(v)
             label = "sans préfixe" if count <= 0 else f"{count}X_"
             _log_to_terminal(
                 f"Nombre d'impressions → {label} "
@@ -2732,27 +2712,16 @@ def main(page: ft.Page):
                 f"renommé(s) en {label}", GREEN)
             _navigate(parent)
 
-        count_field.on_submit = _confirm
-
-        # Pavé numérique tactile en overlay (retour user) : le toucher du
-        # champ ouvre le popup partagé du Hub, valider soumet directement
-        # ce dialogue (même effet que l'ancien bouton ✓ intégré).
-        _attach_keypad(count_field, is_int=True,
-                       on_apply=lambda v: _confirm(None))
-
-        dlg = _dialog(
-            # Le nombre de fichiers est le garde-fou du mode « dossier
-            # entier » : c'est là qu'on voit qu'on s'apprête à en toucher 47
-            # et pas 1.
-            title=ft.Text(
-                f"Nombre d'impressions — {len(targets)} fichier(s) "
-                "(0 = retirer le préfixe NX_)",
-                size=CONSTANTS.TEXT_SM, color=WHITE),
-            content=ft.Column([count_field], spacing=12, tight=True),
-            actions=[_dlg_btn("Annuler", "cancel", on_click=_cancel)],
-        )
-        ui_helpers.show_dialog(page, dlg)
-        _run_task(_focus_dialog_field, count_field)
+        _keypad_title.value = (
+            f"Nombre d'impressions — {len(targets)} fichier(s)")
+        _keypad_value_field.value = ""
+        _keypad_value_field.hint_text = (
+            str(current_count) if len(targets) == 1 else None)
+        _keypad_state["fn"] = _confirm
+        _keypad_state["refocus_field"] = None
+        _keypad_dialog.open = True
+        page.update()
+        _run_task(_focus_dialog_field, _keypad_value_field)
 
     def _folder_unit_price(format_name, total_count):
         """Même tarif dégressif que Recadrage manuel.pyw::_unit_price /
