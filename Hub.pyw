@@ -810,6 +810,45 @@ def main(page: ft.Page):
     # contenu, comme Dashboard.
     files_body = ft.Container(content=files_list, expand=True)
     files_veil = ui_helpers.busy_veil("Lecture du dossier…", BLUE)
+    # Saisie posée sur Fichiers seulement : le tiroir des mails reste net
+    # et lisible pour recopier un nom (retour user).
+    files_prompt_title = ft.Text("", size=16, color=WHITE,
+                                 weight=ft.FontWeight.W_600)
+    files_prompt_field = ft.TextField(
+        width=320, bgcolor=DARK, color=WHITE,
+        border=ft.OutlineInputBorder(side=ft.BorderSide(1, LIGHT_GREY)))
+    files_prompt_ok = ft.FilledButton(
+        "Créer", style=ft.ButtonStyle(bgcolor=BLUE, color=DARK))
+    files_prompt_cancel = ft.TextButton("Annuler")
+    files_prompt = ft.Container(
+        ft.Container(ft.Column([
+            files_prompt_title, files_prompt_field,
+            ft.Row([files_prompt_cancel, files_prompt_ok],
+                   alignment=ft.MainAxisAlignment.END)],
+            tight=True, spacing=16),
+            bgcolor=GREY, padding=24, border_radius=12, width=380),
+        alignment=ft.Alignment.CENTER, visible=False, blur=14,
+        bgcolor=ft.Colors.with_opacity(0.7, ft.Colors.BLACK),
+        left=0, top=0, right=0, bottom=0, on_click=lambda e: None)
+
+    def _files_prompt(title, hint, on_confirm):
+        def _close(e=None):
+            files_prompt.visible = False
+            page.update()
+
+        def _ok(e=None):
+            value = (files_prompt_field.value or "").strip()
+            _close()
+            on_confirm(value)
+        files_prompt_title.value = title
+        files_prompt_field.value = ""
+        files_prompt_field.hint_text = hint
+        files_prompt_field.on_submit = _ok
+        files_prompt_ok.on_click = _ok
+        files_prompt_cancel.on_click = _close
+        files_prompt.visible = True
+        page.update()
+        page.run_task(files_prompt_field.focus)
 
     def _update_sel_count():
         # Barre du bas (pas le header) : total d'abord, puis la sélection
@@ -4870,9 +4909,8 @@ def main(page: ft.Page):
             _log_to_terminal(f"[OK] Dossier créé : {name}", BLUE)
             _navigate(new_path)
 
-        ui_helpers.text_prompt_dialog(
-            page, "Créer un nouveau dossier", _on_confirm, _KEYPAD_COLORS,
-            hint_text="nom-du-dossier", confirm_label="Créer")
+        _files_prompt("Créer un nouveau dossier", "nom-du-dossier",
+                      _on_confirm)
 
     def _create_file_here(event=None):
         folder = state["folder"]
@@ -5338,7 +5376,7 @@ def main(page: ft.Page):
         files_header,
         folder_tabs_bar,
         ft.Divider(height=1, color=GREY),
-        ft.Stack([files_body, files_veil], expand=True),
+        ft.Stack([files_body, files_veil, files_prompt], expand=True),
     ], expand=True, spacing=0)
 
     # → Data/hub_notes.py
