@@ -28,6 +28,7 @@ import io
 import json
 import math
 import os
+import unicodedata
 if os.environ.get("HUB_APP"):
     # Hub compilé : ne pas léguer PYTHONHOME/PYTHONPATH du Python embarqué
     # aux outils lancés avec le Python de la machine ("bad magic number").
@@ -9114,6 +9115,45 @@ def main(page: ft.Page):
     # reste correct au redimensionnement, pas besoin de recalculer une
     # largeur en pixels. Le fond gauche est cliquable pour fermer (« tap
     # outside »), comme un vrai overlay/drawer.
+    # Filtre (audit : Fiche commande, Recadrage… tout en bas de la liste).
+    # On tape « fic », Entrée lance la première action trouvée.
+    def _fold(text):
+        return "".join(c for c in unicodedata.normalize("NFD", text.lower())
+                       if not unicodedata.combining(c))
+
+    def _actions_matches():
+        q = _fold(actions_filter.value or "")
+        return [t for _, tools in _ACTION_CATEGORIES for t in tools
+                if q in _fold(t[0])]
+
+    def _actions_all():
+        return ([_action_category(label, tools)
+                 for label, tools in _ACTION_CATEGORIES]
+                + [_open_with_category_col])
+
+    def _actions_filter_change(e=None):
+        if (actions_filter.value or "").strip():
+            _actions_list.controls = [
+                _action_row(t[0], t[1], t[2], t[3])
+                for t in _actions_matches()]
+        else:
+            _actions_list.controls = _actions_all()
+        _actions_list.update()
+
+    def _actions_filter_submit(e):
+        hits = _actions_matches()
+        if (actions_filter.value or "").strip() and hits:
+            hits[0][3](e)
+
+    actions_filter = ft.TextField(
+        hint_text="Filtrer", dense=True, width=220, color=WHITE,
+        bgcolor=DARK, border=CONSTANTS.input_border(ORANGE),
+        prefix_icon=ft.Icons.SEARCH, on_change=_actions_filter_change,
+        on_submit=_actions_filter_submit, on_focus=_suspend_kb,
+        on_blur=_resume_kb)
+    _actions_list = ft.Column(_actions_all(), spacing=20,
+                              scroll=ft.ScrollMode.AUTO, expand=True)
+
     actions_panel = ft.Container(
         content=ft.Column([
             ft.Container(height=6, bgcolor=ORANGE),
@@ -9123,16 +9163,13 @@ def main(page: ft.Page):
                            size=CONSTANTS.ICON_SM),
                     ft.Text("Actions", size=CONSTANTS.TEXT_LG, color=ORANGE,
                            weight=ft.FontWeight.W_500, expand=True),
+                    actions_filter,
                 ], spacing=10),
                 padding=ft.Padding(20, 16, 20, 16), bgcolor=BACKGROUND,
             ),
             ft.Divider(height=1, color=GREY),
             ft.Container(
-                content=ft.Column(
-                    [_action_category(label, tools)
-                     for label, tools in _ACTION_CATEGORIES]
-                    + [_open_with_category_col],
-                    spacing=20, scroll=ft.ScrollMode.AUTO, expand=True),
+                content=_actions_list,
                 padding=20, expand=True,
             ),
         ], spacing=0, expand=True),
@@ -9207,7 +9244,11 @@ def main(page: ft.Page):
             len(selected) == 1 and os.path.isdir(selected[0]))
         if actions_overlay not in page.overlay:
             page.overlay.append(actions_overlay)
+        if actions_filter.value:
+            actions_filter.value = ""
+            _actions_list.controls = _actions_all()
         page.update()
+        page.run_task(actions_filter.focus)
 
     # ═════════════════════════════════════════════════════════════════════
     #  Terminal intégré — exécute une commande shell dans le dossier ouvert

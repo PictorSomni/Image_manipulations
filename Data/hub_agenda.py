@@ -69,7 +69,7 @@ def build(ui):
     ]
     AGENDA_MONTHS = ("janvier février mars avril mai juin juillet août "
                      "septembre octobre novembre décembre").split()
-    AGENDA_MAX_CHIPS = 3
+    AGENDA_MAX_CHIPS = 2
     agenda_status = ft.Text("", size=11, color=LIGHT_GREY)
     agenda_month_label = ft.Text("", size=CONSTANTS.TEXT_SM, color=WHITE,
                                  weight=ft.FontWeight.W_600, width=160,

@@ -82,11 +82,11 @@ def build(ui):
             color=WHITE,
             border=CONSTANTS.input_border(ft.Colors.TRANSPARENT, radius=6),
             bgcolor=DARK, filled=True,
-            hint_text="Écrivez vos notes ici…",
+            hint_text="Écris tes notes ici…",
             hint_style=ft.TextStyle(color=LIGHT_GREY, italic=True),
         )
         notes_editor_content = notes_field
-    notes_title = ft.Text("Bloc-notes", size=CONSTANTS.TEXT_LG, color=VIOLET,
+    notes_title = ft.Text("Notes", size=CONSTANTS.TEXT_LG, color=VIOLET,
                           weight=ft.FontWeight.W_500, expand=True, no_wrap=True)
     notes_preview = ft.Markdown(
         "", selectable=True, extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
@@ -212,7 +212,7 @@ def build(ui):
         enregistrées (autosave différé de CONSTANTS.NOTEPAD_AUTOSAVE_DELAY)."""
         if not notes_dirty["value"]:
             _open_path_in_notes(_notes_file)
-            notes_title.value = "Bloc-notes"
+            notes_title.value = "Notes"
             page.update()
             return
 
@@ -224,7 +224,7 @@ def build(ui):
                 if not discard:
                     _notes_save(ev)   # event non-None : applique CONSTANTS.py si besoin
                 _open_path_in_notes(_notes_file)
-                notes_title.value = "Bloc-notes"
+                notes_title.value = "Notes"
                 page.update()
             return _handler
 

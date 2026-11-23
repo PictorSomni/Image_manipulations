@@ -5,6 +5,7 @@ Section extraite de Hub.pyw (main) : build(ui) reçoit l'espace de
 noms de main (ui) et renvoie les noms utilisés ailleurs dans Hub."""
 
 
+import datetime as _dt
 import CONSTANTS
 import datetime
 import flet as ft
@@ -17,6 +18,23 @@ import threading
 import thumb_cache
 import ui_helpers
 
+
+
+_JOURS = ("lun.", "mar.", "mer.", "jeu.", "ven.", "sam.", "dim.")
+
+
+def _fr_date(iso):
+    """« 2026-11-27 » -> « ven. 27/11 » (ou aujourd'hui / demain)."""
+    try:
+        d = _dt.date.fromisoformat(str(iso)[:10])
+    except ValueError:
+        return str(iso)
+    delta = (d - _dt.date.today()).days
+    if delta == 0:
+        return "aujourd'hui"
+    if delta == 1:
+        return "demain"
+    return f"{_JOURS[d.weekday()]} {d:%d/%m}"
 
 def build(ui):
     BACKGROUND = ui.BACKGROUND
@@ -647,7 +665,8 @@ def build(ui):
         # coup d'œil).
         info_bits = []
         if row["deadline"]:
-            info_bits.append(ft.Text(row["deadline"], size=11, color=RED))
+            info_bits.append(ft.Text(_fr_date(row["deadline"]), size=11,
+                                     color=RED))
         if row["telephone"]:
             info_bits.append(ft.Text(row["telephone"], size=11, color=WHITE))
         if row["email"]:
@@ -662,9 +681,6 @@ def build(ui):
                     spans.append(ft.Text("  •  ", size=11, color=LIGHT_GREY))
                 spans.append(bit)
             rows.append(ft.Row(spans, spacing=0, wrap=True))
-        if row["cree_le"]:
-            rows.append(ft.Text(f"Créé le {row['cree_le'][:10]}", size=10,
-                                color=LIGHT_GREY))
         # Pas de badge Etat ici : la colonne le représente déjà — on
         # change l'Etat en glissant la carte vers une autre colonne.
         badges = [_kanban_prop_menu(row, notion_prop, state_key,
