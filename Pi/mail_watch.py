@@ -360,8 +360,13 @@ def run():
             f"- {'**URGENT** ' if verdict.get('urgent') else ''}"
             f"**{name or addr}** "
             f"({datetime.datetime.now():%H:%M}) : {summary}")
+    # Relire juste avant d'écrire : pendant les appels à Claude, l'app
+    # a pu marquer un mail répondu ; l'ancienne copie l'effaçait.
+    current = mail_reply._read()
+    seen = {m["message_id"] for m in current}
+    current += [m for m in pending if m["message_id"] not in seen]
     with open(mail_reply.MAILS + ".tmp", "w", encoding="utf-8") as f:
-        json.dump(pending, f, ensure_ascii=False, indent=1)
+        json.dump(current, f, ensure_ascii=False, indent=1)
     os.replace(mail_reply.MAILS + ".tmp", mail_reply.MAILS)
 
 
