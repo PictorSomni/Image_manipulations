@@ -246,20 +246,37 @@ def build(ui, bg, show, close, seg, field, dock=None):
             *([_card("Message reçu", LIGHT_GREY, received)]
               if received else []),
             *([to_f, sugg, subj_f] if not reply else []),
-            _card("Rédaction IA", ui.VIOLET, [
-                seg([(False, "Vous"), (True, "Tu")], _tu),
-                seg(TONES, lambda v: o.update(tone=v)),
-                hint,
-                ui._dlg_btn("Rédiger", color=ui.VIOLET,
-                            on_click=_draft)]),
             ft.DragTarget(
                 group="files", on_accept=_dropped,
                 content=_card("Réponse" if reply else "Message", ui.BLUE,
                               [body, names, status]))],
             tight=True, spacing=14, scroll=ft.ScrollMode.AUTO)
+        def _ai(e):
+            # Rédaction IA masquée : petite fenêtre à la demande (retour
+            # user).
+            def _go(e):
+                close(pop)
+                _draft(e)
+            hint.width = None
+            o.update(tu=False, tone=TONES[0][0])  # = choix affichés
+            pop = ui._dialog(
+                title=ft.Text("Rédaction IA"), bar_color=ui.VIOLET,
+                content=ft.Column([
+                    seg([(False, "Vous"), (True, "Tu")], _tu),
+                    seg(TONES, lambda v: o.update(tone=v)), hint],
+                    tight=True, spacing=14, width=440,
+                    horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
+                actions=[ui._dlg_btn("Annuler",
+                                     on_click=lambda e: close(pop)),
+                         ui._dlg_btn("Rédiger", color=ui.VIOLET,
+                                     on_click=_go)])
+            show(pop)
+
         actions = [*extra_actions,
                    ui._dlg_btn("Joindre", color=CONSTANTS.COLOR_MINT,
                                on_click=_join),
+                   ui._dlg_btn("Rédaction IA", color=ui.VIOLET,
+                               on_click=_ai),
                    ui._dlg_btn("Relecture", color=ui.VIOLET,
                                on_click=_proof),
                    ui._dlg_btn("Envoyer", "primary", on_click=_send)]
@@ -267,10 +284,10 @@ def build(ui, bg, show, close, seg, field, dock=None):
             # Pleine largeur : reçu + consignes à gauche, réponse à droite.
             for f in (to_f, subj_f, hint, body):
                 f.width = None
-            left = ft.Column(content.controls[:-2], spacing=14,
+            left = ft.Column(content.controls[:-1], spacing=14,
                              expand=True, scroll=ft.ScrollMode.AUTO,
                              horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
-            right = ft.Column(content.controls[-2:], expand=True, spacing=14,
+            right = ft.Column(content.controls[-1:], expand=True, spacing=14,
                               scroll=ft.ScrollMode.AUTO,
                               horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
             for c in content.controls:
@@ -285,7 +302,7 @@ def build(ui, bg, show, close, seg, field, dock=None):
             # Joindre/Envoyer sous la réponse, Retirer/Tâche centrés en
             # haut, à côté du sujet (retour user).
             right = ft.Column([right, ft.Row(
-                actions[-2:], alignment=ft.MainAxisAlignment.END)],
+                actions[-3:], alignment=ft.MainAxisAlignment.END)],
                 expand=True, spacing=8)
             if extra_actions:
                 t = title_row.controls[0]
