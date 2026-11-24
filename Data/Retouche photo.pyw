@@ -228,6 +228,7 @@ def default_params():
                        "count": C.RAYONS_COUNT,
                        "ray_width": C.RAYONS_WIDTH,
                        "shadows": C.RAYONS_SHADOWS,
+                       "volume": 1, "azimuth": 0, "elevation": 20,
                        "show_depth": False},
             "grain1": {"enabled": C.RETOUCHE_LOT_GRAIN1_ENABLED,
                       "amount": C.GRAIN_AMOUNT,
@@ -530,7 +531,7 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
            ("x", "y", "length", "intensity", "warmth", "threshold",
             "sun_size", "influence", "depth", "precise", "rays",
             "count", "ray_width", "shadows", "parallel",
-            "show_depth")),
+            "volume", "azimuth", "elevation", "show_depth")),
           ("bokeh", image_ops.add_bokeh,
            ("amount", "focus", "dof", "highlights")),
           ("vignette", image_ops.add_vignette,
@@ -2298,7 +2299,9 @@ def main(page: ft.Page):
                 selected_index=max(0, int(sub["volume"]) - 1),
                 thumb_color=color, expand=True,
                 controls=[ft.Text(t, size=12, color=WHITE)
-                          for t in ("Diffus", "Volume", "Nuée")])
+                          for t in (("Diffus", "Volume", "Nuée")
+                                    if "zone" in sub
+                                    else ("Écran", "Volume"))])
 
             def _mode(e, sub=sub):
                 # e.data : index déjà à jour (selected_index peut
@@ -2309,7 +2312,7 @@ def main(page: ft.Page):
                     idx = e.control.selected_index
                 e.control.selected_index = idx
                 sub["volume"] = idx + 1
-                if state["base"] is not None:
+                if state["base"] is not None and "zone" in sub:
                     # Mode retenu pour les photos pas encore réglées.
                     state["base"]["grain"]["brume"]["volume"] = idx + 1
                 _seg_ink(e.control)
@@ -2461,6 +2464,8 @@ def main(page: ft.Page):
             ("x", "Position X", -50, 150, 1),
             ("y", "Position Y", -50, 150, 1),
             ("sun_size", "Taille du soleil", 0, 20, 0.5),
+            ("azimuth", "Orientation", -180, 180, 1),
+            ("elevation", "Hauteur du soleil", 2, 89, 1),
             "Rayons",
             ("rays", "Faisceaux", 0, 1, 0.01),
             ("count", "Nombre de rayons", 3, 120, 1),

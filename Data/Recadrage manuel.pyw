@@ -131,6 +131,11 @@ _CUSTOM_KEY = "Personnalisé"
 # Onglet de Retouche photo : recadrage libre aux dimensions d'origine
 # (ratio de l'image, aucun rééchantillonnage) — retour user.
 _REAL_KEY = "Taille réelle"
+# Ratios cinéma (onglet de Retouche photo seulement), en portrait comme
+# FORMATS ; le nom de fichier prend alors les pixels (pas de « : »).
+CINE_FORMATS = {"16:9": (90, 160), "1,85:1": (100, 185),
+                "2:1": (100, 200), "2,35:1": (100, 235),
+                "2,39:1": (100, 239), "2,76:1": (100, 276)}
 
 # ===================== COULEURS ===================== #
 DARK         = CONSTANTS.COLOR_DARK
@@ -6036,8 +6041,11 @@ def main(page: ft.Page):
         page.update()
 
     format_radios = [ft.Radio(value=fmt, label=fmt, fill_color=BLUE)
-                     for fmt in ([_REAL_KEY] if embedded else [])
+                     for fmt in ([_REAL_KEY, *CINE_FORMATS] if embedded
+                                 else [])
                      + list(FORMATS.keys())]
+    if embedded:
+        FORMATS.update(CINE_FORMATS)
     format_radios_values = [r.value for r in format_radios]
     app.format_radio_group = ft.RadioGroup(
         content=ft.Column(format_radios, scroll=ft.ScrollMode.AUTO),

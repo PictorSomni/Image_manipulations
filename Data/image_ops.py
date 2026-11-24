@@ -4115,7 +4115,8 @@ def _sun_shadow(far, sx, sy, fov=60.0):
 def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
                 sun_size, influence=0.5, depth=0.0, precise=False,
                 rays=1.0, count=40, ray_width=1.0, shadows=0.0,
-                parallel=False, show_depth=False, diffuse=0.0):
+                parallel=False, show_depth=False, diffuse=0.0,
+                volume=1, azimuth=0.0, elevation=20.0):
     """Rayons de soleil depuis (x, y) en %, hors cadre permis (-50..150).
     La lumière traverse les zones claires de la photo et bute sur les
     sombres (influence 0-1, feuillages, silhouettes) ; depth 0-1 réserve
@@ -4130,6 +4131,13 @@ def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
         dm = depth_map(img, precise)
         if show_depth:
             return _depth_view(dm)
+    if int(volume) >= 2:
+        dm = depth_map(img, precise)
+        lit = _sunrays_volume(dm, azimuth, elevation, length,
+                              max(shadows, 0.6), rays, precise)
+        col = np.array([1.0, 0.92 - 0.12 * warmth,
+                        0.8 - 0.35 * warmth], np.float32)
+        return _rays_finish(img, lit, intensity, col)
     if depth > 0:
         far = cv2.resize(_depth_weight(dm, depth),
                          (sw, sh), interpolation=cv2.INTER_AREA)
@@ -4251,6 +4259,75 @@ def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
         # faisceaux sans éteindre l'ensemble.
         v = np.clip(v / max(1e-3, float(np.percentile(v, 95))), 0, 1)
         lit = lit * ((1 - shadows) + shadows * v ** 2)
+    return _rays_finish(img, lit, intensity, col)
+
+
+def _sunrays_volume(dm, azimuth, elevation, length, shadows, rays,
+                    precise):
+    """Rayons en volume : scène 3D tirée de la profondeur, soleil placé
+    par rapport au sol estimé (azimut autour de la scène, hauteur),
+    air éclairé intégré le long de chaque rayon caméra, ombré par le
+    relief (ombres en espace écran)."""
+    n_px = 320 if precise else 160
+    k = n_px / max(dm.shape)
+    h, w = max(8, int(dm.shape[0] * k)), max(8, int(dm.shape[1] * k))
+    # ponytail: échelle de profondeur arbitraire (1..5), focale 60°.
+    z = 1.0 + 4.0 * cv2.resize(dm, (w, h), interpolation=cv2.INTER_AREA)
+    f = w / (2 * math.tan(math.radians(30)))
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    u, v = (xx - w / 2) / f, (yy - h / 2) / f
+    pts = np.dstack([u * z, v * z, z]).reshape(-1, 3)
+    ground = pts[z.reshape(-1) < 4.8]  # sans le ciel
+    up = np.array([0, -1, 0], np.float32)
+    if len(ground) > 50:
+        c = ground - ground.mean(0)
+        nrm = np.linalg.svd(c[::max(1, len(c) // 4000)],
+                            full_matrices=False)[2][2]
+        up = nrm if nrm @ up > 0 else -nrm
+    right = np.array([1, 0, 0], np.float32)
+    right = right - (right @ up) * up
+    right /= max(1e-6, np.linalg.norm(right))
+    fwd = np.cross(right, up)
+    if fwd[2] < 0:
+        fwd = -fwd
+    az, el = math.radians(azimuth), math.radians(elevation)
+    L = (math.cos(el) * (math.cos(az) * fwd + math.sin(az) * right)
+         + math.sin(el) * up).astype(np.float32)
+    view = np.dstack([u, v, np.ones_like(u)])
+    view /= np.linalg.norm(view, axis=2, keepdims=True)
+    cos = view @ L
+    g = 0.6  # Henyey-Greenstein : halo vers le soleil
+    phase = (1 - g * g) / (1 + g * g - 2 * g * cos) ** 1.5
+    n_s, n_k = (40, 16) if precise else (24, 10)
+    reach = 0.3 + 3.0 * length / 100.0
+    acc = np.zeros((h, w), np.float32)
+    free = np.zeros((h, w), np.float32)
+    for i in range(n_s):
+        t = (i + 0.5) / n_s
+        q = pts.reshape(h, w, 3) * t  # point sur le rayon caméra
+        vis = np.ones((h, w), np.float32)
+        for j in range(1, n_k + 1):
+            r = q + L * (reach * j / n_k)
+            rz = np.maximum(r[..., 2], 0.05)
+            mx = (r[..., 0] / rz * f + w / 2).astype(np.float32)
+            my = (r[..., 1] / rz * f + h / 2).astype(np.float32)
+            sz = cv2.remap(z, mx, my, cv2.INTER_LINEAR,
+                           borderMode=cv2.BORDER_CONSTANT, borderValue=99)
+            vis *= 1 - (((rz > sz + 0.02) & (rz < sz + 0.8))
+                        & (r[..., 2] > 0.05))
+        e = np.exp(-0.25 * t * z)
+        acc += vis * e
+        free += e
+    # Part d'air éclairé (0..1) : les ombres du relief creusent les
+    # faisceaux ; le halo suit l'angle au soleil.
+    ratio = cv2.GaussianBlur(acc / np.maximum(free, 1e-6), (0, 0), 0.7)
+    ph = phase / max(1e-6, float(phase.max()))
+    glow = (0.5 - 0.4 * rays) + (0.5 + 0.4 * rays) * ph
+    return 0.8 * glow * ratio ** (1 + 4 * shadows)
+
+
+def _rays_finish(img, lit, intensity, col):
+    h, w = img.shape[:2]
     rays = cv2.resize(lit, (w, h), interpolation=cv2.INTER_LINEAR)
     # Ajout en lumière linéaire (comme une exposition) puis épaule douce :
     # la lumière éclaire sans boucher les blancs.
