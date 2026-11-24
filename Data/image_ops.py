@@ -2921,6 +2921,39 @@ def depth_map(img, precise=0):
         return _depth_map(img, precise)
 
 
+def ground_height(far):
+    """Hauteur 0 (sol) .. 1 au-dessus du sol, par rangée de profondeur :
+    pour chaque tranche d'éloignement, le sol est la ligne la plus basse
+    de l'image à cette distance ; on mesure l'écart vertical au-dessus,
+    agrandi avec la distance (perspective). Ciel = 1.
+    ponytail: sol vu comme une ligne par distance (pas de pente
+    latérale) ; suffisant pour une vue plongeante de drone."""
+    H, W = far.shape
+    k = min(1.0, 384.0 / max(H, W))
+    h, w = max(8, int(H * k)), max(8, int(W * k))
+    f = cv2.resize(far, (w, h), interpolation=cv2.INTER_AREA)
+    rows = np.broadcast_to(np.arange(h, dtype=np.float32)[:, None], (h, w))
+    nb = 48
+    bi = np.clip((f * nb).astype(int), 0, nb - 1)
+    yg = np.full(nb, np.nan, np.float32)
+    for b in range(nb):
+        m = bi == b
+        if m.sum() > w // 4:
+            yg[b] = np.percentile(rows[m], 92)
+    ok = ~np.isnan(yg)
+    if ok.sum() < 2:
+        return np.zeros_like(far)
+    yg = np.interp(np.arange(nb), np.flatnonzero(ok), yg[ok])
+    # Le sol remonte quand on s'éloigne : ligne du sol décroissante.
+    yg = np.minimum.accumulate(yg)
+    ygp = np.interp(f * nb - 0.5, np.arange(nb), yg).astype(np.float32)
+    up = np.maximum(0, ygp - rows) / h * (0.4 + 2 * f)
+    up = up / max(1e-3, float(np.percentile(up[f < 0.9], 95)))
+    up = np.where(f > 0.97, 1.0, np.clip(up, 0, 1)).astype(np.float32)
+    return cv2.resize(cv2.GaussianBlur(up, (0, 0), 1.5), (W, H),
+                      interpolation=cv2.INTER_LINEAR)
+
+
 def height_map(far, fov=60.0):
     """Hauteur 0 (sol, eau) .. 1 (cimes, crêtes) déduite de la carte
     d'éloignement : rétro-projection 3D (focale supposée `fov`°), puis
@@ -3820,6 +3853,14 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
     up = (lambda a: a) if s >= 1 else (lambda a: cv2.resize(
         a, (W, H), interpolation=cv2.INTER_LINEAR))
     rng = np.random.default_rng(7 + 1000 * _SEED)
+    # Pavé : sx fait glisser les volutes le long des bancs, sy avance ou
+    # recule les bancs dans la profondeur ; tout est recalculé sur la scène.
+    dx = _SHIFT[0] * w * 0.5
+    mv = np.float32([[1, 0, dx], [0, 1, 0]])
+
+    def roll(a):
+        return cv2.warpAffine(a, mv, a.shape[::-1],
+                              borderMode=cv2.BORDER_REFLECT_101)
     yy = np.arange(h, dtype=np.float32)[:, None]
     rows = np.broadcast_to(yy, (h, w))
     soft = h * (0.05 * (1 - thick) + 0.015)
@@ -3842,7 +3883,8 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
                         if np.ndim(c) == 3 else c for c in (color, shade))
     for i in reversed(range(n)):
         # Du premier plan (0.05) au fond.
-        t = 0.05 + 0.9 * (i + 0.5) / n
+        t = float(np.clip(0.05 + 0.9 * (i + 0.5) / n + 0.15 * _SHIFT[1],
+                          0.02, 0.98))
         band = np.abs(far - t) < 0.06
         if band.sum() < w:
             continue
@@ -3865,6 +3907,7 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
                           interpolation=cv2.INTER_CUBIC)
         rip = cv2.resize(rng.random((1, k * 4)).astype(np.float32),
                          (w, 1), interpolation=cv2.INTER_CUBIC)
+        wave, rip = roll(wave), roll(rip)
         # Calme plat (contraste 0) : bord presque droit, sans boules.
         cv = contrast
         amp = h * 0.06 * (1.1 - t) * (0.3 + 1.4 * curl) * (0.1 + 0.9 * cv)
@@ -3873,6 +3916,7 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
         # rideaux verticaux (aurore boréale) sous le bord.
         tx = 0.5 + 0.25 * _grain(h, w, 91 + i,
                                  max(1.0, h * 0.05 * (1.05 - t)))
+        tx = roll(tx)
         edge = ycol - amp * (0.3 + wave + 0.5 * curl * rip) \
             - amp * (0.2 + 0.8 * curl) * tx \
             + rng.uniform(-0.03, 0.03) * h
@@ -3896,6 +3940,7 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
         cov = cov * np.exp(-np.maximum(dy, 0) / (h * (0.25 + 0.3 * t)))
         tex = 0.5 + 0.12 * _grain(h, w, 71 + i,
                                   max(1.0, h * 0.06 * (1.05 - t)))
+        tex = roll(tex)
         # Densité : volute épaisse opaque, creux fin qui laisse voir.
         dens = np.clip(0.55 + (tex - 0.5) * 9 * contrast, 0.0, 1)
         cov = cov * dens * (1 + 0.5 * contrast) * present

@@ -206,7 +206,7 @@ def default_params():
                       "contrast": C.BRUME_CONTRAST,
                       "seed": 0, "visible": 0.0, "grain": 1.0,
                       "sx": 0.0, "sy": 0.0, "zone": 0.5,
-                      "zone_w": 100, "zone_soft": 30,
+                      "zone_w": 100, "zone_soft": 30, "height": 100,
                       "fond": C.BRUME_FOND,
                       "distort": C.BRUME_DISTORT,
                       "ground": C.BRUME_GROUND,
@@ -523,7 +523,7 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
             "cloud_size", "show_depth", "ground",
             "ground_height", "fond", "distort", "edge", "contrast",
             "seed", "visible", "grain",
-            "bumps", "volume")),
+            "bumps", "volume", "sx", "sy")),
           ("rayons", image_ops.add_sunrays,
            ("x", "y", "length", "intensity", "warmth", "threshold",
             "sun_size", "influence", "depth", "precise", "rays",
@@ -554,19 +554,20 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
                 b = np.asarray(before.convert("RGB"), np.float32)
                 delta = np.asarray(result.convert("RGB"), np.float32) - b
                 hh, ww = b.shape[:2]
-                sx, sy = a.get("sx", 0), a.get("sy", 0)
-                if sx or sy:
-                    # Pavé : déplace les nappes (toute la couche brume).
-                    mat = np.float32([[1, 0, sx * ww * 0.5],
-                                      [0, 1, sy * hh * 0.5]])
-                    delta = cv2.warpAffine(delta, mat, (ww, hh),
-                                           borderMode=cv2.BORDER_REFLECT)
+                soft = max(0.01, a.get("zone_soft", 30) / 200)
+                if a.get("height", 100) < 100:
+                    # Hauteur au-dessus du plan du sol (0) vers la caméra.
+                    ht = image_ops.ground_height(
+                        image_ops.source_depth(image))
+                    ht = cv2.resize(ht, (ww, hh),
+                                    interpolation=cv2.INTER_LINEAR)
+                    delta *= np.clip(0.5 + (a["height"] / 100 - ht)
+                                     / soft, 0, 1)[..., None]
                 if a.get("zone_w", 100) < 100:
                     # Zone d'action choisie sur la vignette de profondeur.
                     d = cv2.resize(image_ops.source_depth(image), (ww, hh),
                                    interpolation=cv2.INTER_LINEAR)
                     half = a["zone_w"] / 200
-                    soft = max(0.01, a.get("zone_soft", 30) / 200)
                     delta *= np.clip(1 - (np.abs(d - a["zone"]) - half)
                                      / soft, 0, 1)[..., None]
                 result = Image.fromarray(
@@ -2368,7 +2369,8 @@ def main(page: ft.Page):
     section_brume = _grain_section(
         "Brume", BLUE_LIGHT, ft.Icons.FOGGY, ga["brume"], [
             ("amount", "Intensité", 0, 3, 0.01),
-            ("zone_w", "Hauteur", 0, 100, 1),
+            ("height", "Hauteur", 0, 100, 1),
+            ("zone_w", "Profondeur", 0, 100, 1),
             ("contrast", "Irrégularité", 0, 1, 0.01),
             ("bumps", "Taille des nuages", 0.5, 2, 0.01),
             ("zone_soft", "Contour", 0, 100, 1),
