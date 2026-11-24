@@ -3004,19 +3004,21 @@ def _clumps(d, a, soft, fov=60.0, steps=90):
     yh = (hz / 100.0 if hz else 0.4) * h
     seed = int(a.get("seed", 0))
     N = 512
-    shape = sum(g * _cloud_noise(N, N, sz, 61 + seed + q)
-                for q, (sz, g) in enumerate(((30.0, 1.0), (13.0, 0.5),
-                                             (6.0, 0.25))))
-    patch = _cloud_noise(N, N, 50.0, 79 + seed)
-    shape = (shape - shape.mean()) / max(1e-6, shape.std())
-    patch = (patch - patch.mean()) / max(1e-6, patch.std())
     holes = float(a.get("holes", 0))
-    field = np.clip(0.4 * shape + patch - (-0.9 + 2.0 * holes), 0, None)
-    # Racine : sommets arrondis (dômes), pas de plateau.
-    field = np.sqrt(field / max(1e-6, np.percentile(field, 99)))
-    # Niveau d'eau : sans irrégularité, une nappe plate qui monte avec
-    # Hauteur ; les amas s'y ajoutent.
-    field = 0.3 * (1 - holes) + (0.7 + 0.3 * holes) * field
+    # Sous-bruit : le détail du nuage (5 octaves, du gros au fin).
+    det = sum(g * _cloud_noise(N, N, sz, 61 + seed + q)
+              for q, (sz, g) in enumerate(((28.0, 1.0), (14.0, 0.55),
+                                           (7.0, 0.3), (3.5, 0.17),
+                                           (1.8, 0.1))))
+    det = (det - det.min()) / max(1e-6, np.ptp(det))
+    # Bruit-masque : de grandes plaques qui découpent la nappe.
+    mk = _cloud_noise(N, N, 35.0, 79 + seed)
+    mk = (mk - mk.mean()) / max(1e-6, mk.std())
+    thr = -1.4 + 2.2 * holes
+    # Contour progressif, largeur fixe (ni trait net ni flou).
+    t = np.clip((mk - thr) / 0.9 + 0.5, 0, 1)
+    mask = t * t * (3 - 2 * t)
+    field = mask * (0.35 + 0.65 * det) * (0.6 + 0.4 * mask)
     # Pavage miroir : périodique, donc pas de couture au modulo.
     field = np.block([[field, field[:, ::-1]],
                       [field[::-1], field[::-1, ::-1]]]).astype(np.float32)
@@ -3025,7 +3027,7 @@ def _clumps(d, a, soft, fov=60.0, steps=90):
     # Au-delà de 60 la caméra est dans la brume (contre-plongée).
     top = 0.15 + 1.4 * float(a.get("height", 50)) / 100.0
     size = max(0.1, float(a.get("holes_size", 0.8)))
-    per = 40.0 * size / N          # unités monde par texel
+    per = 30.0 * size / N          # unités monde par texel
     sx, sy = float(a.get("sx", 0)), float(a.get("sy", 0))
     yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
     dx = (xx - w / 2) / foc
