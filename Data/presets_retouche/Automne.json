@@ -1,0 +1,228 @@
+{
+  "denoise": {
+    "enabled": false,
+    "h": 0,
+    "h_color": 0,
+    "template_window": 7,
+    "search_window": 21
+  },
+  "couleur": {
+    "enabled": true,
+    "auto_cast": 0,
+    "exposure": 0,
+    "contrast": 0,
+    "saturation": 32,
+    "hue": 0,
+    "white_balance": 0,
+    "vibrance": 21,
+    "shadows": 32,
+    "highlights": 0,
+    "whites": 0,
+    "blacks": 0,
+    "hsl": {
+      "rouge": {
+        "h": 0,
+        "s": 0,
+        "l": 0
+      },
+      "orange": {
+        "h": 0,
+        "s": 0,
+        "l": 0
+      },
+      "jaune": {
+        "h": 0,
+        "s": 0,
+        "l": 0
+      },
+      "vert": {
+        "h": 0,
+        "s": 0,
+        "l": 0
+      },
+      "cyan": {
+        "h": 0,
+        "s": 0,
+        "l": 0
+      },
+      "bleu": {
+        "h": 0,
+        "s": 0,
+        "l": 0
+      },
+      "violet": {
+        "h": 0,
+        "s": 0,
+        "l": 0
+      },
+      "magenta": {
+        "h": 0,
+        "s": 0,
+        "l": 0
+      },
+      "autres": {
+        "h": 0,
+        "s": -42,
+        "l": 0
+      },
+      "plage": {
+        "h": 0,
+        "s": 64,
+        "l": 13,
+        "from": 0,
+        "to": 50
+      }
+    }
+  },
+  "virage": {
+    "enabled": false,
+    "preset": "SEPIA",
+    "mode": "colorize",
+    "hue": 0,
+    "sat": 0,
+    "light": 0
+  },
+  "lut": {
+    "enabled": false,
+    "name": "M31 - Rec.709.cube",
+    "intensity": 15
+  },
+  "nettete": {
+    "enabled": true,
+    "radius1": 4,
+    "percent1": 42,
+    "radius2": 6,
+    "percent2": 42
+  },
+  "grain": {
+    "enabled": true,
+    "ca": {
+      "enabled": false,
+      "strength": 0.035,
+      "axial_ratio": 0.64
+    },
+    "desat": {
+      "enabled": true,
+      "shadow_threshold": 0.2,
+      "shadow_intensity": 1.0,
+      "highlight_threshold": 0.8,
+      "highlight_intensity": 1.0,
+      "midtone_boost": 0.1
+    },
+    "halation": {
+      "enabled": true,
+      "threshold": 0.72,
+      "radius": 5,
+      "intensity": 1.0,
+      "red_shift": 0.42
+    },
+    "bloom": {
+      "enabled": true,
+      "radius": 16,
+      "intensity": 0.5
+    },
+    "structure": {
+      "enabled": true,
+      "amount": 30,
+      "radius": 1.0
+    },
+    "bokeh": {
+      "enabled": false,
+      "amount": 1,
+      "focus": 0.33,
+      "dof": 32,
+      "highlights": 0
+    },
+    "vignette": {
+      "enabled": false,
+      "amount": -32,
+      "size": 85,
+      "feather": 60,
+      "roundness": 50
+    },
+    "mystique": {
+      "enabled": true,
+      "amount": 0.64,
+      "softness": 16.0,
+      "shadows": 0.3
+    },
+    "brume": {
+      "enabled": true,
+      "amount": 1.0,
+      "depth": 0.0,
+      "warmth": -0.3,
+      "precise": 2,
+      "clouds": 0.5,
+      "cloud_size": 30,
+      "edge": 0.1,
+      "bumps": 1.5,
+      "contrast": 1.0,
+      "seed": 3,
+      "visible": 0.0,
+      "grain": 1.0,
+      "sx": 0.0,
+      "sy": 0.0,
+      "zone": 0.25,
+      "zone_w": 64,
+      "zone_soft": 250,
+      "height": 10,
+      "holes": 0.5,
+      "holes_size": 1.6,
+      "fond": 1.0,
+      "distort": 1.5,
+      "ground": 1.0,
+      "ground_height": 0.3,
+      "show_depth": false,
+      "volume": 2,
+      "thick": 1.0,
+      "spread": 1.0,
+      "curl": 1.0
+    },
+    "rayons": {
+      "enabled": true,
+      "x": -50,
+      "y": 87,
+      "length": 100,
+      "intensity": 1.0,
+      "warmth": 0.75,
+      "threshold": 0.13,
+      "sun_size": 4.0,
+      "influence": 0.42,
+      "depth": 0.0,
+      "precise": 2,
+      "parallel": false,
+      "rays": 0.64,
+      "count": 47,
+      "ray_width": 3.0,
+      "shadows": 1.0,
+      "volume": 2,
+      "azimuth": -85,
+      "elevation": 3,
+      "show_depth": false
+    },
+    "grain1": {
+      "enabled": false,
+      "amount": 0.006,
+      "size": 0.05,
+      "color_ratio": 0.15,
+      "shadow_boost": 1.5,
+      "floor": 0.3,
+      "chroma_shift": 0.15
+    },
+    "grain2": {
+      "enabled": false,
+      "amount": 0.003,
+      "size": 0.16,
+      "color_ratio": 0.25,
+      "shadow_boost": 3.0,
+      "floor": 0.3,
+      "chroma_shift": 0.25
+    }
+  },
+  "copyright": {
+    "enabled": false,
+    "mode": "date",
+    "custom_text": ""
+  },
+  "masques": []
+}
