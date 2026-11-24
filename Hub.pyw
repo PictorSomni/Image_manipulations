@@ -8366,25 +8366,11 @@ def main(page: ft.Page):
             status_left.value = "Aucune photo dans ce dossier."
             page.update()
             return
-        kiosk_path = os.path.join(_APP_DIR, "Data", "kiosk_flet.pyw")
-        env = dict(os.environ)
-        env["PYTHONIOENCODING"] = "utf-8"
-        env["FOLDER_PATH"] = folder
-        env["SELECTED_FILES"] = "|".join(names)
-        env["TARIFF_TYPE"] = state["tariff_mode"]
-        _close_actions()
-        _run_task(_tool_set_status, "▶ Lancement du kiosque…")
-
-        def _run():
-            try:
-                subprocess.Popen([sys.executable, kiosk_path], env=env,
-                                 stdin=subprocess.DEVNULL)
-            except Exception as exc:
-                _run_task(_tool_set_status, f"[Erreur] Kiosque : {exc}")
-                return
-            _run_task(_tool_set_status, "✓ Kiosque lancé")
-
-        threading.Thread(target=_run, daemon=True).start()
+        # Lanceur commun : retire les FLET_* du Hub compilé (sinon le
+        # kiosque ne démarrait pas) et affiche ses erreurs au terminal.
+        _launch_tool("kiosk_flet.pyw", extra_env={
+            "FOLDER_PATH": folder, "SELECTED_FILES": "|".join(names),
+            "TARIFF_TYPE": state["tariff_mode"]})
 
     def _launch_comparaison(event=None):
         # Comme Dashboard.pyw:992-1074 (_launch_comparaison) : le second
