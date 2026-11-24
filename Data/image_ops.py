@@ -2995,6 +2995,9 @@ def _clumps(d, a, soft, fov=60.0, steps=90):
     h, w = max(8, int(H * k)), max(8, int(W * k))
     f = cv2.resize(d.astype(np.float32), (w, h),
                    interpolation=cv2.INTER_AREA)
+    # Profondeur lissée mais bords gardés : la brume bute net sur les
+    # silhouettes.
+    f = cv2.bilateralFilter(np.clip(f, 0, 1), 7, 0.08, 5)
     zs = np.exp(np.clip(f, 0, 1) * math.log(80.0))
     foc = 0.5 * w / math.tan(math.radians(fov) / 2)
     hz = float(a.get("horizon", 0) or 0)
@@ -3011,12 +3014,16 @@ def _clumps(d, a, soft, fov=60.0, steps=90):
     field = np.clip(0.4 * shape + patch - (-0.9 + 2.0 * holes), 0, None)
     # Racine : sommets arrondis (dômes), pas de plateau.
     field = np.sqrt(field / max(1e-6, np.percentile(field, 99)))
+    # Niveau d'eau : sans irrégularité, une nappe plate qui monte avec
+    # Hauteur ; les amas s'y ajoutent.
+    field = 0.3 * (1 - holes) + (0.7 + 0.3 * holes) * field
     # Pavage miroir : périodique, donc pas de couture au modulo.
     field = np.block([[field, field[:, ::-1]],
                       [field[::-1], field[::-1, ::-1]]]).astype(np.float32)
     N = 2 * N
     # Sommet des amas sous la caméra (hauteur 1), sinon on est dedans.
-    top = 0.15 + 0.7 * float(a.get("height", 50)) / 100.0
+    # Au-delà de 60 la caméra est dans la brume (contre-plongée).
+    top = 0.15 + 1.4 * float(a.get("height", 50)) / 100.0
     size = max(0.1, float(a.get("holes_size", 0.8)))
     per = 40.0 * size / N          # unités monde par texel
     sx, sy = float(a.get("sx", 0)), float(a.get("sy", 0))
@@ -3025,21 +3032,39 @@ def _clumps(d, a, soft, fov=60.0, steps=90):
     dy = (yy - yh) / foc           # >0 sous l'horizon
     # Hauteur caméra tirée de la scène : sol à zs sous la ligne dy.
     g = (dy > 2.0 / foc) & (f < 0.95)
-    cam = float(np.median((zs * dy)[g])) if g.sum() > 50 else 1.0
-    top *= cam
+    if g.sum() > 50:
+        cam = float(np.median((zs * dy)[g]))
+    else:
+        # Contre-plongée : pas de sol visible, échelle tirée de la
+        # scène (sinon la brume est minuscule).
+        sc = f < 0.95
+        cam = float(np.median((zs * np.abs(dy) + 0.05 * zs)[sc])) \
+            if sc.sum() > 50 else 1.0
+    # Échelle verticale : la caméra, ou le haut de la scène s'il la
+    # dépasse (clocher en contre-plongée : la brume peut le noyer).
+    sc = f < 0.95
+    hs = float(np.percentile((cam - dy * zs)[sc], 97)) if sc.sum() > 50 \
+        else cam
+    scale = max(cam, hs)
+    top *= scale
     trans = np.ones((h, w), np.float32)
     zk = np.geomspace(0.6, 70.0, steps).astype(np.float32)
+    # Tramage du pas : pas de bandes en marches d'escalier.
+    jit = np.random.default_rng(seed).random((h, w)).astype(np.float32)
     for t in range(steps):
-        Z = zk[t]
+        Z = zk[t] * (1 + 0.05 * (jit - 0.5))
         ry = cam - dy * Z          # hauteur du rayon
         u = (dx * Z / per + sx * 20 / per) % N
         v = (Z / per - sy * 20 / per) % N
-        dens = cv2.remap(field, u, np.full_like(u, v), cv2.INTER_LINEAR,
+        dens = cv2.remap(field, u, v, cv2.INTER_LINEAR,
                          borderMode=cv2.BORDER_WRAP) * top
-        inside = np.clip((dens - ry) / (0.15 + soft), 0, 1)
+        # Bord haut net comme une surface d'eau ; Contour l'adoucit.
+        inside = np.clip((dens - ry) / (scale * (0.03 + 0.3 * soft)), 0, 1)
+        # Plus dense au ras du sol : pieds noyés, sommets nets.
+        inside *= np.clip(1 - ry / max(1e-6, top), 0, 1)
         inside[(zs < Z) | (ry < 0)] = 0   # scène devant / sol touché
         dz = zk[t] - (zk[t - 1] if t else 0.0)
-        trans *= np.exp(-inside * dz * 3.0 / cam)
+        trans *= np.exp(-inside * dz * 3.0 / scale)
     return cv2.resize(1 - trans, (W, H), interpolation=cv2.INTER_LINEAR)
 
 
