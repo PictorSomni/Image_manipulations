@@ -2518,7 +2518,7 @@ def main(page: ft.Page):
         return ft.Row([ft.GestureDetector(
             on_tap_down=_move, on_pan_start=_start, on_pan_update=_move,
             on_pan_end=_end, content=dial)],
-            alignment=ft.MainAxisAlignment.CENTER)
+            alignment=ft.MainAxisAlignment.CENTER, data=_place)
 
     sun_compass = _sun_compass(ga["rayons"])
     section_rayons = _grain_section(
@@ -2548,6 +2548,7 @@ def main(page: ft.Page):
             if k in kr:
                 kr[k].visible = not vol
         sun_compass.visible = vol
+        sun_compass.data()  # preset / photo chargés : replacer le point
         sun_btn.visible = not vol
         with contextlib.suppress(Exception):
             sun_compass.page.update()
