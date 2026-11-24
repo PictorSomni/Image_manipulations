@@ -536,7 +536,7 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
             "cloud_size", "show_depth", "ground",
             "ground_height", "fond", "distort", "edge", "contrast",
             "seed", "visible", "grain",
-            "bumps", "volume", "sx", "sy")),
+            "bumps", "volume", "sx", "sy", "horizon", "horizon_tilt")),
           ("rayons", image_ops.add_sunrays,
            ("x", "y", "length", "intensity", "warmth", "threshold",
             "sun_size", "influence", "depth", "precise", "rays",
@@ -1008,6 +1008,11 @@ def main(page: ft.Page):
     # « Placer l'horizon » : ligne glissée sur l'aperçu (Brume).
     hz = {"on": False}
     hz_line = ft.Container(height=3, bgcolor=ORANGE, visible=False)
+    # Poignées : bouts (pencher) et centre (déplacer toute la ligne).
+    hz_dots = [ft.Container(width=d, height=d, border_radius=d / 2,
+                            bgcolor=ORANGE, visible=False,
+                            border=ft.border.all(2, ft.Colors.WHITE))
+               for d in (14, 22, 14)]
 
     def _place_hz():
         proxy = state["proxy"]
@@ -1025,6 +1030,13 @@ def main(page: ft.Page):
             b.get("horizon_tilt", 0) / 100 * ih, iw))
         hz_line.visible = hz["on"]
         hz_line.update()
+        t = b.get("horizon_tilt", 0) / 100 * ih
+        yc = hz_line.top + 1
+        for k, dot in enumerate(hz_dots):
+            dot.left = hz_line.left + iw * k / 2 - dot.width / 2
+            dot.top = yc + t * (k - 1) / 2 - dot.height / 2
+            dot.visible = hz["on"]
+            dot.update()
 
     def _move_hz(x, y):
         # Tiers gauche / droit : on penche la ligne par ce bout (l'autre
@@ -1198,7 +1210,7 @@ def main(page: ft.Page):
     preview_tap = ft.GestureDetector(
         content=ft.Stack([image_display, original_display, depth_display,
                           sel_rect, mask_canvas, brush_canvas, sun_marker,
-                          hz_line]),
+                          hz_line, *hz_dots]),
         on_hover=_brush_hover, on_exit=_brush_exit, hover_interval=30,
         on_secondary_tap_down=lambda e: brush["on"] and _brush_pick(
             e.local_position.x, e.local_position.y),

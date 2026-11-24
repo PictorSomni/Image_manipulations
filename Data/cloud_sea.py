@@ -191,14 +191,15 @@ def _by_lod(mips, u, v, lod, interp=cv2.INTER_LINEAR):
 def sea(img, far, layer=0.35, size=0.5, billow=0.5, detail=1.0,
         soft=0.1, amount=0.5, density=1.0, warmth=0.0, sun=None,
         res=960.0, seed=0, recul=0.0, visible=0.0, fov=60.0,
-        fade=1.0):
+        fade=1.0, horizon=0.0, tilt=0.0):
     """Mer de nuages pleine vue d'en haut : couche posée sur le
     plan du sol jusqu'à layer (0 sol .. 1 œil), dessus en dômes, tours
     de cumulus qui en sortent par endroits. Marche de rayons par pixel
     en tranches de hauteur (« steep parallax ») : ce qui est plus
     proche que la nappe (mur, arbres, collines au-dessus) en sort.
     img float RGB 0..1, far 0..1. Retourne l'image, ou None (pas de
-    sol trouvé)."""
+    sol trouvé). horizon/tilt (en % de la hauteur, 0 = auto) : ligne
+    d'horizon placée à la main, le plan du sol la suit."""
     H, W = far.shape
     s = min(1.0, res / max(H, W))
     rh, rw = max(16, int(H * s)), max(16, int(W * s))
@@ -241,6 +242,16 @@ def sea(img, far, layer=0.35, size=0.5, billow=0.5, detail=1.0,
                 if keep.sum() < 20:
                     break
             coef = np.array([c02[0], c1, c02[1]])
+    if horizon > 0:
+        # Horizon imposé : pente et recul du plan fixés, seule la
+        # hauteur de l'œil reste à ajuster (enveloppe basse).
+        c0 = -float(tilt) / 100 * rh / rw
+        c1 = (rh / 2 - float(horizon) / 100 * rh) / foc
+        yr = yv - c0 * A[:, 0] - c1 * A[:, 1]
+        c2 = float(np.percentile(yr, 3))
+        if c2 >= 0:  # rien sous l'horizon (contre-plongée)
+            c2 = -max(1e-2, float(np.percentile(np.abs(yr), 90)))
+        coef = np.array([c0, c1, c2])
     cam = float(-coef[2])  # hauteur de l'œil au-dessus du sol
     if cam <= 1e-3:
         return None
