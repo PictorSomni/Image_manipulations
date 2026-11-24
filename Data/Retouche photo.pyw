@@ -2565,6 +2565,11 @@ def main(page: ft.Page):
                             ("show_depth", "Voir la profondeur")):
             if key not in sub:
                 continue
+            if key == "show_depth":
+                # La mini-carte de profondeur reste visible : plus de
+                # bouton, seulement le pinceau.
+                rows.append(_brush_block(color))
+                continue
             sw = ft.Switch(label=slabel, value=sub[key],
                            active_color=color)
 
@@ -2581,8 +2586,6 @@ def main(page: ft.Page):
                 (sw, sub, key))
             key_rows[label][key] = sw
             rows.append(sw)
-            if key == "show_depth":
-                rows.append(_brush_block(color))
         if "precise" in sub:
             # Qualité : réglages rapides en basse résolution, puis
             # passage en Qualité une fois le cadrage des nuages trouvé.
