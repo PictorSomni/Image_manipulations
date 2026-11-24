@@ -2804,26 +2804,13 @@ def _disparity(img, size, kind):
 
 
 def _depth_precise(img, quality=False):
-    """Éloignement IA 0..1. Qualité : modèle base, passe globale 518 px
-    (étagement juste) + passe 1036 px dont on ne garde que le détail
-    (contours fins), puis bords recalés sur la photo à ~2500 px."""
+    """Éloignement IA 0..1. Qualité : modèle base, passe 518 px, puis
+    bords recalés sur la photo à ~2500 px (filtre guidé)."""
+    # ponytail: l'ancienne passe fine 742/1036 px triplait le temps
+    # (22 s -> 6 s sur le Pi) pour un écart invisible après recalage.
     h, w = img.shape[:2]
     kind = "base" if quality else "small"
-    d = _disparity(img, 518, kind)
-    if quality:
-        # Pi (8 Go) : passe fine à 742 px, 1036 sature la mémoire.
-        fine = _disparity(img, 742 if _LOW_RAM else 1036, kind)
-        g = cv2.resize(d, fine.shape[::-1], interpolation=cv2.INTER_CUBIC)
-        # Même échelle que la passe globale, puis détail haute fréquence.
-        fine = (fine - fine.mean()) / max(1e-6, float(fine.std())) \
-            * float(g.std()) + float(g.mean())
-        sig = max(fine.shape) / 60.0
-        d = g + (fine - cv2.GaussianBlur(fine, (0, 0), sig))
-        # Le détail ne doit pas dépasser les valeurs voisines de la passe
-        # globale : sinon auréole claire au-dessus des cimes (blob de
-        # brume au bord du premier plan).
-        ker = np.ones((int(sig) | 1,) * 2, np.uint8)
-        d = np.clip(d, cv2.erode(g, ker), cv2.dilate(g, ker))
+    d = g = _disparity(img, 518, kind)
     # Étagement calé sur les valeurs courantes, pas sur un point isolé ;
     # le ciel (disparité minimale) part au plus loin.
     lo, hi = np.percentile(d, (2, 99))
@@ -2832,9 +2819,9 @@ def _depth_precise(img, quality=False):
     # distance, en log, sinon tout le lointain (îlot, montagnes) finit
     # au même blanc et la perspective disparaît.
     d = np.log(1.0 / (d + 0.005))
-    # Ciel = disparité quasi nulle (sur la passe globale, sans le liseré
-    # du détail) : mis au plus loin ; le reste s'étale sur 0..0.92 pour
-    # ne pas être écrasé dans le noir par le ciel.
+    # Ciel = disparité quasi nulle : mis au plus loin ; le reste
+    # s'étale sur 0..0.92 pour ne pas être écrasé dans le noir par le
+    # ciel.
     sky = np.zeros(d.shape, bool)
     if quality:
         gn = np.clip((g - lo) / max(1e-6, hi - lo), 0, 1)
@@ -2846,8 +2833,6 @@ def _depth_precise(img, quality=False):
         # segmentation du ciel si elle rate encore.
         ref = float(np.median(gn[:max(2, gn.shape[0] // 40)]))
         sky = gn < (min(0.35, ref + 0.04) if ref > 0.05 else 0.004)
-        sky = cv2.resize(sky.astype(np.uint8), d.shape[::-1],
-                         interpolation=cv2.INTER_NEAREST) > 0
     ground = d[~sky] if (~sky).sum() > 100 else d.ravel()
     a, b = np.percentile(ground, (1, 99.5))
     # Gamma 0.6 : étire le proche (avant / arrière d'un bâtiment séparés).
