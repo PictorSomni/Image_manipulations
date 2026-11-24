@@ -3255,7 +3255,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
              ground=0.0, ground_height=0.3,
              bumps=1.0, fond=1.0, contrast=1.0, distort=0.5, edge=0.1, seed=0,
              visible=0.0, grain=1.0, volume=False, sun=None,
-             sx=0.0, sy=0.0):
+             sx=0.0, sy=0.0, far=None):
     """Brume / voile atmosphérique : mélange vers une couleur laiteuse,
     dense au loin selon la carte de profondeur. depth : 0 uniforme,
     1 = seulement l'arrière-plan. warmth -1 froid .. 1 chaud.
@@ -3285,7 +3285,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     _VOLUME, _VOL_LIGHT = 1, None
     # Résolution des volutes : rapide 960 px, qualité la moitié de
     # l'image (3000 px max : mémoire saturée sur le Pi).
-    _RES = 960.0 if precise < 1 else float(
+    _RES = 720.0 if precise < 1 else float(
         np.clip(max(pil_img.size) / 2, 960, 3000))
     _SEED = int(seed)
     _SHIFT = (float(sx), float(sy))
@@ -3306,7 +3306,8 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     amb = _blur_pct(img, 12.5 * max(img.shape[:2]) / min(img.shape[:2]))
     amb = amb / (amb.mean(axis=2, keepdims=True) + 1e-3)
     color = color * (0.4 + 0.6 * np.clip(amb, 0.3, 2.0))
-    far = depth_map(img, precise)
+    far = (depth_map(img, precise) if far is None else cv2.resize(
+        far, img.shape[1::-1], interpolation=cv2.INTER_LINEAR))
     # Fond : tout ce qui est plus loin que ce seuil compte comme le fond.
     far = np.clip(far / max(0.05, fond), 0, 1)
     sky_cut = 1.0
@@ -3930,8 +3931,10 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
         # étirait chaque bosse vers le bas en rideau.
         hf = None
         if r0 >= 1.5 and cv > 0:
+            # Aperçu de glisser (≤ 400 px) : un seul niveau de boules.
             hf = _puff_field(h, w, edge[0], r0, rng, bumps,
-                             3 if t < 0.35 else 2)
+                             1 if max(H, W) <= 400
+                             else 3 if t < 0.35 else 2)
         dy = yy - edge
         # Au loin, bords fondus et bancs plus légers (spread).
         sf = soft * (1 + 1.5 * spread + 3 * spread * t ** 2) \
@@ -4446,15 +4449,19 @@ _src_depth = {}
 def source_depth(pil_img):
     """Carte de profondeur (0 proche .. 1 loin) de la photo source, pour
     les masques Profondeur ; gardée tant que la source ne change pas."""
+    # ponytail: 2 entrées (aperçu 300 px + aperçu plein) ; une seule
+    # les faisait recalculer à chaque glisser.
     key = (id(pil_img), pil_img.size)
-    if _src_depth.get("key") != key:
+    if key not in _src_depth:
+        if len(_src_depth) >= 2:
+            _src_depth.pop(next(iter(_src_depth)))
         # 1280 px suffisent (masques et zones sont agrandis ensuite) :
         # en pleine définition, 2 Go de mémoire sur le Pi.
         small = pil_img.convert("RGB")
         small.thumbnail((1280, 1280))
         src = np.asarray(small, np.float32) / 255.0
-        _src_depth.update(key=key, map=_snap(src, depth_map(src)))
-    return _src_depth["map"]
+        _src_depth[key] = _snap(src, depth_map(src))
+    return _src_depth[key]
 
 
 def mask_array(m, w, h, depth=None):

@@ -206,7 +206,7 @@ def default_params():
                       "contrast": C.BRUME_CONTRAST,
                       "seed": 0, "visible": 0.0, "grain": 1.0,
                       "sx": 0.0, "sy": 0.0, "zone": 0.5,
-                      "zone_w": 100, "zone_soft": 30, "height": 100,
+                      "zone_w": 100, "zone_soft": 100, "height": 42,
                       "fond": C.BRUME_FOND,
                       "distort": C.BRUME_DISTORT,
                       "ground": C.BRUME_GROUND,
@@ -552,6 +552,7 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
                 # Intensité 0-1 = 0-0,4 de l'ancienne échelle (1 déjà
                 # trop dense, retour user).
                 kw["amount"] = float(kw.get("amount", 0)) * 0.4
+                kw["far"] = image_ops.source_depth(image)
             result = func(result, **kw)
             if name == "brume":
                 b = np.asarray(before.convert("RGB"), np.float32)
@@ -2345,8 +2346,9 @@ def main(page: ft.Page):
                            border_radius=7)
 
         def _place():
-            dot.left = (dct.get("sx", 0) + 1) / 2 * w - 7
-            dot.top = (dct.get("sy", 0) + 1) / 2 * h - 7
+            # Intérieur du cadre : bordure de 1 px de chaque côté.
+            dot.left = (dct.get("sx", 0) + 1) / 2 * (w - 2) - 7
+            dot.top = (dct.get("sy", 0) + 1) / 2 * (h - 2) - 7
 
         def _move(e):
             p = e.local_position
