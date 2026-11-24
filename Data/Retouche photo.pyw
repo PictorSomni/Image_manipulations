@@ -210,7 +210,7 @@ def default_params():
                       "seed": 0, "visible": 0.0, "grain": 1.0,
                       "sx": 0.0, "sy": 0.0, "zone": 0.5,
                       "zone_w": 100, "zone_soft": 200, "height": 42, "holes": 0.0,
-                      "holes_size": 0.8,
+                      "holes_size": 0.8, "horizon": 0,
                       "fond": C.BRUME_FOND,
                       "distort": C.BRUME_DISTORT,
                       "ground": C.BRUME_GROUND,
@@ -2751,6 +2751,7 @@ def main(page: ft.Page):
         "Brume", BLUE_LIGHT, ft.Icons.FOGGY, ga["brume"], [
             ("amount", "Intensité", 0, 1, 0.01),
             ("height", "Hauteur", 0, 100, 1),
+            ("horizon", "Horizon", 0, 100, 1),
             ("zone_w", "Profondeur", 0, 100, 1),
             ("contrast", "Volutes", 0, 1, 0.01),
             ("bumps", "Taille des nuages", 0.5, 2, 0.01),
