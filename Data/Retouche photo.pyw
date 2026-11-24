@@ -209,7 +209,7 @@ def default_params():
                       "contrast": C.BRUME_CONTRAST,
                       "seed": 0, "visible": 0.0, "grain": 1.0,
                       "sx": 0.0, "sy": 0.0, "zone": 0.5,
-                      "zone_w": 100, "zone_soft": 200, "height": 42, "holes": 0.0,
+                      "zone_w": 100, "zone_soft": 20, "height": 42, "holes": 0.0,
                       "holes_size": 0.8, "horizon": 0,
                       "horizon_tilt": 0,
                       "fond": C.BRUME_FOND,
