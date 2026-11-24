@@ -2488,10 +2488,6 @@ def main(page: ft.Page):
             dct["elevation"] = int(np.clip(round(90 * (1 - rr)), 2, 89))
             _place()
             frame.update()
-            for k in ("azimuth", "elevation"):
-                rw = key_rows.get("Rayons de soleil", {}).get(k)
-                if rw is not None and callable(rw.data):
-                    rw.data()
             live_preview_tick()
 
         def _start(e):
@@ -2534,8 +2530,6 @@ def main(page: ft.Page):
             ("x", "Position X", -50, 150, 1),
             ("y", "Position Y", -50, 150, 1),
             ("sun_size", "Taille du soleil", 0, 20, 0.5),
-            ("azimuth", "Orientation", -180, 180, 1),
-            ("elevation", "Hauteur du soleil", 2, 89, 1),
             "Rayons",
             ("rays", "Faisceaux", 0, 1, 0.01),
             ("count", "Nombre de rayons", 3, 120, 1),
@@ -2554,9 +2548,6 @@ def main(page: ft.Page):
         for k in ("x", "y", "parallel"):
             if k in kr:
                 kr[k].visible = not vol
-        for k in ("azimuth", "elevation"):
-            if k in kr:
-                kr[k].visible = vol
         sun_compass.visible = vol
         sun_btn.visible = not vol
         with contextlib.suppress(Exception):
