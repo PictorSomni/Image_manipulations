@@ -2951,7 +2951,9 @@ def brume_mask(d, a, img=None):
     rough = 0 if img is None else _roughness(img, d.shape)
     if a.get("height", 100) < 100:
         # 0 = rien, petites valeurs = fine nappe au ras du sol.
-        eye = eye_level_height(d, horizon=float(a.get("horizon", 0)))
+        eye = eye_level_height(
+            d, horizon=float(a.get("horizon", 0)),
+            tilt=float(a.get("horizon_tilt", 0)))
         # Nappe au sol (nuage dense, bords nets) : toujours ; la vue à
         # hauteur d'œil s'y ajoute (sinon simple voile sur les vues
         # en hauteur comme la 2773).
@@ -3006,11 +3008,12 @@ def brume_mask(d, a, img=None):
     return m
 
 
-def eye_level_height(far, fov=60.0, horizon=0.0):
+def eye_level_height(far, fov=60.0, horizon=0.0, tilt=0.0):
     """Hauteur de chaque point en hauteurs d'œil (1 = appareil, 0 = sol)
     pour une photo prise debout : horizon visible (ciel jusqu'au sol
     lointain). None si pas d'horizon (vue plongeante : ground_height).
-    horizon : 0 auto, sinon ligne d'horizon en % de la hauteur.
+    horizon : 0 auto, sinon ligne d'horizon en % de la hauteur (au
+    centre) ; tilt : bord droit moins bord gauche, en % de la hauteur.
     Ciel : hauteur du rayon à la distance 8 (comme height_map).
     ponytail: focale fixe `fov`, profondeur relative exp(f·ln 80)."""
     H, W = far.shape
@@ -3022,7 +3025,8 @@ def eye_level_height(far, fov=60.0, horizon=0.0):
     low = np.where(sky.any(0), np.where(sky, rows, -1).max(0), -1)
     cols = low >= 0
     if horizon > 0:
-        y_h = horizon / 100 * h
+        x = np.arange(w, dtype=np.float32)[None, :] / w - 0.5
+        y_h = (horizon + tilt * x) / 100 * h
     elif cols.mean() < 0.25 or np.median(low[cols]) < 0.2 * h:
         return None
     else:

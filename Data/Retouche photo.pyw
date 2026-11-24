@@ -211,6 +211,7 @@ def default_params():
                       "sx": 0.0, "sy": 0.0, "zone": 0.5,
                       "zone_w": 100, "zone_soft": 200, "height": 42, "holes": 0.0,
                       "holes_size": 0.8, "horizon": 0,
+                      "horizon_tilt": 0,
                       "fond": C.BRUME_FOND,
                       "distort": C.BRUME_DISTORT,
                       "ground": C.BRUME_GROUND,
@@ -1014,18 +1015,34 @@ def main(page: ft.Page):
             return
         w, h = image_display.width, image_display.height
         scale = min(w / proxy.width, h / proxy.height)
-        y = state["params"]["grain"]["brume"].get("horizon", 0) or 50
-        hz_line.left = (w - proxy.width * scale) / 2
-        hz_line.width = proxy.width * scale
-        hz_line.top = ((h - proxy.height * scale) / 2
-                       + y / 100 * proxy.height * scale - 1)
+        b = state["params"]["grain"]["brume"]
+        y = b.get("horizon", 0) or 50
+        iw, ih = proxy.width * scale, proxy.height * scale
+        hz_line.left = (w - iw) / 2
+        hz_line.width = iw
+        hz_line.top = (h - ih) / 2 + y / 100 * ih - 1
+        hz_line.rotate = ft.Rotate(math.atan2(
+            b.get("horizon_tilt", 0) / 100 * ih, iw))
         hz_line.visible = hz["on"]
         hz_line.update()
 
     def _move_hz(x, y):
-        fy = _to_image_frac_raw(x, y)[1]
-        state["params"]["grain"]["brume"]["horizon"] = round(
-            min(100, max(1, fy * 100)))
+        # Tiers gauche / droit : on penche la ligne par ce bout (l'autre
+        # reste fixe) ; centre : on la déplace entière.
+        fx, fy = _to_image_frac_raw(x, y)
+        b = state["params"]["grain"]["brume"]
+        c, t = b.get("horizon", 0) or 50, b.get("horizon_tilt", 0)
+        fy *= 100
+        if fx < 1 / 3:
+            right = c + t / 2
+            c, t = (fy + right) / 2, right - fy
+        elif fx > 2 / 3:
+            left = c - t / 2
+            c, t = (left + fy) / 2, fy - left
+        else:
+            c = fy
+        b["horizon"] = round(min(100, max(1, c)), 1)
+        b["horizon_tilt"] = round(max(-100, min(100, t)), 1)
         _place_hz()
         live_preview_tick()
 
@@ -2808,7 +2825,7 @@ def main(page: ft.Page):
     brume_head.append(ft.Row([hz_btn, ft.IconButton(
         ft.Icons.RESTART_ALT, icon_color=WHITE,
         on_click=lambda e: (state["params"]["grain"]["brume"].update(
-            horizon=0), _place_hz(),
+            horizon=0, horizon_tilt=0), _place_hz(),
                             live_preview_tick()))]))
     section_brume = _grain_section(
         "Brume", BLUE_LIGHT, ft.Icons.FOGGY, ga["brume"], [
