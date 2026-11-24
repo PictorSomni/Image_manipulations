@@ -2977,9 +2977,7 @@ def brume_mask(d, a, img=None):
                           - a["zone_w"] / 200) / soft, 0, 1)
     sx, sy = float(a.get("sx", 0)), float(a.get("sy", 0))
     if sx or sy:
-        h, w = d.shape
-        mv = np.float32([[1, 0, sx * w * 0.5], [0, 1, sy * h * 0.5]])
-        m = cv2.warpAffine(m, mv, (w, h), borderMode=cv2.BORDER_REPLICATE)
+        m = _parallax_shift(m, sx, sy, d, cv2.BORDER_REPLICATE)
     holes = float(a.get("holes", 0))
     if holes > 0:
         h, w = d.shape
@@ -2988,10 +2986,8 @@ def brume_mask(d, a, img=None):
         n = _cloud_noise(sh, sw, 10 * float(a.get("bumps", 1))
                          * float(a.get("holes_size", 0.8)),
                          53 + 1000 * int(a.get("seed", 0)))
-        mv = np.float32([[1, 0, a.get("sx", 0) * sw * 0.5],
-                         [0, 1, a.get("sy", 0) * sh * 0.5]])
-        n = cv2.warpAffine(n, mv, (sw, sh),
-                           borderMode=cv2.BORDER_REFLECT_101)
+        n = _parallax_shift(n, a.get("sx", 0), a.get("sy", 0), d,
+                            cv2.BORDER_REFLECT_101)
         n = cv2.GaussianBlur(n, (0, 0), max(1.0, sw * 0.01 * (1 + soft)))
         # Rang 0..1 (répartition égale), puis densité modulée : peu
         # d'Irrégularité = brume plus légère par endroits ; à fond,
@@ -3384,6 +3380,27 @@ def _volume_light(dens, r0, contrast):
     return np.clip(lum / 1.75 * ((1 - k) + k * bp), 0, 1.6)
 
 
+_PAR_FAR = None  # profondeur pour le décalage en parallaxe (add_haze)
+
+
+def _parallax_shift(a, sx, sy, far=None, border=cv2.BORDER_REFLECT):
+    """Décale a de (sx, sy) × demi-taille, en parallaxe : le proche
+    glisse vite, le lointain à peine (far 0 proche .. 1 loin)."""
+    h, w = a.shape[:2]
+    if far is None:
+        far = _PAR_FAR
+    if far is None:
+        k = np.float32(1.0)
+    else:
+        f = cv2.resize(far.astype(np.float32), (w, h),
+                       interpolation=cv2.INTER_AREA)
+        k = cv2.GaussianBlur(0.2 + 1.6 * (1 - f), (0, 0), max(1, w / 80))
+    xx, yy = np.meshgrid(np.arange(w, dtype=np.float32),
+                         np.arange(h, dtype=np.float32))
+    return cv2.remap(a, xx - k * (sx * w * 0.5), yy - k * (sy * h * 0.5),
+                     cv2.INTER_LINEAR, borderMode=border)
+
+
 def _cloud_noise_cached(h, w, size, seed):
     seed += 1000 * _SEED
     key = (h, w, round(size, 1), seed)
@@ -3393,9 +3410,7 @@ def _cloud_noise_cached(h, w, size, seed):
         _noise_cache[key] = _cloud_noise(h, w, size, seed)
     n = _noise_cache[key]
     if _SHIFT != (0.0, 0.0):
-        m = np.float32([[1, 0, _SHIFT[0] * w * 0.5],
-                        [0, 1, _SHIFT[1] * h * 0.5]])
-        n = cv2.warpAffine(n, m, (w, h), borderMode=cv2.BORDER_REFLECT)
+        n = _parallax_shift(n, *_SHIFT)
     return n
 
 
@@ -3466,6 +3481,8 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
         far, img.shape[1::-1], interpolation=cv2.INTER_LINEAR))
     # Fond : tout ce qui est plus loin que ce seuil compte comme le fond.
     far = np.clip(far / max(0.05, fond), 0, 1)
+    global _PAR_FAR
+    _PAR_FAR = far
     sky_cut = 1.0
     # Retouche passe ground=0 (Hauteur gérée par brume_mask) : Volume
     # ne doit pas en dépendre, sinon il ne fait rien.
