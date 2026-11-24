@@ -2350,9 +2350,16 @@ def main(page: ft.Page):
             _place()
             dot.update()
             live_preview_tick()
+
+        def _center(e):
+            dct["sx"] = dct["sy"] = 0.0
+            _place()
+            dot.update()
+            live_preview_tick()
         _place()
         return ft.GestureDetector(
             on_tap_down=_move, on_pan_start=_move, on_pan_update=_move,
+            on_double_tap=_center,
             content=ft.Container(
                 width=w, height=h, border_radius=8,
                 bgcolor="#1c2230", border=ft.Border.all(1, color),
