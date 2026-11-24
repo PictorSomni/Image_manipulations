@@ -3032,15 +3032,16 @@ def eye_level_height(far, fov=60.0):
 def eye_fog(r, top, soft):
     """Part du rayon œil→point dans la nappe de hauteur `top` (en
     hauteurs d'œil). Appareil dans la brume : tout est voilé, les
-    points plus hauts que la nappe en partie."""
+    points plus hauts que la nappe en partie. Le bord est lissé en
+    moyennant plusieurs hauteurs de nappe : pas de cassure."""
     s = max(0.02, soft)
-    if top >= 1:
-        frac = np.where(r <= top, 1.0,
-                        (top - 1 + s) / np.maximum(r - 1, 1e-3))
-    else:
-        frac = np.where(r < 1, (top - r) / np.maximum(1 - r, 1e-3), 0)
-        frac = np.clip(frac + 0.5 * s, 0, 1)
-    return np.clip(frac, 0, 1).astype(np.float32)
+    lo = np.minimum(r, 1)
+    span = np.maximum(np.abs(r - 1), 1e-3)
+    frac = np.zeros(r.shape, np.float32)
+    ts = np.linspace(top - s, top + s, 9)
+    for t in ts:
+        frac += np.clip((t - lo) / span, 0, 1)
+    return (frac / len(ts)).astype(np.float32)
 
 
 def ground_height(far):
