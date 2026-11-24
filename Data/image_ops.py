@@ -2747,6 +2747,8 @@ _DEPTH_URLS = {
             "depth-anything-v2-base/resolve/main/onnx/"
             "model_quantized.onnx"}
 _depth_state = {"session": {}, "cache": []}
+# Part de l'égalisation par rang dans l'étagement hors ciel (0 = aucune).
+_DEPTH_EQ = 0.5
 
 
 def _depth_session(kind="small"):
@@ -2837,7 +2839,12 @@ def _depth_precise(img, quality=False):
     ground = d[~sky] if (~sky).sum() > 100 else d.ravel()
     a, b = np.percentile(ground, (1, 99.5))
     # Gamma 0.6 : étire le proche (avant / arrière d'un bâtiment séparés).
-    d = np.clip((d - a) / max(1e-6, b - a), 0, 1) ** 0.6 * 0.92
+    lin = np.clip((d - a) / max(1e-6, b - a), 0, 1) ** 0.6
+    # Égalisation partielle hors ciel : les plans peu représentés ne
+    # restent pas écrasés dans une seule teinte.
+    gs = np.sort(ground)
+    rank = np.interp(d, gs, np.linspace(0, 1, gs.size, dtype=np.float32))
+    d = ((1 - _DEPTH_EQ) * lin + _DEPTH_EQ * rank).astype(np.float32) * 0.92
     d[sky] = 1.0
     return d
 
