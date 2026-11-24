@@ -2440,7 +2440,7 @@ def main(page: ft.Page):
             ("zone_w", "Profondeur", 0, 100, 1),
             ("contrast", "Volutes", 0, 1, 0.01),
             ("bumps", "Taille des nuages", 0.5, 2, 0.01),
-            ("zone_soft", "Contour", 0, 300, 1),
+            ("zone_soft", "Contour", 0, 400, 1),
             ("holes", "Irrégularité", 0, 1, 0.01),
             ("holes_size", "Taille des trous", 0.3, 2, 0.01),
             ("distort", "Densité", 0, 1.5, 0.01),
