@@ -4309,25 +4309,30 @@ def _sunrays_volume(dm, azimuth, elevation, length, shadows, rays,
     reach = 0.3 + 3.0 * length / 100.0
     acc = np.zeros((h, w), np.float32)
     free = np.zeros((h, w), np.float32)
+    # Décalage aléatoire par pixel : sans lui, les pas fixes de la
+    # marche vers le soleil recopient l'obstacle en bandes.
+    jit = np.random.default_rng(3).random((h, w)).astype(np.float32)
+    lift = up * 0.06  # biais : le sol ne s'ombre pas lui-même
     for i in range(n_s):
         t = (i + 0.5) / n_s
-        q = pts.reshape(h, w, 3) * t  # point sur le rayon caméra
+        q = pts.reshape(h, w, 3) * t + lift  # point sur le rayon caméra
         vis = np.ones((h, w), np.float32)
-        for j in range(1, n_k + 1):
-            r = q + L * (reach * j / n_k)
+        for j in range(n_k):
+            r = q + L[None, None] * (reach * (j + jit) / n_k)[..., None]
             rz = np.maximum(r[..., 2], 0.05)
             mx = (r[..., 0] / rz * f + w / 2).astype(np.float32)
             my = (r[..., 1] / rz * f + h / 2).astype(np.float32)
             sz = cv2.remap(z, mx, my, cv2.INTER_LINEAR,
                            borderMode=cv2.BORDER_CONSTANT, borderValue=99)
-            vis *= 1 - (((rz > sz + 0.02) & (rz < sz + 0.8))
+            vis *= 1 - (((rz > sz + 0.02 + 0.03 * rz) & (rz < sz + 0.8))
                         & (r[..., 2] > 0.05))
         e = np.exp(-0.25 * t * z)
         acc += vis * e
         free += e
     # Part d'air éclairé (0..1) : les ombres du relief creusent les
     # faisceaux ; le halo suit l'angle au soleil.
-    ratio = cv2.GaussianBlur(acc / np.maximum(free, 1e-6), (0, 0), 0.7)
+    ratio = cv2.GaussianBlur(acc / np.maximum(free, 1e-6), (0, 0),
+                             max(1.0, w * 0.008))
     ph = phase / max(1e-6, float(phase.max()))
     glow = (0.5 - 0.4 * rays) + (0.5 + 0.4 * rays) * ph
     lit = 0.8 * glow * ratio ** (1 + 4 * shadows)
