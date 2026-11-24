@@ -209,7 +209,7 @@ def default_params():
                       "contrast": C.BRUME_CONTRAST,
                       "seed": 0, "visible": 0.0, "grain": 1.0,
                       "sx": 0.0, "sy": 0.0, "zone": 0.5,
-                      "zone_w": 100, "zone_soft": 200, "height": 42, "holes": 0.5,
+                      "zone_w": 100, "zone_soft": 200, "height": 42, "holes": 0.0,
                       "holes_size": 0.8,
                       "fond": C.BRUME_FOND,
                       "distort": C.BRUME_DISTORT,
@@ -571,7 +571,7 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
                 delta = np.asarray(result.convert("RGB"), np.float32) - b
                 hh, ww = b.shape[:2]
                 m = image_ops.brume_mask(
-                    image_ops.source_depth(image, fix), a)
+                    image_ops.source_depth(image, fix), a, image)
                 delta *= cv2.resize(m, (ww, hh), interpolation=cv2.
                                     INTER_LINEAR)[..., None]
                 result = Image.fromarray(
@@ -2390,7 +2390,7 @@ def main(page: ft.Page):
                                        np.float32)
                         b = np.asarray(th, np.float32)
                         cov = np.abs(o - b).mean(axis=2) / 60
-                        cov *= image_ops.brume_mask(d, dct)
+                        cov *= image_ops.brume_mask(d, dct, th)
                         pk["cov"] = cv2.resize(
                             np.clip(cov, 0, 1).astype(np.float32),
                             dd.shape[::-1])

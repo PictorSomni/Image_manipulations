@@ -2931,25 +2931,44 @@ def _depth_infer(img):
     return _depth_fit(img, e["d"], e["ai"])
 
 
-def brume_mask(d, a):
+def _roughness(img, shape):
+    """0 lisse (eau, champ, route) .. 1 texturé (toits, arbres) : la
+    brume se pose d'abord sur ce qui est plat et bas."""
+    g = cv2.resize(np.asarray(img.convert("L"), np.float32),
+                   shape[::-1], interpolation=cv2.INTER_AREA)
+    e = np.abs(cv2.Laplacian(g, cv2.CV_32F, ksize=3))
+    e = cv2.GaussianBlur(e, (0, 0), max(2.0, shape[1] * 0.006))
+    return np.clip(e / max(1e-3, float(np.percentile(e, 90))), 0, 1)
+
+
+def brume_mask(d, a, img=None):
     """Masque 0..1 de la Brume à la taille de la carte d (≤ 1280 px) :
-    hauteur au-dessus du sol, zone de profondeur, trous (nappes
-    percées, suivent le pavé sx/sy)."""
+    hauteur au-dessus du sol, zone de profondeur, trous. Tout suit le
+    pavé sx/sy : une volute déplacée garde sa forme. img : la brume
+    suit le plat (eau, prés) plutôt que les toits."""
     soft = max(0.01, a.get("zone_soft", 100) / 200)
     m = np.ones(d.shape, np.float32)
+    rough = 0 if img is None else _roughness(img, d.shape)
     if a.get("height", 100) < 100:
         # 0 = rien, petites valeurs = fine nappe au ras du sol.
         eye = eye_level_height(d)
         if eye is None:
             top = a["height"] / 100 * (1 + soft / 2) - soft / 2
-            m *= np.clip(0.5 + (top - ground_height(d)) / soft, 0, 1)
+            ht = ground_height(d) + 0.15 * rough
+            m *= np.clip(0.5 + (top - ht) / soft, 0, 1)
         else:
             # Photo à hauteur d'homme : Hauteur 25 = l'œil, au-delà
             # l'appareil est dans la brume.
-            m *= eye_fog(eye, a["height"] / 25, soft)
+            m *= eye_fog(eye + 0.3 * rough * (eye < 1), a["height"] / 25,
+                         soft)
     if a.get("zone_w", 100) < 100:
         m *= np.clip(1 - (np.abs(d - a.get("zone", 0.5))
                           - a["zone_w"] / 200) / soft, 0, 1)
+    sx, sy = float(a.get("sx", 0)), float(a.get("sy", 0))
+    if sx or sy:
+        h, w = d.shape
+        mv = np.float32([[1, 0, sx * w * 0.5], [0, 1, sy * h * 0.5]])
+        m = cv2.warpAffine(m, mv, (w, h), borderMode=cv2.BORDER_REPLICATE)
     holes = float(a.get("holes", 0))
     if holes > 0:
         h, w = d.shape
