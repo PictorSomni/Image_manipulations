@@ -25,6 +25,8 @@ Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 #############################################################
 #                          IMPORTS                          #
 #############################################################
+import math
+import contextlib
 import asyncio
 import base64
 import inspect
@@ -2243,6 +2245,8 @@ def main(page: ft.Page):
         return box
 
     grain_rows = {}
+    key_rows = {}    # section → {clé: ligne de curseur}
+    mode_hooks = {}  # section → rappel au changement Écran/Volume
 
     def _grain_section(label, color, icon, sub, field_specs, extra=(),
                        head=()):
@@ -2254,6 +2258,8 @@ def main(page: ft.Page):
                 else _slider_row(f[1], sub, f[0], f[2], f[3], step=f[4],
                                  reset=sub[f[0]])
                 for f in field_specs]
+        key_rows[label] = {f[0]: rw for f, rw in zip(field_specs, rows)
+                           if not isinstance(f, str)}
         for key, slabel in (("parallel", "Parallèles"),
                             ("show_depth", "Voir la profondeur")):
             if key not in sub:
@@ -2272,6 +2278,7 @@ def main(page: ft.Page):
             sw.on_change = _flip
             reset_registry.setdefault("toggles", []).append(
                 (sw, sub, key))
+            key_rows[label][key] = sw
             rows.append(sw)
         if "precise" in sub:
             # Qualité : réglages rapides en basse résolution, puis
@@ -2312,6 +2319,7 @@ def main(page: ft.Page):
                     idx = e.control.selected_index
                 e.control.selected_index = idx
                 sub["volume"] = idx + 1
+                mode_hooks.get(label, lambda: None)()
                 if state["base"] is not None and "zone" in sub:
                     # Mode retenu pour les photos pas encore réglées.
                     state["base"]["grain"]["brume"]["volume"] = idx + 1
@@ -2456,6 +2464,68 @@ def main(page: ft.Page):
         on_click=lambda e: _toggle_sun(), expand=True,
         style=ft.ButtonStyle(color=WHITE, side=ft.BorderSide(1, GREY)))
     state["sun_btn"] = sun_btn
+    def _sun_compass(dct, size=170):
+        """Boussole vue du dessus : caméra au centre, regard vers le
+        haut. Angle = Orientation, distance au centre = hauteur
+        (bord = horizon, centre = zénith)."""
+        R = size / 2
+        dot = ft.Container(width=18, height=18, bgcolor=ORANGE,
+                           border_radius=9)
+        frame = ft.Container(width=size, height=size, content=dot)
+
+        def _place():
+            a = math.radians(dct.get("azimuth", 0))
+            rr = 1 - dct.get("elevation", 20) / 90
+            frame.alignment = ft.Alignment(
+                math.sin(a) * rr * (R - 9) / R,
+                -math.cos(a) * rr * (R - 9) / R)
+
+        def _move(e):
+            p = e.local_position
+            dx, dy = p.x - R, p.y - R
+            rr = min(1.0, math.hypot(dx, dy) / R)
+            dct["azimuth"] = round(math.degrees(math.atan2(dx, -dy)))
+            dct["elevation"] = int(np.clip(round(90 * (1 - rr)), 2, 89))
+            _place()
+            frame.update()
+            for k in ("azimuth", "elevation"):
+                rw = key_rows.get("Rayons de soleil", {}).get(k)
+                if rw is not None and callable(rw.data):
+                    rw.data()
+            live_preview_tick()
+
+        def _start(e):
+            state["dragging"] = True
+            _move(e)
+
+        def _end(e):
+            state["dragging"] = False
+            live_preview_tick()
+        _place()
+        dial = ft.Stack([
+            ft.Container(width=size, height=size, border_radius=R,
+                         bgcolor="#1c2230",
+                         border=ft.Border.all(1, ORANGE)),
+            ft.Container(width=size, height=size,
+                         alignment=ft.Alignment(0, 0),
+                         content=ft.Container(
+                             width=R, height=R, border_radius=R / 2,
+                             border=ft.Border.all(1, "#3a4458"))),
+            ft.Container(width=size, height=size,
+                         alignment=ft.Alignment(0, 0),
+                         content=ft.Icon(ft.Icons.PHOTO_CAMERA,
+                                         color=WHITE, size=20)),
+            ft.Container(width=size, height=size,
+                         alignment=ft.Alignment(0, -0.3),
+                         content=ft.Icon(ft.Icons.ARROW_UPWARD,
+                                         color="#8a94a8", size=16)),
+            frame], width=size, height=size)
+        return ft.Row([ft.GestureDetector(
+            on_tap_down=_move, on_pan_start=_start, on_pan_update=_move,
+            on_pan_end=_end, content=dial)],
+            alignment=ft.MainAxisAlignment.CENTER)
+
+    sun_compass = _sun_compass(ga["rayons"])
     section_rayons = _grain_section(
         "Rayons de soleil", PINK, ft.Icons.WB_TWILIGHT, ga["rayons"], [
             ("intensity", "Intensité", 0, 1, 0.01),
@@ -2476,7 +2546,23 @@ def main(page: ft.Page):
             ("threshold", "Seuil", 0, 1, 0.01),
             ("depth", "Profondeur", 0, 3, 0.01),
             ("shadows", "Ombres projetées", 0, 1, 0.01)],
-        head=[ft.Row([sun_btn])])
+        head=[ft.Row([sun_btn]), sun_compass])
+
+    def _rays_mode_vis():
+        vol = int(ga["rayons"].get("volume", 1)) >= 2
+        kr = key_rows.get("Rayons de soleil", {})
+        for k in ("x", "y", "parallel"):
+            if k in kr:
+                kr[k].visible = not vol
+        for k in ("azimuth", "elevation"):
+            if k in kr:
+                kr[k].visible = vol
+        sun_compass.visible = vol
+        sun_btn.visible = not vol
+        with contextlib.suppress(Exception):
+            sun_compass.page.update()
+    mode_hooks["Rayons de soleil"] = _rays_mode_vis
+    _rays_mode_vis()
     def _bokeh_refresh():
         for r in grain_rows.get("Flou de profondeur", []):
             if callable(getattr(r, "data", None)):
@@ -2803,6 +2889,8 @@ def main(page: ft.Page):
             vm.selected_index = max(0, int(dct["volume"]) - 1)
             _seg_ink(vm)
             vm.update()
+        for hook in mode_hooks.values():
+            hook()
         for sw, dct, key in reset_registry.get("toggles", []):
             sw.value = dct[key]
             sw.update()

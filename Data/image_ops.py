@@ -4134,7 +4134,7 @@ def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
     if int(volume) >= 2:
         dm = depth_map(img, precise)
         lit = _sunrays_volume(dm, azimuth, elevation, length,
-                              max(shadows, 0.6), rays, precise)
+                              max(shadows, 0.6), rays, precise, sun_size)
         col = np.array([1.0, 0.92 - 0.12 * warmth,
                         0.8 - 0.35 * warmth], np.float32)
         return _rays_finish(img, lit, intensity, col)
@@ -4263,7 +4263,7 @@ def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
 
 
 def _sunrays_volume(dm, azimuth, elevation, length, shadows, rays,
-                    precise):
+                    precise, sun_size=5.0):
     """Rayons en volume : scène 3D tirée de la profondeur, soleil placé
     par rapport au sol estimé (azimut autour de la scène, hauteur),
     air éclairé intégré le long de chaque rayon caméra, ombré par le
@@ -4284,6 +4284,13 @@ def _sunrays_volume(dm, azimuth, elevation, length, shadows, rays,
         nrm = np.linalg.svd(c[::max(1, len(c) // 4000)],
                             full_matrices=False)[2][2]
         up = nrm if nrm @ up > 0 else -nrm
+    sky = z > 4.8
+    if sky[0].mean() > 0.5:
+        # Horizon visible : il fixe l'inclinaison (plus fiable que le
+        # plan, l'échelle de profondeur étant arbitraire).
+        hr = float(np.median(np.argmin(sky, axis=0)))
+        th = math.atan(-(hr - h / 2) / f)
+        up = np.array([0, -math.cos(th), -math.sin(th)], np.float32)
     right = np.array([1, 0, 0], np.float32)
     right = right - (right @ up) * up
     right /= max(1e-6, np.linalg.norm(right))
@@ -4323,7 +4330,16 @@ def _sunrays_volume(dm, azimuth, elevation, length, shadows, rays,
     ratio = cv2.GaussianBlur(acc / np.maximum(free, 1e-6), (0, 0), 0.7)
     ph = phase / max(1e-6, float(phase.max()))
     glow = (0.5 - 0.4 * rays) + (0.5 + 0.4 * rays) * ph
-    return 0.8 * glow * ratio ** (1 + 4 * shadows)
+    lit = 0.8 * glow * ratio ** (1 + 4 * shadows)
+    if L[2] > 0.05:
+        # Soleil visible s'il est devant la caméra (même hors cadre :
+        # son halo déborde).
+        px, py = L[0] / L[2] * f + w / 2, L[1] / L[2] * f + h / 2
+        rad = max(1.0, sun_size / 100.0 * min(h, w))
+        d2 = (xx - px) ** 2 + (yy - py) ** 2
+        lit = np.maximum(lit, 1.6 * np.exp(-d2 / (2 * rad ** 2))
+                         + 0.5 * np.exp(-np.sqrt(d2) / (rad * 6)))
+    return lit
 
 
 def _rays_finish(img, lit, intensity, col):
