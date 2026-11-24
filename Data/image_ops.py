@@ -2921,6 +2921,36 @@ def depth_map(img, precise=0):
         return _depth_map(img, precise)
 
 
+def brume_mask(d, a):
+    """Masque 0..1 de la Brume à la taille de la carte d (≤ 1280 px) :
+    hauteur au-dessus du sol, zone de profondeur, trous (nappes
+    percées, suivent le pavé sx/sy)."""
+    soft = max(0.01, a.get("zone_soft", 100) / 200)
+    m = np.ones(d.shape, np.float32)
+    if a.get("height", 100) < 100:
+        m *= np.clip(0.5 + (a["height"] / 100 - ground_height(d)) / soft,
+                     0, 1)
+    if a.get("zone_w", 100) < 100:
+        m *= np.clip(1 - (np.abs(d - a.get("zone", 0.5))
+                          - a["zone_w"] / 200) / soft, 0, 1)
+    holes = float(a.get("holes", 0))
+    if holes > 0:
+        h, w = d.shape
+        k = min(1.0, 320 / max(h, w))
+        sh, sw = max(8, int(h * k)), max(8, int(w * k))
+        n = _cloud_noise(sh, sw, 22 * float(a.get("bumps", 1)),
+                         53 + 1000 * int(a.get("seed", 0)))
+        mv = np.float32([[1, 0, a.get("sx", 0) * sw * 0.5],
+                         [0, 1, a.get("sy", 0) * sh * 0.5]])
+        n = cv2.warpAffine(n, mv, (sw, sh),
+                           borderMode=cv2.BORDER_REFLECT_101)
+        # Trous : les creux du bruit vident la brume, bords fondus.
+        lo = float(np.percentile(n, 100 * holes * 0.7))
+        n = np.clip((n - lo) / 0.12 + 0.5, 0, 1)
+        m *= cv2.resize(n, (w, h), interpolation=cv2.INTER_LINEAR)
+    return m
+
+
 def ground_height(far):
     """Hauteur 0 (sol) .. 1 au-dessus du sol, par rangée de profondeur :
     pour chaque tranche d'éloignement, le sol est la ligne la plus basse

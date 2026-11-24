@@ -27,6 +27,7 @@ Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 #############################################################
 import asyncio
 import base64
+import inspect
 import copy
 import ctypes
 import gc
@@ -206,7 +207,7 @@ def default_params():
                       "contrast": C.BRUME_CONTRAST,
                       "seed": 0, "visible": 0.0, "grain": 1.0,
                       "sx": 0.0, "sy": 0.0, "zone": 0.5,
-                      "zone_w": 100, "zone_soft": 100, "height": 42,
+                      "zone_w": 100, "zone_soft": 100, "height": 42, "holes": 0.0,
                       "fond": C.BRUME_FOND,
                       "distort": C.BRUME_DISTORT,
                       "ground": C.BRUME_GROUND,
@@ -558,22 +559,10 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
                 b = np.asarray(before.convert("RGB"), np.float32)
                 delta = np.asarray(result.convert("RGB"), np.float32) - b
                 hh, ww = b.shape[:2]
-                soft = max(0.01, a.get("zone_soft", 30) / 200)
-                if a.get("height", 100) < 100:
-                    # Hauteur au-dessus du plan du sol (0) vers la caméra.
-                    ht = image_ops.ground_height(
-                        image_ops.source_depth(image))
-                    ht = cv2.resize(ht, (ww, hh),
-                                    interpolation=cv2.INTER_LINEAR)
-                    delta *= np.clip(0.5 + (a["height"] / 100 - ht)
-                                     / soft, 0, 1)[..., None]
-                if a.get("zone_w", 100) < 100:
-                    # Zone d'action choisie sur la vignette de profondeur.
-                    d = cv2.resize(image_ops.source_depth(image), (ww, hh),
-                                   interpolation=cv2.INTER_LINEAR)
-                    half = a["zone_w"] / 200
-                    delta *= np.clip(1 - (np.abs(d - a["zone"]) - half)
-                                     / soft, 0, 1)[..., None]
+                m = image_ops.brume_mask(
+                    image_ops.source_depth(image), a)
+                delta *= cv2.resize(m, (ww, hh), interpolation=cv2.
+                                    INTER_LINEAR)[..., None]
                 result = Image.fromarray(
                     np.clip(b + delta + 0.5, 0, 255).astype(np.uint8))
     if g["grain1"]["enabled"]:
@@ -2109,7 +2098,14 @@ def main(page: ft.Page):
         def _draw():
             d = pk["d"]
             h, w = d.shape
-            if key in ("focus", "zone"):  # zone d'action
+            if key == "zone" and not pk.get("skip"):
+                # Brume : vraies volutes (patchs roses), calculées en
+                # tâche de fond ; la zone seule en attendant.
+                _cover()
+            if key == "zone" and pk.get("cov") is not None \
+                    and pk["cov"].shape == d.shape:
+                a = pk["cov"][..., None]
+            elif key in ("focus", "zone"):  # zone d'action
                 wk = "dof" if key == "focus" else "zone_w"
                 a = (np.abs(d - dct[key]) <= dct[wk] / 200 + 0.02
                      ).astype(np.float32)[..., None]
@@ -2134,6 +2130,48 @@ def main(page: ft.Page):
                 except Exception:
                     pass  # pas encore affichée
             page.run_task(_show)
+
+        def _cover():
+            pk["want"] = pk.get("want", 0) + 1
+            if pk.get("cbusy"):
+                return
+            pk["cbusy"] = True
+
+            def run():
+                try:
+                    while True:
+                        want, d = pk["want"], pk["d"]
+                        h, w = d.shape
+                        th = state["proxy"].convert("RGB").resize((w, h))
+                        sig = inspect.signature(
+                            image_ops.add_haze).parameters
+                        kw = {k: v for k, v in dct.items() if k in sig}
+                        kw.update(depth=0.0, fond=1.0, visible=0.0,
+                                  ground=0.0, far=d,
+                                  amount=float(dct.get("amount", 0.4))
+                                  * 0.4)
+                        o = np.asarray(image_ops.add_haze(th, **kw),
+                                       np.float32)
+                        b = np.asarray(th, np.float32)
+                        cov = np.abs(o - b).mean(axis=2) / 60
+                        cov *= image_ops.brume_mask(d, dct)
+                        pk["cov"] = np.clip(cov, 0, 1).astype(np.float32)
+                        if pk["want"] == want:
+                            break
+                    pk["cbusy"] = False
+                    _draw_only()
+                except Exception:
+                    import traceback
+                    traceback.print_exc()
+                    pk["cbusy"] = False
+            threading.Thread(target=run, daemon=True).start()
+
+        def _draw_only():
+            pk["skip"] = True
+            try:
+                _draw()
+            finally:
+                pk["skip"] = False
 
         def refresh():
             proxy = state["proxy"]
@@ -2346,16 +2384,17 @@ def main(page: ft.Page):
                            border_radius=7)
 
         def _place():
-            # Intérieur du cadre : bordure de 1 px de chaque côté.
-            dot.left = (dct.get("sx", 0) + 1) / 2 * (w - 2) - 7
-            dot.top = (dct.get("sy", 0) + 1) / 2 * (h - 2) - 7
+            frame.alignment = ft.Alignment(dct.get("sx", 0),
+                                           dct.get("sy", 0))
+
+        frame = ft.Container(width=w, height=h, padding=2, content=dot)
 
         def _move(e):
             p = e.local_position
             dct["sx"] = round(float(np.clip(p.x / w * 2 - 1, -1, 1)), 2)
             dct["sy"] = round(float(np.clip(p.y / h * 2 - 1, -1, 1)), 2)
             _place()
-            dot.update()
+            frame.update()
             live_preview_tick()
 
         def _start(e):
@@ -2369,16 +2408,16 @@ def main(page: ft.Page):
         def _center(e):
             dct["sx"] = dct["sy"] = 0.0
             _place()
-            dot.update()
+            frame.update()
             live_preview_tick()
         _place()
         return ft.GestureDetector(
             on_tap_down=_move, on_pan_start=_start, on_pan_update=_move,
             on_pan_end=_end, on_double_tap=_center,
             content=ft.Container(
-                width=w, height=h, border_radius=8,
+                width=w + 2, height=h + 2, border_radius=8,
                 bgcolor="#1c2230", border=ft.Border.all(1, color),
-                content=ft.Stack([dot], width=w, height=h)))
+                content=frame))
 
     brume_head = [
         ft.Row([ft.OutlinedButton(
@@ -2396,6 +2435,7 @@ def main(page: ft.Page):
             ("contrast", "Irrégularité", 0, 1, 0.01),
             ("bumps", "Taille des nuages", 0.5, 2, 0.01),
             ("zone_soft", "Contour", 0, 300, 1),
+            ("holes", "Trous", 0, 1, 0.01),
             ("distort", "Densité", 0, 1, 0.01),
             ("warmth", "Chaleur", -1, 1, 0.01),
             ("grain", "Détail", 0, 1, 0.01),
