@@ -306,7 +306,9 @@ def sea(img, far, layer=0.35, size=0.5, billow=0.5, detail=1.0,
     g = yn - coef[0] * xn - coef[1]
     rows = np.nonzero((g < -1e-5).any(axis=1))[0]
     zmax = 1e4
-    if not len(rows):
+    # Horizon placé tout en bas : pas de mer vue d'en haut possible,
+    # la brume diffuse prend le relais.
+    if len(rows) < 0.15 * rh:
         return None
     r_a = int(rows[0])
     gs = np.minimum(g[r_a:], -1e-6)
