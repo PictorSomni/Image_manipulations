@@ -1063,15 +1063,17 @@ def main(page: ft.Page):
                 # dicts pendant le rendu (« dictionary changed size »).
                 params_copy = copy.deepcopy(state["params"])
                 t0 = time.perf_counter()
-                # Glissement en cours : aperçu à demi-résolution (~4× plus
-                # rapide), la pleine qualité revient au relâchement.
+                # Glissement en cours : aperçu à 300 px de large (on voit
+                # où vont les volutes), la pleine qualité revient au
+                # relâchement.
                 src_img, cache_name = proxy, "base_cache"
                 if state.get("dragging"):
                     half = state.get("half")
                     if not half or half[0] is not proxy:
+                        k = min(1.0, 300 / proxy.width)
                         half = (proxy, proxy.resize(
-                            (max(1, proxy.width // 2),
-                             max(1, proxy.height // 2)),
+                            (max(1, round(proxy.width * k)),
+                             max(1, round(proxy.height * k))),
                             Image.Resampling.BILINEAR))
                         state["half"] = half
                     src_img, cache_name = half[1], "half_cache"
@@ -2351,6 +2353,14 @@ def main(page: ft.Page):
             dot.update()
             live_preview_tick()
 
+        def _start(e):
+            state["dragging"] = True
+            _move(e)
+
+        def _end(e):
+            state["dragging"] = False
+            live_preview_tick()
+
         def _center(e):
             dct["sx"] = dct["sy"] = 0.0
             _place()
@@ -2358,8 +2368,8 @@ def main(page: ft.Page):
             live_preview_tick()
         _place()
         return ft.GestureDetector(
-            on_tap_down=_move, on_pan_start=_move, on_pan_update=_move,
-            on_double_tap=_center,
+            on_tap_down=_move, on_pan_start=_start, on_pan_update=_move,
+            on_pan_end=_end, on_double_tap=_center,
             content=ft.Container(
                 width=w, height=h, border_radius=8,
                 bgcolor="#1c2230", border=ft.Border.all(1, color),
