@@ -2939,8 +2939,14 @@ def brume_mask(d, a):
     m = np.ones(d.shape, np.float32)
     if a.get("height", 100) < 100:
         # 0 = rien, petites valeurs = fine nappe au ras du sol.
-        top = a["height"] / 100 * (1 + soft / 2) - soft / 2
-        m *= np.clip(0.5 + (top - ground_height(d)) / soft, 0, 1)
+        eye = eye_level_height(d)
+        if eye is None:
+            top = a["height"] / 100 * (1 + soft / 2) - soft / 2
+            m *= np.clip(0.5 + (top - ground_height(d)) / soft, 0, 1)
+        else:
+            # Photo à hauteur d'homme : Hauteur 25 = l'œil, au-delà
+            # l'appareil est dans la brume.
+            m *= eye_fog(eye, a["height"] / 25, soft)
     if a.get("zone_w", 100) < 100:
         m *= np.clip(1 - (np.abs(d - a.get("zone", 0.5))
                           - a["zone_w"] / 200) / soft, 0, 1)
@@ -2970,6 +2976,52 @@ def brume_mask(d, a):
         m *= cv2.resize(dip,
                         (w, h), interpolation=cv2.INTER_LINEAR)
     return m
+
+
+def eye_level_height(far, fov=60.0):
+    """Hauteur de chaque point en hauteurs d'œil (1 = appareil, 0 = sol)
+    pour une photo prise debout : horizon visible (ciel jusqu'au sol
+    lointain). None si pas d'horizon (vue plongeante : ground_height).
+    Ciel : hauteur du rayon à la distance 8 (comme height_map).
+    ponytail: focale fixe `fov`, profondeur relative exp(f·ln 80)."""
+    H, W = far.shape
+    k = min(1.0, 384.0 / max(H, W))
+    h, w = max(8, int(H * k)), max(8, int(W * k))
+    f = cv2.resize(far, (w, h), interpolation=cv2.INTER_AREA)
+    sky = f > 0.97
+    rows = np.arange(h, dtype=np.float32)[:, None]
+    low = np.where(sky.any(0), np.where(sky, rows, -1).max(0), -1)
+    cols = low >= 0
+    if cols.mean() < 0.25 or np.median(low[cols]) < 0.2 * h:
+        return None
+    y_h = float(np.median(low[cols]))
+    foc = 0.5 * w / math.tan(math.radians(fov) / 2)
+    z = np.exp(np.minimum(f, 0.97) * math.log(80.0))
+    drop = (rows - y_h) / foc * z  # descente sous l'œil
+    gnd = drop[(rows > y_h + 0.1 * h) & ~sky]
+    if gnd.size < 20:
+        return None
+    cam = max(1e-3, float(np.percentile(gnd, 90)))
+    rs = np.broadcast_to(1 + (y_h - rows) / foc * 8.0 / cam, (h, w))
+    # Bords flous de la carte : jamais plus haut que le ciel voisin
+    # (sinon liseré sans brume autour des arbres).
+    r = np.where(sky, rs, np.minimum(1 - drop / cam, np.maximum(rs, 1)))
+    r = cv2.GaussianBlur(r.astype(np.float32), (0, 0), 1.0)
+    return cv2.resize(r, (W, H), interpolation=cv2.INTER_LINEAR)
+
+
+def eye_fog(r, top, soft):
+    """Part du rayon œil→point dans la nappe de hauteur `top` (en
+    hauteurs d'œil). Appareil dans la brume : tout est voilé, les
+    points plus hauts que la nappe en partie."""
+    s = max(0.02, soft)
+    if top >= 1:
+        frac = np.where(r <= top, 1.0,
+                        (top - 1 + s) / np.maximum(r - 1, 1e-3))
+    else:
+        frac = np.where(r < 1, (top - r) / np.maximum(1 - r, 1e-3), 0)
+        frac = np.clip(frac + 0.5 * s, 0, 1)
+    return np.clip(frac, 0, 1).astype(np.float32)
 
 
 def ground_height(far):

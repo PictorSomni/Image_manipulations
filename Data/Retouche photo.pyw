@@ -2760,7 +2760,6 @@ def main(page: ft.Page):
             ("distort", "Densité", 0, 1.5, 0.01),
             ("warmth", "Chaleur", -1, 1, 0.01),
             ("grain", "Détail", 0, 1, 0.01),
-            ("edge", "Fondu des bords", 0, 1, 0.01),
             ("seed", "Variante", 0, 20, 1)], head=brume_head)
     sun_btn = ft.OutlinedButton(
         "Placer le soleil", icon=ft.Icons.WB_SUNNY_OUTLINED,
