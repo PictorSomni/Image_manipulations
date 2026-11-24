@@ -2945,8 +2945,13 @@ def brume_mask(d, a):
         n = cv2.warpAffine(n, mv, (sw, sh),
                            borderMode=cv2.BORDER_REFLECT_101)
         # Trous : les creux du bruit vident la brume, bords fondus.
-        lo = float(np.percentile(n, 100 * holes * 0.7))
-        n = np.clip((n - lo) / 0.12 + 0.5, 0, 1)
+        # Bruit lissé puis fondu large réglé par Contour : trous qui
+        # s'ouvrent progressivement, jamais d'un coup.
+        n = cv2.GaussianBlur(n, (0, 0), max(1.0, sw * 0.02))
+        n = (n - n.mean()) / max(1e-3, float(n.std()))
+        lo = float(np.percentile(n, 100 * holes))
+        n = np.clip((n - lo) / (0.5 + 1.5 * soft) + 0.5, 0, 1)
+        n = n * n * (3 - 2 * n)
         m *= cv2.resize(n, (w, h), interpolation=cv2.INTER_LINEAR)
     return m
 
@@ -3982,7 +3987,9 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
             # adouci sur ~1 px seulement.
             # Seulement au-dessus du bord : sous le bord, le banc reste
             # un voile (pas un empilement de bulles).
-            cp = np.clip(hf / max(1.0, r0 * 0.15), 0, 1) * present \
+            # Densité selon l'épaisseur traversée : bord de sphère
+            # transparent, cœur plus dense (plus de bulle « opaque »).
+            cp = (1 - np.exp(-1.6 * hf / max(1.0, r0))) * present \
                 * np.clip(1 - dy / (r0 * 0.8), 0, 1)
             cov = np.maximum(cov, cp * cov.max(initial=0.0) * 0.9)
         if soft_vol:
@@ -4031,8 +4038,9 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
             col = col * _puff_shade(hf, r0, contrast,
                                     np.clip(1 - dy / (r0 * 1.5), 0, 1)
                                     )[..., None]
+        # Près de la caméra, la brume reste un voile translucide.
         al = np.clip(amount * thick * 0.85 * cov * vis * hw
-                     * (1 - 0.5 * spread * t), 0, cap)
+                     * (1 - 0.5 * spread * t) * (0.45 + 0.55 * t), 0, cap)
         al = al.astype(np.float32)
         k = np.clip(al * 4.0 * distort, 0, 1)
         keep = (1 - k) * (1 - al)

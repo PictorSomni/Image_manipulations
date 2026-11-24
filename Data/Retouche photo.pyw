@@ -2140,7 +2140,10 @@ def main(page: ft.Page):
             def run():
                 try:
                     while True:
-                        want, d = pk["want"], pk["d"]
+                        want, dd = pk["want"], pk["d"]
+                        # Estimation à mi-taille (≈ 4× plus rapide).
+                        d = cv2.resize(dd, (dd.shape[1] // 2,
+                                            dd.shape[0] // 2))
                         h, w = d.shape
                         th = state["proxy"].convert("RGB").resize((w, h))
                         sig = inspect.signature(
@@ -2155,7 +2158,9 @@ def main(page: ft.Page):
                         b = np.asarray(th, np.float32)
                         cov = np.abs(o - b).mean(axis=2) / 60
                         cov *= image_ops.brume_mask(d, dct)
-                        pk["cov"] = np.clip(cov, 0, 1).astype(np.float32)
+                        pk["cov"] = cv2.resize(
+                            np.clip(cov, 0, 1).astype(np.float32),
+                            dd.shape[::-1])
                         if pk["want"] == want:
                             break
                     pk["cbusy"] = False
