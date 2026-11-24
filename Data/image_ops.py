@@ -2951,7 +2951,7 @@ def brume_mask(d, a, img=None):
     rough = 0 if img is None else _roughness(img, d.shape)
     if a.get("height", 100) < 100:
         # 0 = rien, petites valeurs = fine nappe au ras du sol.
-        eye = eye_level_height(d, horizon=float(a.get("horizon", 0)))
+        eye = eye_level_height(d)
         if eye is None:
             top = a["height"] / 100 * (1 + soft / 2) - soft / 2
             ht = ground_height(d) + 0.15 * rough
@@ -2959,8 +2959,12 @@ def brume_mask(d, a, img=None):
         else:
             # Photo à hauteur d'homme : Hauteur 25 = l'œil, au-delà
             # l'appareil est dans la brume.
-            m *= eye_fog(eye + 0.3 * rough * (eye < 1), a["height"] / 25,
+            ef = eye_fog(eye + 0.3 * rough * (eye < 1), a["height"] / 25,
                          soft)
+            # Œil au ras de la nappe : le rayon la frôle à l'horizon,
+            # d'où une marche nette ; Contour l'adoucit verticalement.
+            sig = max(2.0, soft * 0.15 * d.shape[0])
+            m *= cv2.GaussianBlur(ef, (1, 0), sigmaX=0.1, sigmaY=sig)
     if a.get("zone_w", 100) < 100:
         m *= np.clip(1 - (np.abs(d - a.get("zone", 0.5))
                           - a["zone_w"] / 200) / soft, 0, 1)
@@ -3123,7 +3127,9 @@ def height_map(far, fov=60.0):
     # Plafond relâché en approchant de l'horizon : hs y tombe à 0, d'où
     # une ligne de brume dense d'un bord à l'autre (photo de drone).
     near = np.clip(1 - (y_hz - yy) / (0.08 * sh), 0, 1)
-    ht = np.where(hs > 0, np.minimum(ht, np.maximum(hs, near)), ht)
+    # ponytail: plafond toujours appliqué (continu) ; le `where hs > 0`
+    # faisait une marche quand hs devenait positif au-dessus de y_hz.
+    ht = np.minimum(ht, np.maximum(hs, near))
     ht = cv2.GaussianBlur(ht, (0, 0), 1.0)
     cam = float(np.clip((-coef[2] - lo) / max(1e-6, hi - lo), 0, 1))
     return cv2.resize(ht, (w, h), interpolation=cv2.INTER_LINEAR), cam
