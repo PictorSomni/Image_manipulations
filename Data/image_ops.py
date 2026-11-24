@@ -2952,10 +2952,14 @@ def brume_mask(d, a, img=None):
     if a.get("height", 100) < 100:
         # 0 = rien, petites valeurs = fine nappe au ras du sol.
         eye = eye_level_height(d)
+        # Nappe au sol (nuage dense, bords nets) : toujours ; la vue à
+        # hauteur d'œil s'y ajoute (sinon simple voile sur les vues
+        # en hauteur comme la 2773).
+        top = a["height"] / 100 * (1 + soft / 2) - soft / 2
+        ht = ground_height(d) + 0.15 * rough
+        gnd = np.clip(0.5 + (top - ht) / soft, 0, 1)
         if eye is None:
-            top = a["height"] / 100 * (1 + soft / 2) - soft / 2
-            ht = ground_height(d) + 0.15 * rough
-            m *= np.clip(0.5 + (top - ht) / soft, 0, 1)
+            m *= gnd
         else:
             # Photo à hauteur d'homme : Hauteur 25 = l'œil, au-delà
             # l'appareil est dans la brume.
@@ -2964,7 +2968,8 @@ def brume_mask(d, a, img=None):
             # Œil au ras de la nappe : le rayon la frôle à l'horizon,
             # d'où une marche nette ; Contour l'adoucit verticalement.
             sig = max(2.0, soft * 0.15 * d.shape[0])
-            m *= cv2.GaussianBlur(ef, (1, 0), sigmaX=0.1, sigmaY=sig)
+            m *= np.maximum(gnd, cv2.GaussianBlur(ef, (1, 0), sigmaX=0.1,
+                                                 sigmaY=sig))
     if a.get("zone_w", 100) < 100:
         m *= np.clip(1 - (np.abs(d - a.get("zone", 0.5))
                           - a["zone_w"] / 200) / soft, 0, 1)
@@ -3452,13 +3457,16 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     # Fond : tout ce qui est plus loin que ce seuil compte comme le fond.
     far = np.clip(far / max(0.05, fond), 0, 1)
     sky_cut = 1.0
-    if ground > 0 and vol2 and not show_depth:
+    # Retouche passe ground=0 (Hauteur gérée par brume_mask) : Volume
+    # ne doit pas en dépendre, sinon il ne fait rien.
+    if vol2 and not show_depth:
         # Volume : mer de nuages pleine vue d'en haut, cumulus qui en
         # sortent ; remplace la brume au sol.
         import cloud_sea
         sea = cloud_sea.sea(
             img, far, layer=ground_height, size=bumps, billow=contrast,
-            detail=grain, soft=edge, amount=amount, density=ground,
+            detail=grain, soft=edge, amount=amount,
+            density=ground or 1.0,
             warmth=warmth, sun=sun, res=min(_RES, 1200.0), seed=seed,
             recul=depth, visible=visible, fade=fade)
         if sea is not None:
