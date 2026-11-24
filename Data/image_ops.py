@@ -3049,24 +3049,25 @@ def _clumps(d, a, soft, fov=60.0, steps=90):
         else cam
     scale = max(cam, hs)
     top *= scale
+    # Couches de brume (cartes verticales face à l'appareil) posées à
+    # des profondeurs croissantes : taille et parallaxe suivent la
+    # distance, chaque couche est cachée par ce qui est devant elle.
+    # Le bruit est lu en (x, hauteur) : bancs étirés à l'horizontale.
     trans = np.ones((h, w), np.float32)
-    zk = np.geomspace(0.6, 70.0, steps).astype(np.float32)
-    # Tramage du pas : pas de bandes en marches d'escalier.
-    jit = np.random.default_rng(seed).random((h, w)).astype(np.float32)
-    for t in range(steps):
-        Z = zk[t] * (1 + 0.05 * (jit - 0.5))
-        ry = cam - dy * Z          # hauteur du rayon
-        u = (dx * Z / per + sx * 20 / per) % N
-        v = (Z / per - sy * 20 / per) % N
+    zk = np.geomspace(0.5, 60.0, 16).astype(np.float32) * scale / cam
+    pc = per * scale
+    for t, Z in enumerate(zk):
+        ry = cam - dy * Z          # hauteur sur la couche
+        u = ((dx * Z + sx * 20 * scale) / pc + t * 97.0) % N
+        v = (ry * 2.5 / pc - sy * 20 + t * 61.0) % N
         dens = cv2.remap(field, u, v, cv2.INTER_LINEAR,
-                         borderMode=cv2.BORDER_WRAP) * top
-        # Bord haut net comme une surface d'eau ; Contour l'adoucit.
-        inside = np.clip((dens - ry) / (scale * (0.03 + 0.3 * soft)), 0, 1)
-        # Plus dense au ras du sol : pieds noyés, sommets nets.
-        inside *= np.clip(1 - ry / max(1e-6, top), 0, 1)
-        inside[(zs < Z) | (ry < 0)] = 0   # scène devant / sol touché
-        dz = zk[t] - (zk[t - 1] if t else 0.0)
-        trans *= np.exp(-inside * dz * 3.0 / scale)
+                         borderMode=cv2.BORDER_WRAP)
+        # Plus dense au ras du sol ; le haut s'efface (Contour).
+        hf = np.clip(1 - ry / max(1e-6, top), 0, 1) ** (0.5 + 2 * soft)
+        hf[ry < 0] = 0
+        # Occultation douce : un objet devant la couche la coupe.
+        occ = np.clip((zs - Z) / (0.25 * Z), 0, 1)
+        trans *= 1 - np.clip(dens * hf * occ * 0.9, 0, 1)
     return cv2.resize(1 - trans, (W, H), interpolation=cv2.INTER_LINEAR)
 
 
