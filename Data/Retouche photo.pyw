@@ -549,6 +549,9 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
             before = result
             if name == "brume":
                 kw.update(depth=0.0, fond=1.0, visible=0.0, ground=0.0)
+                # Intensité 0-1 = 0-0,4 de l'ancienne échelle (1 déjà
+                # trop dense, retour user).
+                kw["amount"] = float(kw.get("amount", 0)) * 0.4
             result = func(result, **kw)
             if name == "brume":
                 b = np.asarray(before.convert("RGB"), np.float32)
@@ -2322,11 +2325,11 @@ def main(page: ft.Page):
 
     # Préréglages à la Luminar : point de départ, curseurs ensuite.
     BRUME_LOOKS = {
-        "Au sol": dict(amount=1.0, zone=0.15, zone_w=30, contrast=0.5,
+        "Au sol": dict(amount=0.4, zone=0.15, zone_w=30, contrast=0.5,
                        distort=0.5),
-        "Voile": dict(amount=0.7, zone=0.8, zone_w=50, contrast=0.2,
+        "Voile": dict(amount=0.3, zone=0.8, zone_w=50, contrast=0.2,
                       distort=0.3),
-        "Dense": dict(amount=2.0, zone=0.5, zone_w=100, contrast=0.7,
+        "Dense": dict(amount=0.8, zone=0.5, zone_w=100, contrast=0.7,
                       distort=0.8),
     }
 
@@ -2385,12 +2388,12 @@ def main(page: ft.Page):
         _shift_pad(ga["brume"], BLUE_LIGHT)]
     section_brume = _grain_section(
         "Brume", BLUE_LIGHT, ft.Icons.FOGGY, ga["brume"], [
-            ("amount", "Intensité", 0, 3, 0.01),
+            ("amount", "Intensité", 0, 1, 0.01),
             ("height", "Hauteur", 0, 100, 1),
             ("zone_w", "Profondeur", 0, 100, 1),
             ("contrast", "Irrégularité", 0, 1, 0.01),
             ("bumps", "Taille des nuages", 0.5, 2, 0.01),
-            ("zone_soft", "Contour", 0, 100, 1),
+            ("zone_soft", "Contour", 0, 300, 1),
             ("distort", "Densité", 0, 1, 0.01),
             ("warmth", "Chaleur", -1, 1, 0.01),
             ("grain", "Détail", 0, 1, 0.01),
