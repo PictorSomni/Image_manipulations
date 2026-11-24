@@ -4836,9 +4836,17 @@ def add_bokeh(pil_img, amount=30, focus=0.2, dof=10, highlights=50,
     lin = lin * (1 + highlights / 25 * np.clip(lum - 0.6, 0, 1) / 0.4)
     rmax = amount / 1000 * max(sw, sh)
     levels = 5
+    ts = cv2.resize(t, (sw, sh), interpolation=cv2.INTER_AREA) * levels
     layers = [small]
     for i in range(1, levels + 1):
-        b = cv2.filter2D(lin, -1, _disc(rmax * i / levels))
+        # Convolution normalisée : seuls les pixels au moins aussi flous
+        # que ce niveau y contribuent, le sujet net ne bave pas en halo
+        # sur le fond.
+        m = np.clip(ts - (i - 1), 0, 1)
+        k_ = _disc(rmax * i / levels)
+        b = cv2.filter2D(lin * m[..., None], -1, k_)
+        n = cv2.filter2D(m, -1, k_)[..., None]
+        b = np.where(n > 1e-3, b / np.maximum(n, 1e-3), lin)
         layers.append(np.clip(b, 0, 1) ** (1 / 2.2))
     layers = [cv2.resize(x, (w, h), interpolation=cv2.INTER_LINEAR)
               for x in layers]
