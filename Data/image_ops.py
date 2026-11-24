@@ -2981,74 +2981,51 @@ def brume_mask(d, a, img=None):
     holes = float(a.get("holes", 0))
     if holes > 0:
         # Irrégularité : la nappe se casse en amas entiers posés au sol.
-        m = m * (1 - holes) + holes * _clumps(d, a, soft)
+        m = m * (1 - holes + holes * _clumps(d, a, soft))
     return m
 
 
-def _clumps(d, a, soft, fov=60.0, n=200):
-    """Amas de brume posés sur le sol, objets 3D entiers : le pavé les
-    déplace dans le monde (parallaxe, ils grossissent en approchant),
-    ce qui est plus proche qu'un amas le cache. Couverture 0..1.
-    ponytail: sol plan sous l'horizon (placé ou 35 %), focale fixe."""
+def _clumps(d, a, soft):
+    """Amas : bruit de forme (3 octaves) découpé par un bruit de
+    paquets lent, en 4 couches de profondeur qui glissent chacune à
+    leur vitesse (parallaxe). Couverture 0..1 ; Amas = seuil."""
     H, W = d.shape
     k = min(1.0, 480.0 / max(H, W))
     h, w = max(8, int(H * k)), max(8, int(W * k))
     f = cv2.resize(d.astype(np.float32), (w, h),
                    interpolation=cv2.INTER_AREA)
-    zs = np.exp(f * math.log(80.0))
-    zs[f > 0.97] = 1e6
-    foc = 0.5 * w / math.tan(math.radians(fov) / 2)
-    y_h = float(a.get("horizon", 0)) / 100 * h
-    if y_h <= 0:  # auto : bas du ciel, sinon 35 %
-        sk = f > 0.97
-        low = np.where(sk, np.arange(h)[:, None], -1).max(0)
-        y_h = float(np.median(low[low >= 0])) if (low >= 0).mean() > 0.3 \
-            else 0.35 * h
-    land = zs[int(0.9 * h):][zs[int(0.9 * h):] < 1e5]
-    zb = float(np.median(land)) if land.size else 2.0
-    cam = max(0.05, (h - y_h) / foc * zb) if y_h < 0.95 * h else zb * 0.1
-    rng = np.random.default_rng(91 + int(a.get("seed", 0)))
-    zmax = 80.0
-    xmax = zmax * 0.5 * w / foc * 1.3
-    X = rng.uniform(-xmax, xmax, n)
-    Z = np.exp(rng.uniform(math.log(zb * 0.5), math.log(zmax), n))
-    # Pavé : sx glisse les amas de côté, sy les avance / recule ; ils
-    # bouclent par le côté opposé, toujours entiers.
-    X = (X + a.get("sx", 0) * zb * 4 + xmax) % (2 * xmax) - xmax
-    lz0, lz1 = math.log(zb * 0.5), math.log(zmax)
-    Z = np.exp((np.log(Z) - a.get("sy", 0) * 1.5 - lz0) % (lz1 - lz0)
-               + lz0)
-    R = cam * (0.2 + 0.8 * a["height"] / 100) * float(
-        a.get("holes_size", 0.8))
-    tex = _cloud_noise(96, 96, 6.0, 57 + int(a.get("seed", 0)))
-    tex = (tex - tex.min()) / max(1e-6, np.ptp(tex))
-    cov = np.zeros((h, w), np.float32)
-    edge = 0.15 + 0.6 * soft
-    for i in np.argsort(-Z):  # du loin vers le proche
-        z = Z[i]
-        r = foc * R / z
-        cx = w / 2 + foc * X[i] / z
-        by = y_h + foc * cam / z  # pied de l'amas, sur le sol
-        if r < 1 or cx + 1.6 * r < 0 or cx - 1.6 * r > w or by - 2 * r > h:
-            continue
-        x0, x1 = int(max(0, cx - 1.6 * r)), int(min(w, cx + 1.6 * r + 1))
-        y0, y1 = int(max(0, by - 2 * r)), int(min(h, by + 0.3 * r + 1))
-        if x1 <= x0 or y1 <= y0:
-            continue
-        yy, xx = np.mgrid[y0:y1, x0:x1].astype(np.float32)
-        u, v = (xx - cx) / (1.4 * r), (yy - (by - 0.8 * r)) / r
-        # Dôme : rond en haut, aplati au pied ; bord découpé par le
-        # bruit (propre à chaque amas, il le garde en bougeant).
-        dist = np.sqrt(u * u + np.where(v > 0, v * 1.6, v) ** 2)
-        tu = ((u * 0.5 + 0.5 + i * 0.37) * 95) % 95
-        tv = ((v * 0.5 + 0.5 + i * 0.61) * 95) % 95
-        nz = tex[tv.astype(int), tu.astype(int)]
-        al = np.clip((1 - dist + 0.9 * (nz - 0.5)) / edge, 0, 1)
-        al *= np.clip((zs[y0:y1, x0:x1] - z) / (0.25 * z), 0, 1)
-        sub = cov[y0:y1, x0:x1]
-        cov[y0:y1, x0:x1] = sub + (1 - sub) * al
-    cov = cv2.GaussianBlur(cov, (0, 0), max(0.6, soft * 3))
-    return cv2.resize(cov, (W, H), interpolation=cv2.INTER_LINEAR)
+    f = cv2.GaussianBlur(f, (0, 0), 2)
+    seed = int(a.get("seed", 0))
+    N = 512  # ponytail: miroir aux bords, pas de couture
+    oct_ = [(_cloud_noise(N, N, fr, 61 + seed + q), g)
+            for q, (fr, g) in enumerate(((30.0, 1.0), (13.0, 0.5),
+                                         (6.0, 0.25)))]
+    patch = _cloud_noise(N, N, 50.0, 79 + seed)
+    size = max(0.1, float(a.get("holes_size", 0.8)))
+    holes = float(a.get("holes", 0))
+    t = -0.9 + 2.0 * holes
+    sx, sy = float(a.get("sx", 0)), float(a.get("sy", 0))
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    acc = np.zeros((h, w), np.float32)
+    wsum = np.full((h, w), 1e-6, np.float32)
+    for b, fc in enumerate((0.15, 0.4, 0.65, 0.9)):
+        par = 0.2 + 1.6 * (1 - fc)
+        # Proche = gros paquets, loin = petits.
+        sc = N / (max(w, h) * size * (1.4 - fc))
+        u = (xx - sx * par * w) * sc + 53 * b
+        v = (yy - sy * par * h) * sc * 1.6 + 31 * b
+        n = sum(g * cv2.remap(o, u, v, cv2.INTER_LINEAR,
+                              borderMode=cv2.BORDER_REFLECT_101)
+                for o, g in oct_)
+        p = cv2.remap(patch, u * 0.5, v * 0.5, cv2.INTER_LINEAR,
+                      borderMode=cv2.BORDER_REFLECT_101)
+        n = (n - n.mean()) / max(1e-6, n.std())
+        p = (p - p.mean()) / max(1e-6, p.std())
+        c = np.clip(0.5 + (0.6 * n + p - t) / (0.3 + 1.2 * soft), 0, 1)
+        wb = np.exp(-((f - fc) / 0.15) ** 2)
+        acc += wb * c
+        wsum += wb
+    return cv2.resize(acc / wsum, (W, H), interpolation=cv2.INTER_LINEAR)
 
 
 def eye_level_height(far, fov=60.0, horizon=0.0, tilt=0.0):
@@ -3075,6 +3052,7 @@ def eye_level_height(far, fov=60.0, horizon=0.0, tilt=0.0):
     else:
         y_h = float(np.median(low[cols]))
     foc = 0.5 * w / math.tan(math.radians(fov) / 2)
+    f = cv2.GaussianBlur(f, (0, 0), 3)
     z = np.exp(np.minimum(f, 0.97) * math.log(80.0))
     drop = (rows - y_h) / foc * z  # descente sous l'œil
     gnd = drop[(rows > y_h + 0.1 * h) & ~sky]
