@@ -2938,7 +2938,8 @@ def brume_mask(d, a):
         h, w = d.shape
         k = min(1.0, 320 / max(h, w))
         sh, sw = max(8, int(h * k)), max(8, int(w * k))
-        n = _cloud_noise(sh, sw, 10 * float(a.get("bumps", 1)),
+        n = _cloud_noise(sh, sw, 10 * float(a.get("bumps", 1))
+                         * float(a.get("holes_size", 0.8)),
                          53 + 1000 * int(a.get("seed", 0)))
         mv = np.float32([[1, 0, a.get("sx", 0) * sw * 0.5],
                          [0, 1, a.get("sy", 0) * sh * 0.5]])

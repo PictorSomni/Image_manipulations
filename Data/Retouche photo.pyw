@@ -207,7 +207,8 @@ def default_params():
                       "contrast": C.BRUME_CONTRAST,
                       "seed": 0, "visible": 0.0, "grain": 1.0,
                       "sx": 0.0, "sy": 0.0, "zone": 0.5,
-                      "zone_w": 100, "zone_soft": 100, "height": 42, "holes": 0.0,
+                      "zone_w": 100, "zone_soft": 100, "height": 42, "holes": 0.5,
+                      "holes_size": 0.8,
                       "fond": C.BRUME_FOND,
                       "distort": C.BRUME_DISTORT,
                       "ground": C.BRUME_GROUND,
@@ -552,7 +553,7 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
                 kw.update(depth=0.0, fond=1.0, visible=0.0, ground=0.0)
                 # Intensité 0-1 = 0-0,4 de l'ancienne échelle (1 déjà
                 # trop dense, retour user).
-                kw["amount"] = float(kw.get("amount", 0)) * 0.4
+                kw["amount"] = float(kw.get("amount", 0)) * 0.55
                 kw["far"] = image_ops.source_depth(image)
             result = func(result, **kw)
             if name == "brume":
@@ -2441,7 +2442,8 @@ def main(page: ft.Page):
             ("bumps", "Taille des nuages", 0.5, 2, 0.01),
             ("zone_soft", "Contour", 0, 300, 1),
             ("holes", "Irrégularité", 0, 1, 0.01),
-            ("distort", "Densité", 0, 1, 0.01),
+            ("holes_size", "Taille des trous", 0.3, 2, 0.01),
+            ("distort", "Densité", 0, 1.5, 0.01),
             ("warmth", "Chaleur", -1, 1, 0.01),
             ("grain", "Détail", 0, 1, 0.01),
             ("edge", "Fondu des bords", 0, 1, 0.01),
