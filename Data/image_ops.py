@@ -2933,30 +2933,25 @@ def brume_mask(d, a):
     if a.get("zone_w", 100) < 100:
         m *= np.clip(1 - (np.abs(d - a.get("zone", 0.5))
                           - a["zone_w"] / 200) / soft, 0, 1)
-    # Curseur 0-1 = 0-50 % de l'ancienne échelle (plus fin, retour user).
-    holes = 0.5 * float(a.get("holes", 0))
+    holes = float(a.get("holes", 0))
     if holes > 0:
         h, w = d.shape
         k = min(1.0, 320 / max(h, w))
         sh, sw = max(8, int(h * k)), max(8, int(w * k))
-        # Petits patchs : vue de loin, un gros trou vide tout un pan.
-        n = _cloud_noise(sh, sw, 4 * float(a.get("bumps", 1)),
+        n = _cloud_noise(sh, sw, 10 * float(a.get("bumps", 1)),
                          53 + 1000 * int(a.get("seed", 0)))
         mv = np.float32([[1, 0, a.get("sx", 0) * sw * 0.5],
                          [0, 1, a.get("sy", 0) * sh * 0.5]])
         n = cv2.warpAffine(n, mv, (sw, sh),
                            borderMode=cv2.BORDER_REFLECT_101)
-        # Trous : les creux du bruit vident la brume, bords fondus.
-        # Bruit lissé puis fondu large réglé par Contour : trous qui
-        # s'ouvrent progressivement, jamais d'un coup.
-        n = cv2.GaussianBlur(n, (0, 0), max(1.0, sw * 0.006))
-        n = (n - n.mean()) / max(1e-3, float(n.std()))
-        lo = float(np.percentile(n, 100 * holes))
-        n = np.clip((n - lo) / (0.5 + 1.5 * soft) + 0.5, 0, 1)
-        n = n * n * (3 - 2 * n)
-        # Bord des trous adouci en plus selon Contour.
-        n = cv2.GaussianBlur(n, (0, 0), max(0.5, sw * 0.008 * soft))
-        m *= cv2.resize(n, (w, h), interpolation=cv2.INTER_LINEAR)
+        n = cv2.GaussianBlur(n, (0, 0), max(1.0, sw * 0.01 * (1 + soft)))
+        # Rang 0..1 (répartition égale), puis densité modulée : peu
+        # d'Irrégularité = brume plus légère par endroits ; à fond,
+        # les creux deviennent de vrais trous, toujours en dégradé.
+        v = np.argsort(np.argsort(n, axis=None)).reshape(n.shape)
+        v = v.astype(np.float32) / max(1, v.size - 1)
+        m *= cv2.resize(np.clip(1 - holes * 1.6 * (1 - v) ** 1.5, 0, 1),
+                        (w, h), interpolation=cv2.INTER_LINEAR)
     return m
 
 
