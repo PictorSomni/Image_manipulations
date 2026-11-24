@@ -2950,7 +2950,12 @@ def brume_mask(d, a):
         # les creux deviennent de vrais trous, toujours en dégradé.
         v = np.argsort(np.argsort(n, axis=None)).reshape(n.shape)
         v = v.astype(np.float32) / max(1, v.size - 1)
-        m *= cv2.resize(np.clip(1 - holes * 1.6 * (1 - v) ** 1.5, 0, 1),
+        # Jamais de trou net : au plus 80 % de brume en moins au creux,
+        # pente douce, puis lissage large du résultat.
+        dip = 1 - holes * 0.8 * (1 - v) ** 2
+        dip = cv2.GaussianBlur(dip.astype(np.float32), (0, 0),
+                               max(1.0, sw * 0.03 * (1 + soft)))
+        m *= cv2.resize(dip,
                         (w, h), interpolation=cv2.INTER_LINEAR)
     return m
 
