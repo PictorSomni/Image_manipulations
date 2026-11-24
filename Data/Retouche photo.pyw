@@ -2475,7 +2475,7 @@ def main(page: ft.Page):
 
         def _place():
             a = math.radians(dct.get("azimuth", 0))
-            rr = 1 - (dct.get("elevation", 20) + 5) / 95
+            rr = 1 - dct.get("elevation", 20) / 90
             frame.alignment = ft.Alignment(
                 math.sin(a) * rr * (R - 9) / R,
                 -math.cos(a) * rr * (R - 9) / R)
@@ -2485,7 +2485,7 @@ def main(page: ft.Page):
             dx, dy = p.x - R, p.y - R
             rr = min(1.0, math.hypot(dx, dy) / R)
             dct["azimuth"] = round(math.degrees(math.atan2(dx, -dy)))
-            dct["elevation"] = int(np.clip(round(95 * (1 - rr) - 5), -5, 89))
+            dct["elevation"] = int(np.clip(round(90 * (1 - rr)), 0, 89))
             _place()
             frame.update()
             live_preview_tick()

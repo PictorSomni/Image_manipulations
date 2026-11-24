@@ -2928,8 +2928,9 @@ def brume_mask(d, a):
     soft = max(0.01, a.get("zone_soft", 100) / 200)
     m = np.ones(d.shape, np.float32)
     if a.get("height", 100) < 100:
-        m *= np.clip(0.5 + (a["height"] / 100 - ground_height(d)) / soft,
-                     0, 1)
+        # 0 = rien, petites valeurs = fine nappe au ras du sol.
+        top = a["height"] / 100 * (1 + soft / 2) - soft / 2
+        m *= np.clip(0.5 + (top - ground_height(d)) / soft, 0, 1)
     if a.get("zone_w", 100) < 100:
         m *= np.clip(1 - (np.abs(d - a.get("zone", 0.5))
                           - a["zone_w"] / 200) / soft, 0, 1)
