@@ -210,7 +210,7 @@ def default_params():
                       "seed": 0, "visible": 0.0, "grain": 1.0,
                       "sx": 0.0, "sy": 0.0, "zone": 0.5,
                       "zone_w": 100, "zone_soft": 200, "height": 42, "holes": 0.0,
-                      "holes_size": 0.8,
+                      "holes_size": 0.8, "horizon": 0,
                       "fond": C.BRUME_FOND,
                       "distort": C.BRUME_DISTORT,
                       "ground": C.BRUME_GROUND,
@@ -1004,6 +1004,46 @@ def main(page: ft.Page):
         content=ft.Icon(ft.Icons.WB_SUNNY, color=ORANGE, size=28),
         width=28, height=28, visible=False)
 
+    # « Placer l'horizon » : ligne glissée sur l'aperçu (Brume).
+    hz = {"on": False}
+    hz_line = ft.Container(height=3, bgcolor=ORANGE, visible=False)
+
+    def _place_hz():
+        proxy = state["proxy"]
+        if proxy is None:
+            return
+        w, h = image_display.width, image_display.height
+        scale = min(w / proxy.width, h / proxy.height)
+        y = state["params"]["grain"]["brume"].get("horizon", 0) or 50
+        hz_line.left = (w - proxy.width * scale) / 2
+        hz_line.width = proxy.width * scale
+        hz_line.top = ((h - proxy.height * scale) / 2
+                       + y / 100 * proxy.height * scale - 1)
+        hz_line.visible = hz["on"]
+        hz_line.update()
+
+    def _move_hz(x, y):
+        fy = _to_image_frac_raw(x, y)[1]
+        state["params"]["grain"]["brume"]["horizon"] = round(
+            min(100, max(1, fy * 100)))
+        _place_hz()
+        live_preview_tick()
+
+    def _toggle_hz():
+        if state["proxy"] is None:
+            return
+        hz["on"] = not hz["on"]
+        btn = state["hz_btn"]
+        btn.style.color = ORANGE if hz["on"] else WHITE
+        btn.style.side = ft.BorderSide(1, ORANGE if hz["on"] else GREY)
+        btn.update()
+        preview_tap.mouse_cursor = (ft.MouseCursor.PRECISE if hz["on"]
+                                    else None)
+        preview_viewer.pan_enabled = not hz["on"]
+        preview_tap.update()
+        preview_viewer.update()
+        _place_hz()
+
     def _to_image_frac_raw(x, y):
         proxy = state["proxy"]
         w, h = image_display.width, image_display.height
@@ -1053,6 +1093,9 @@ def main(page: ft.Page):
             _sync_controls_from_params()
 
     def _on_preview_pan_down(e):
+        if hz["on"]:
+            _move_hz(e.local_position.x, e.local_position.y)
+            return
         if brush["on"]:
             _brush_down(e)
             return
@@ -1066,6 +1109,9 @@ def main(page: ft.Page):
             pick["start"] = (e.local_position.x, e.local_position.y)
 
     def _on_preview_pan_update(e):
+        if hz["on"]:
+            _move_hz(e.local_position.x, e.local_position.y)
+            return
         if brush["on"]:
             _brush_move(e)
             return
@@ -1109,6 +1155,9 @@ def main(page: ft.Page):
 
     def _on_preview_tap(e):
         # Simple clic : petit carré (~3 % du grand côté) autour du point.
+        if hz["on"]:
+            _move_hz(e.local_position.x, e.local_position.y)
+            return
         if brush["on"]:
             _brush_up()  # clic sans glisser : une touche ronde
             return
@@ -1131,7 +1180,8 @@ def main(page: ft.Page):
 
     preview_tap = ft.GestureDetector(
         content=ft.Stack([image_display, original_display, depth_display,
-                          sel_rect, mask_canvas, brush_canvas, sun_marker]),
+                          sel_rect, mask_canvas, brush_canvas, sun_marker,
+                          hz_line]),
         on_hover=_brush_hover, on_exit=_brush_exit, hover_interval=30,
         on_secondary_tap_down=lambda e: brush["on"] and _brush_pick(
             e.local_position.x, e.local_position.y),
@@ -2750,6 +2800,16 @@ def main(page: ft.Page):
             for n in BRUME_LOOKS]),
         _depth_picker(ga["brume"], key="zone", after=_brume_refresh),
         _shift_pad(ga["brume"], BLUE_LIGHT)]
+    hz_btn = ft.OutlinedButton(
+        "Placer l'horizon", icon=ft.Icons.HORIZONTAL_RULE,
+        on_click=lambda e: _toggle_hz(),
+        style=ft.ButtonStyle(color=WHITE, side=ft.BorderSide(1, GREY)))
+    state["hz_btn"] = hz_btn
+    brume_head.append(ft.Row([hz_btn, ft.IconButton(
+        ft.Icons.RESTART_ALT, icon_color=WHITE,
+        on_click=lambda e: (state["params"]["grain"]["brume"].update(
+            horizon=0), _place_hz(),
+                            live_preview_tick()))]))
     section_brume = _grain_section(
         "Brume", BLUE_LIGHT, ft.Icons.FOGGY, ga["brume"], [
             ("amount", "Intensité", 0, 1, 0.01),

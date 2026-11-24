@@ -2951,7 +2951,7 @@ def brume_mask(d, a, img=None):
     rough = 0 if img is None else _roughness(img, d.shape)
     if a.get("height", 100) < 100:
         # 0 = rien, petites valeurs = fine nappe au ras du sol.
-        eye = eye_level_height(d)
+        eye = eye_level_height(d, horizon=float(a.get("horizon", 0)))
         # Nappe au sol (nuage dense, bords nets) : toujours ; la vue à
         # hauteur d'œil s'y ajoute (sinon simple voile sur les vues
         # en hauteur comme la 2773).
