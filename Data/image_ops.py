@@ -2985,47 +2985,62 @@ def brume_mask(d, a, img=None):
     return m
 
 
-def _clumps(d, a, soft):
-    """Amas : bruit de forme (3 octaves) découpé par un bruit de
-    paquets lent, en 4 couches de profondeur qui glissent chacune à
-    leur vitesse (parallaxe). Couverture 0..1 ; Amas = seuil."""
+def _clumps(d, a, soft, fov=60.0, steps=90):
+    """Amas en volume : champ de hauteur de nuages posé sur un sol
+    plan (bruit 3 octaves x bruit de paquets), traversé par un rayon
+    par pixel. Perspective, parallaxe et occlusion par la scène
+    (zs < Z : l'objet passe devant) viennent de la géométrie."""
     H, W = d.shape
-    k = min(1.0, 480.0 / max(H, W))
+    k = min(1.0, 260.0 / max(H, W))
     h, w = max(8, int(H * k)), max(8, int(W * k))
     f = cv2.resize(d.astype(np.float32), (w, h),
                    interpolation=cv2.INTER_AREA)
-    f = cv2.GaussianBlur(f, (0, 0), 2)
+    zs = np.exp(np.clip(f, 0, 1) * math.log(80.0))
+    foc = 0.5 * w / math.tan(math.radians(fov) / 2)
+    hz = float(a.get("horizon", 0) or 0)
+    yh = (hz / 100.0 if hz else 0.4) * h
     seed = int(a.get("seed", 0))
-    N = 512  # ponytail: miroir aux bords, pas de couture
-    oct_ = [(_cloud_noise(N, N, fr, 61 + seed + q), g)
-            for q, (fr, g) in enumerate(((30.0, 1.0), (13.0, 0.5),
-                                         (6.0, 0.25)))]
+    N = 512
+    shape = sum(g * _cloud_noise(N, N, sz, 61 + seed + q)
+                for q, (sz, g) in enumerate(((30.0, 1.0), (13.0, 0.5),
+                                             (6.0, 0.25))))
     patch = _cloud_noise(N, N, 50.0, 79 + seed)
-    size = max(0.1, float(a.get("holes_size", 0.8)))
+    shape = (shape - shape.mean()) / max(1e-6, shape.std())
+    patch = (patch - patch.mean()) / max(1e-6, patch.std())
     holes = float(a.get("holes", 0))
-    t = -0.9 + 2.0 * holes
+    field = np.clip(0.4 * shape + patch - (-0.9 + 2.0 * holes), 0, None)
+    # Racine : sommets arrondis (dômes), pas de plateau.
+    field = np.sqrt(field / max(1e-6, np.percentile(field, 99)))
+    # Pavage miroir : périodique, donc pas de couture au modulo.
+    field = np.block([[field, field[:, ::-1]],
+                      [field[::-1], field[::-1, ::-1]]]).astype(np.float32)
+    N = 2 * N
+    # Sommet des amas sous la caméra (hauteur 1), sinon on est dedans.
+    top = 0.15 + 0.7 * float(a.get("height", 50)) / 100.0
+    size = max(0.1, float(a.get("holes_size", 0.8)))
+    per = 40.0 * size / N          # unités monde par texel
     sx, sy = float(a.get("sx", 0)), float(a.get("sy", 0))
     yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
-    acc = np.zeros((h, w), np.float32)
-    wsum = np.full((h, w), 1e-6, np.float32)
-    for b, fc in enumerate((0.15, 0.4, 0.65, 0.9)):
-        par = 0.2 + 1.6 * (1 - fc)
-        # Proche = gros paquets, loin = petits.
-        sc = N / (max(w, h) * size * (1.4 - fc))
-        u = (xx - sx * par * w) * sc + 53 * b
-        v = (yy - sy * par * h) * sc * 1.6 + 31 * b
-        n = sum(g * cv2.remap(o, u, v, cv2.INTER_LINEAR,
-                              borderMode=cv2.BORDER_REFLECT_101)
-                for o, g in oct_)
-        p = cv2.remap(patch, u * 0.5, v * 0.5, cv2.INTER_LINEAR,
-                      borderMode=cv2.BORDER_REFLECT_101)
-        n = (n - n.mean()) / max(1e-6, n.std())
-        p = (p - p.mean()) / max(1e-6, p.std())
-        c = np.clip(0.5 + (0.6 * n + p - t) / (0.3 + 1.2 * soft), 0, 1)
-        wb = np.exp(-((f - fc) / 0.15) ** 2)
-        acc += wb * c
-        wsum += wb
-    return cv2.resize(acc / wsum, (W, H), interpolation=cv2.INTER_LINEAR)
+    dx = (xx - w / 2) / foc
+    dy = (yy - yh) / foc           # >0 sous l'horizon
+    # Hauteur caméra tirée de la scène : sol à zs sous la ligne dy.
+    g = (dy > 2.0 / foc) & (f < 0.95)
+    cam = float(np.median((zs * dy)[g])) if g.sum() > 50 else 1.0
+    top *= cam
+    trans = np.ones((h, w), np.float32)
+    zk = np.geomspace(0.6, 70.0, steps).astype(np.float32)
+    for t in range(steps):
+        Z = zk[t]
+        ry = cam - dy * Z          # hauteur du rayon
+        u = (dx * Z / per + sx * 20 / per) % N
+        v = (Z / per - sy * 20 / per) % N
+        dens = cv2.remap(field, u, np.full_like(u, v), cv2.INTER_LINEAR,
+                         borderMode=cv2.BORDER_WRAP) * top
+        inside = np.clip((dens - ry) / (0.15 + soft), 0, 1)
+        inside[(zs < Z) | (ry < 0)] = 0   # scène devant / sol touché
+        dz = zk[t] - (zk[t - 1] if t else 0.0)
+        trans *= np.exp(-inside * dz * 3.0 / cam)
+    return cv2.resize(1 - trans, (W, H), interpolation=cv2.INTER_LINEAR)
 
 
 def eye_level_height(far, fov=60.0, horizon=0.0, tilt=0.0):
