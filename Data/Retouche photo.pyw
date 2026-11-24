@@ -1011,7 +1011,7 @@ def main(page: ft.Page):
     # Poignées : bouts (pencher) et centre (déplacer toute la ligne).
     hz_dots = [ft.Container(width=d, height=d, border_radius=d / 2,
                             bgcolor=ORANGE, visible=False,
-                            border=ft.border.all(2, ft.Colors.WHITE))
+                            border=ft.Border.all(2, ft.Colors.WHITE))
                for d in (14, 22, 14)]
 
     def _place_hz():
