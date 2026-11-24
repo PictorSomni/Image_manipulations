@@ -3324,9 +3324,16 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
         hz = add_haze(small, **args)
         delta = (np.asarray(hz, np.float32)
                  - np.asarray(small, np.float32))
+        full = np.asarray(pil_img.convert("RGB"), np.float32)
+        base = cv2.resize(np.asarray(small, np.float32), pil_img.size,
+                          interpolation=cv2.INTER_LINEAR)
         delta = cv2.resize(delta, pil_img.size,
                            interpolation=cv2.INTER_LINEAR)
-        out = np.asarray(pil_img.convert("RGB"), np.float32) + delta
+        # Le détail fin de la pleine définition s'efface sous la brume
+        # dense (sinon il repasse à travers : craquelé, plus de flou).
+        # ponytail: opacité estimée depuis |delta|, pas l'alpha exact.
+        keep = np.exp(-np.abs(delta).mean(axis=2, keepdims=True) / 6)
+        out = base + delta + (full - base) * keep
         return Image.fromarray(np.clip(out + 0.5, 0, 255).astype(np.uint8))
     global _SEED, _SHIFT, _GRAIN, _RES, _VOLUME, _VOL_LIGHT, _SUN
     _SUN = sun
