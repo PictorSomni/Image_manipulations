@@ -3036,7 +3036,13 @@ def eye_level_height(far, fov=60.0, horizon=0.0, tilt=0.0):
     drop = (rows - y_h) / foc * z  # descente sous l'œil
     gnd = drop[(rows > y_h + 0.1 * h) & ~sky]
     if gnd.size < 20:
-        return None
+        if horizon <= 0:
+            return None
+        # Horizon placé tout en bas (contre-plongée) : pas de sol
+        # visible, l'échelle vient de ce qui est au-dessus.
+        gnd = np.abs(drop[~sky])
+        if gnd.size < 20:
+            return None
     cam = max(1e-3, float(np.percentile(gnd, 90)))
     rs = np.broadcast_to(1 + (y_h - rows) / foc * 8.0 / cam, (h, w))
     # Bords flous de la carte : jamais plus haut que le ciel voisin
