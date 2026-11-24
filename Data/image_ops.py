@@ -4134,7 +4134,8 @@ def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
     if int(volume) >= 2:
         dm = depth_map(img, precise)
         lit = _sunrays_volume(dm, azimuth, elevation, length,
-                              max(shadows, 0.6), rays, precise, sun_size)
+                              max(shadows, 0.6), rays, precise, sun_size,
+                              _luma(img), threshold, influence)
         col = np.array([1.0, 0.92 - 0.12 * warmth,
                         0.8 - 0.35 * warmth], np.float32)
         return _rays_finish(img, lit, intensity, col)
@@ -4263,7 +4264,8 @@ def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
 
 
 def _sunrays_volume(dm, azimuth, elevation, length, shadows, rays,
-                    precise, sun_size=5.0):
+                    precise, sun_size=5.0, luma=None, threshold=0.5,
+                    influence=0.5):
     """Rayons en volume : scène 3D tirée de la profondeur, soleil placé
     par rapport au sol estimé (azimut autour de la scène, hauteur),
     air éclairé intégré le long de chaque rayon caméra, ombré par le
@@ -4333,6 +4335,33 @@ def _sunrays_volume(dm, azimuth, elevation, length, shadows, rays,
     # faisceaux ; le halo suit l'angle au soleil.
     ratio = cv2.GaussianBlur(acc / np.maximum(free, 1e-6), (0, 0),
                              max(1.0, w * 0.008))
+    if luma is not None and influence > 0:
+        # Ombres de la photo (comme le mode Écran) : les sombres
+        # bloquent la lumière, étirés à l'opposé du soleil (direction
+        # donnée par la boussole, projetée à l'écran).
+        lm = cv2.resize(luma, (w, h), interpolation=cv2.INTER_AREA)
+        tr = threshold * 0.85
+        tm = np.clip((lm - tr) / max(1e-3, 1 - tr), 0, 1)
+        s_ = L if L[2] > 0.05 else -L
+        sz_ = max(0.05, abs(float(s_[2])))
+        spx = s_[0] / sz_ * f + w / 2
+        spy = s_[1] / sz_ * f + h / 2
+        ddx, ddy = spx - xx, spy - yy
+        if L[2] <= 0.05:  # soleil derrière : vers l'anti-soleil inversé
+            ddx, ddy = -ddx, -ddy
+        dn = np.maximum(np.hypot(ddx, ddy), 1e-3)
+        ddx, ddy = ddx / dn, ddy / dn
+        span = (0.05 + 0.5 * length / 100.0) * math.hypot(w, h)
+        n_m = 32 if precise else 20
+        sm = np.zeros((h, w), np.float32)
+        for j in range(n_m):
+            d_ = span * (j + jit) / n_m
+            sm += cv2.remap(tm, (xx + ddx * d_).astype(np.float32),
+                            (yy + ddy * d_).astype(np.float32),
+                            cv2.INTER_LINEAR,
+                            borderMode=cv2.BORDER_REPLICATE)
+        sm = cv2.GaussianBlur(sm / n_m, (0, 0), max(1.0, w * 0.006))
+        ratio = ratio * ((1 - influence) + influence * sm)
     ph = phase / max(1e-6, float(phase.max()))
     glow = (0.5 - 0.4 * rays) + (0.5 + 0.4 * rays) * ph
     lit = 0.8 * glow * ratio ** (1 + 4 * shadows)
