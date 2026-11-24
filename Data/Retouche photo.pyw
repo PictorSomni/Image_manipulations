@@ -751,9 +751,8 @@ def main(page: ft.Page):
             return
 
         def work():
-            src = np.asarray(state["proxy"].convert("RGB"),
-                             np.float32) / 255
-            far = image_ops.depth_map(src)
+            # Même carte (et même cache) que les effets.
+            far = image_ops.source_depth(state["proxy"])
             buf = io.BytesIO()
             Image.fromarray((np.clip(far, 0, 1) * 255).astype(np.uint8)
                             ).save(buf, format="JPEG", quality=90)

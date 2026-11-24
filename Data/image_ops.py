@@ -24,6 +24,7 @@ import os
 import importlib.util
 import threading
 import sys
+import weakref
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -2744,7 +2745,7 @@ _DEPTH_URLS = {
     "base": "https://huggingface.co/onnx-community/"
             "depth-anything-v2-base/resolve/main/onnx/"
             "model_quantized.onnx"}
-_depth_state = {"session": {}, "cache": {}}
+_depth_state = {"session": {}, "cache": []}
 
 
 def _depth_session(kind="small"):
@@ -2804,11 +2805,10 @@ def _disparity(img, size, kind):
 
 
 def _depth_precise(img, quality=False):
-    """Éloignement IA 0..1. Qualité : modèle base, passe 518 px, puis
-    bords recalés sur la photo à ~2500 px (filtre guidé)."""
+    """Éloignement IA 0..1 à la résolution du modèle (passe 518 px ;
+    qualité : modèle base). Mise à la taille : _depth_fit."""
     # ponytail: l'ancienne passe fine 742/1036 px triplait le temps
     # (22 s -> 6 s sur le Pi) pour un écart invisible après recalage.
-    h, w = img.shape[:2]
     kind = "base" if quality else "small"
     d = g = _disparity(img, 518, kind)
     # Étagement calé sur les valeurs courantes, pas sur un point isolé ;
@@ -2838,6 +2838,13 @@ def _depth_precise(img, quality=False):
     # Gamma 0.6 : étire le proche (avant / arrière d'un bâtiment séparés).
     d = np.clip((d - a) / max(1e-6, b - a), 0, 1) ** 0.6 * 0.92
     d[sky] = 1.0
+    return d
+
+
+def _depth_fit(img, d, quality=True):
+    """Carte d (résolution du modèle) mise à la taille de img ; en
+    qualité, bords recalés sur la photo à ~2500 px (filtre guidé)."""
+    h, w = img.shape[:2]
     far = cv2.resize(d, (w, h), interpolation=cv2.INTER_CUBIC)
     if quality:
         g = _luma(img)
@@ -2856,54 +2863,59 @@ def _depth_precise(img, quality=False):
 # Appelé (sans argument) avant un calcul de carte : voile de l'interface.
 on_depth = None
 
+# Un seul calcul IA à la fois : deux en parallèle (vignette + rendu)
+# saturent la mémoire du Pi.
+_depth_lock = threading.Lock()
 
-def _depth_map(img, precise=0):
-    """Carte d'éloignement 0 (proche) .. 1 (loin) d'une image float RGB,
-    mise en cache par image (calculée une fois, pas à chaque curseur).
-    precise : 0 rapide (estimation), 1 équilibré (IA small), 2 qualité
-    (IA base, multi-échelle, bords recalés). Repli sur l'estimation
-    si le modèle échoue."""
+
+def _depth_find(img):
+    """Entrée du cache pour cette photo, quelle que soit sa taille :
+    vignette 16x16 et proportions quasi identiques (proxy, aperçu
+    réduit et export partagent l'inférence). Une carte calculée sur
+    une image plus petite que l'entrée du modèle ne sert pas pour une
+    plus grande."""
+    h, w = img.shape[:2]
+    thumb = cv2.resize(img, (16, 16), interpolation=cv2.INTER_AREA)
+    res = min(518, max(h, w))
+    for e in tuple(_depth_state["cache"]):
+        if (abs(e["ratio"] - w / h) < 0.01 and e["res"] >= res
+                and float(np.abs(e["thumb"] - thumb).max()) < 0.01):
+            return e
+    return {"ratio": w / h, "res": max(h, w), "thumb": thumb}
+
+
+def depth_map(img, precise=0):
+    """Carte d'éloignement 0 (proche) .. 1 (loin) d'une image float RGB.
+    L'inférence est mise en cache par contenu, à la résolution du
+    modèle ; seule la mise à la taille est refaite. Repli sur
+    l'estimation si le modèle échoue."""
     # ponytail: seul le mode qualité sert (retour user) ; le paramètre
     # reste pour les anciens préréglages.
-    precise = 2
     pin = _depth_state.get("pin")
     if pin is not None and abs(pin.shape[1] / pin.shape[0]
                                - img.shape[1] / img.shape[0]) < 0.01:
         return cv2.resize(pin, (img.shape[1], img.shape[0]),
                           interpolation=cv2.INTER_LINEAR)
-    thumb = cv2.resize(img, (16, 16), interpolation=cv2.INTER_AREA)
-    key = (img.shape, precise, (thumb * 255).astype(np.uint8).tobytes())
-    cache = _depth_state["cache"]
-    if key not in cache:
-        if on_depth:
-            on_depth()
-        far = None
-        if precise:
-            try:
-                far = _depth_precise(img, precise >= 2)
-            except Exception as exc:
-                print(f"Profondeur IA indisponible : {exc}")
-        if far is None:
-            far = _depth_rough(img)
-        if len(cache) > 6:
-            cache.pop(next(iter(cache)))
-        cache[key] = far
-    return cache[key]
-
-
-# Un seul calcul IA à la fois : deux en parallèle (vignette + rendu)
-# saturent la mémoire du Pi.
-_depth_lock = threading.Lock()
-try:
-    _LOW_RAM = (os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
-                < 12 * 2 ** 30)
-except (ValueError, OSError, AttributeError):  # Windows
-    _LOW_RAM = False
-
-
-def depth_map(img, precise=0):
-    with _depth_lock:
-        return _depth_map(img, precise)
+    e = _depth_find(img)
+    if "d" not in e:
+        # Verrou pour l'inférence seulement ; la carte a pu être
+        # calculée par l'autre fil pendant l'attente.
+        with _depth_lock:
+            e = _depth_find(img)
+            if "d" not in e:
+                if on_depth:
+                    on_depth()
+                try:
+                    e["d"], e["ai"] = _depth_precise(img, True), True
+                except Exception as exc:
+                    print(f"Profondeur IA indisponible : {exc}")
+                    e["d"], e["ai"] = _depth_rough(img), False
+                cache = _depth_state["cache"]
+                cache[:] = [c for c in cache if not (
+                    abs(c["ratio"] - e["ratio"]) < 0.01
+                    and float(np.abs(c["thumb"] - e["thumb"]).max())
+                    < 0.01)][-5:] + [e]
+    return _depth_fit(img, e["d"], e["ai"])
 
 
 def brume_mask(d, a):
@@ -4604,20 +4616,24 @@ _src_depth = {}
 
 def source_depth(pil_img):
     """Carte de profondeur (0 proche .. 1 loin) de la photo source, pour
-    les masques Profondeur ; gardée tant que la source ne change pas."""
-    # ponytail: 2 entrées (aperçu 300 px + aperçu plein) ; une seule
-    # les faisait recalculer à chaque glisser.
-    key = (id(pil_img), pil_img.size)
-    if key not in _src_depth:
-        if len(_src_depth) >= 2:
-            _src_depth.pop(next(iter(_src_depth)))
-        # 1280 px suffisent (masques et zones sont agrandis ensuite) :
-        # en pleine définition, 2 Go de mémoire sur le Pi.
-        small = pil_img.convert("RGB")
-        small.thumbnail((1280, 1280))
-        src = np.asarray(small, np.float32) / 255.0
-        _src_depth[key] = _snap(src, depth_map(src))
-    return _src_depth[key]
+    les masques Profondeur ; gardée tant que la source ne change pas.
+    Un autre objet de la même photo (proxy refait, aperçu réduit,
+    export) ne refait que la mise à la taille : l'inférence est en
+    cache par contenu (depth_map)."""
+    hit = _src_depth.get(id(pil_img))
+    if hit is not None and hit[0]() is pil_img:
+        return hit[1]
+    # 1280 px suffisent (masques et zones sont agrandis ensuite) :
+    # en pleine définition, 2 Go de mémoire sur le Pi.
+    small = pil_img.convert("RGB")
+    small.thumbnail((1280, 1280))
+    src = np.asarray(small, np.float32) / 255.0
+    far = _snap(src, depth_map(src))
+    # ponytail: 3 entrées (aperçu réduit, aperçu plein, export).
+    if len(_src_depth) >= 3:
+        _src_depth.pop(next(iter(_src_depth)))
+    _src_depth[id(pil_img)] = (weakref.ref(pil_img), far)
+    return far
 
 
 def mask_array(m, w, h, depth=None):
