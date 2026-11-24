@@ -2904,6 +2904,11 @@ def depth_map(img, precise=0):
                                - img.shape[1] / img.shape[0]) < 0.01:
         return cv2.resize(pin, (img.shape[1], img.shape[0]),
                           interpolation=cv2.INTER_LINEAR)
+    return _depth_infer(img)
+
+
+def _depth_infer(img):
+    """depth_map sans la carte épinglée : inférence en cache."""
     e = _depth_find(img)
     if "d" not in e:
         # Verrou pour l'inférence seulement ; la carte a pu être
@@ -3048,13 +3053,14 @@ def height_map(far, fov=60.0):
     return cv2.resize(ht, (w, h), interpolation=cv2.INTER_LINEAR), cam
 
 
-def pin_depth(pil_img):
+def pin_depth(pil_img, fix=None):
     """Calcule la carte sur la photo source et la partage entre les
     effets (brume, rayons) : une seule carte, indépendante des réglages
-    appliqués avant eux. None pour retirer."""
+    appliqués avant eux, corrections au pinceau `fix` comprises. None
+    pour retirer."""
     _depth_state["pin"] = None
     if pil_img is not None:
-        _depth_state["pin"] = source_depth(pil_img)
+        _depth_state["pin"] = source_depth(pil_img, fix)
 
 
 def _snap(img, m):
@@ -4654,26 +4660,107 @@ def new_mask(kind):
 _src_depth = {}
 
 
-def source_depth(pil_img):
+def source_depth(pil_img, fix=None):
     """Carte de profondeur (0 proche .. 1 loin) de la photo source, pour
     les masques Profondeur ; gardée tant que la source ne change pas.
     Un autre objet de la même photo (proxy refait, aperçu réduit,
     export) ne refait que la mise à la taille : l'inférence est en
-    cache par contenu (depth_map)."""
+    cache par contenu (depth_map). `fix` : traits du pinceau de
+    profondeur (depth_fix), seule la correction est recalculée quand
+    ils changent."""
     hit = _src_depth.get(id(pil_img))
-    if hit is not None and hit[0]() is pil_img:
+    if hit is None or hit[0]() is not pil_img:
+        # 1280 px suffisent (masques et zones sont agrandis ensuite) :
+        # en pleine définition, 2 Go de mémoire sur le Pi.
+        small = pil_img.convert("RGB")
+        small.thumbnail((1280, 1280))
+        src = np.asarray(small, np.float32) / 255.0
+        far = _snap(src, _depth_infer(src))
+        # ponytail: 3 entrées (aperçu réduit, aperçu plein, export).
+        if len(_src_depth) >= 3:
+            _src_depth.pop(next(iter(_src_depth)))
+        hit = (weakref.ref(pil_img), far, np.asarray(small), {})
+        _src_depth[id(pil_img)] = hit
+    if not fix:
         return hit[1]
-    # 1280 px suffisent (masques et zones sont agrandis ensuite) :
-    # en pleine définition, 2 Go de mémoire sur le Pi.
-    small = pil_img.convert("RGB")
-    small.thumbnail((1280, 1280))
-    src = np.asarray(small, np.float32) / 255.0
-    far = _snap(src, depth_map(src))
-    # ponytail: 3 entrées (aperçu réduit, aperçu plein, export).
-    if len(_src_depth) >= 3:
-        _src_depth.pop(next(iter(_src_depth)))
-    _src_depth[id(pil_img)] = (weakref.ref(pil_img), far)
-    return far
+    memo, key = hit[3], repr(fix)
+    done = memo.get("fixed")
+    if done is None or done[0] != key:
+        # Un seul tuple : deux fils (aperçu, carte affichée) ne mêlent
+        # jamais la clé de l'un à la carte de l'autre.
+        done = memo["fixed"] = (key, depth_fix(hit[1], hit[2], fix, memo))
+    return done[1]
+
+
+# Pinceau de profondeur : un trait = {"p": [[x, y], ...] en 0..1 de la
+# photo, "r": rayon en part du grand côté, "v": distance peinte 0..1
+# (None = gomme), "e": suit les contours}.
+def _fix_alpha(rgb, s):
+    """Couverture 0..1 d'un trait sur la carte : (y0, x0, tableau) de la
+    zone touchée seulement. Suivi des contours : sous le trait, seul ce
+    qui se distingue du fond qui l'entoure est pris (une flèche fine
+    peinte large ressort, le ciel autour non), puis filtre guidé sur la
+    photo pour coller aux bords."""
+    h, w = rgb.shape[:2]
+    rp = max(0.7, float(s.get("r", 0.01)) * max(h, w))
+    pts = np.float64(s.get("p") or [[0.5, 0.5]]).reshape(-1, 2) * (w, h)
+    m = int(rp * 4) + 8
+    x0 = max(0, int(pts[:, 0].min()) - m)
+    y0 = max(0, int(pts[:, 1].min()) - m)
+    x1 = min(w, int(pts[:, 0].max()) + m + 1)
+    y1 = min(h, int(pts[:, 1].max()) + m + 1)
+    if x1 <= x0 or y1 <= y0:
+        return 0, 0, np.zeros((0, 0), np.float32)
+    roi = rgb[y0:y1, x0:x1].astype(np.float32) / 255.0
+    a = stroke_layer(roi.shape[:2], pts - (x0, y0), rp,
+                     (1, 1)).astype(np.float32) / 255.0
+    if s.get("v") is None:
+        return y0, x0, a  # gomme : le trait tel quel
+    g = roi.mean(axis=2)
+    if s.get("e", True):
+        # Fond = couleurs autour du trait, prolongées dessous
+        # (convolution normalisée) ; seuil selon le grain de ce fond.
+        out = (cv2.dilate((a > 0.01).astype(np.uint8),
+                          np.ones((3, 3), np.uint8)) == 0)
+        out = out.astype(np.float32)
+        sig = max(2.0, 1.5 * rp)
+        den = cv2.GaussianBlur(out, (0, 0), sig) + 1e-6
+        bg = cv2.GaussianBlur(roi * out[..., None], (0, 0), sig) \
+            / den[..., None]
+        diff = ((roi - bg) ** 2).sum(axis=2)
+        t = 3 * np.sqrt(cv2.GaussianBlur(diff * out, (0, 0), sig) / den) \
+            + 0.02
+        fg = np.clip((np.sqrt(diff) - 0.5 * t) / t, 0, 1)
+        a = np.clip(_guided(g, a * fg, 3, 1e-4), 0, 1) * a
+    else:
+        a = np.clip(_guided(g, a, max(3, int(rp)) | 1, 1e-3), 0, 1)
+    return y0, x0, a.astype(np.float32)
+
+
+def depth_fix(far, rgb, strokes, memo=None):
+    """Carte `far` corrigée par les traits du pinceau, dans l'ordre :
+    d = d * (1 - m) + v * m. `rgb` : la photo (uint8) à la taille de
+    la carte. `memo` garde la couverture de chaque trait : un nouveau
+    trait ne recalcule que le sien."""
+    cache = {} if memo is None else memo.setdefault("alpha", {})
+    if len(cache) > 400:
+        cache.clear()
+    cover = np.zeros(far.shape, np.float32)
+    val = np.zeros(far.shape, np.float32)  # valeur × couverture
+    for s in strokes:
+        k = repr(s)
+        if k not in cache:
+            cache[k] = _fix_alpha(rgb, s)
+        y0, x0, a = cache[k]
+        if not a.size:
+            continue
+        sl = (slice(y0, y0 + a.shape[0]), slice(x0, x0 + a.shape[1]))
+        val[sl] *= 1 - a
+        cover[sl] *= 1 - a
+        if s.get("v") is not None:
+            val[sl] += float(s["v"]) * a
+            cover[sl] += a
+    return np.clip(far * (1 - cover) + val, 0, 1).astype(np.float32)
 
 
 def mask_array(m, w, h, depth=None):

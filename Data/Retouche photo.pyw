@@ -252,6 +252,9 @@ def default_params():
             "custom_text": C.RETOUCHE_LOT_COPYRIGHT_CUSTOM_TEXT,
         },
         "masques": [],
+        # Pinceau de profondeur : traits propres à la photo, jamais
+        # dans les préréglages (cf. image_ops.depth_fix).
+        "depth_fix": [],
     }
 
 
@@ -305,6 +308,9 @@ def save_preset(name, params):
     if not safe:
         raise ValueError("Nom de préréglage invalide.")
     PRESETS_DIR.mkdir(exist_ok=True)
+    # Les retouches de la carte de profondeur suivent la photo, pas
+    # le préréglage.
+    params = {k: v for k, v in params.items() if k != "depth_fix"}
     with open(PRESETS_DIR / f"{safe}.json", "w", encoding="utf-8") as f:
         json.dump(params, f, indent=2, ensure_ascii=False)
     return safe
@@ -449,9 +455,10 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
         else:
             groups.append([m])
     depth = None
+    fix = params.get("depth_fix")
     if any(m.get("type") == "depth" and m.get("enabled", True)
            for m in params.get("masques", [])):
-        depth = image_ops.source_depth(image)
+        depth = image_ops.source_depth(image, fix)
     for lead, *linked in groups:
         if not lead.get("enabled", True) or not any(
                 lead.get(k) for k in image_ops.MASK_ADJ_KEYS):
@@ -541,7 +548,7 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
     # Une seule carte de profondeur, calculée sur la source, pour brume
     # et rayons (pas recalculée quand un réglage amont change).
     image_ops.pin_depth(image if any(
-        g[n].get("enabled") for n in ("brume", "rayons")) else None)
+        g[n].get("enabled") for n in ("brume", "rayons")) else None, fix)
     for name, func, keys in fx:
         a = g.get(name)
         if a and a.get("enabled"):
@@ -550,21 +557,21 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
                 # Volume éclairé depuis le soleil des Rayons.
                 kw["sun"] = (g["rayons"]["x"], g["rayons"]["y"])
             if name == "bokeh":
-                kw["depth"] = image_ops.source_depth(image)
+                kw["depth"] = image_ops.source_depth(image, fix)
             before = result
             if name == "brume":
                 kw.update(depth=0.0, fond=1.0, visible=0.0, ground=0.0)
                 # Intensité 0-1 = 0-0,4 de l'ancienne échelle (1 déjà
                 # trop dense, retour user).
                 kw["amount"] = float(kw.get("amount", 0)) * 0.55
-                kw["far"] = image_ops.source_depth(image)
+                kw["far"] = image_ops.source_depth(image, fix)
             result = func(result, **kw)
             if name == "brume":
                 b = np.asarray(before.convert("RGB"), np.float32)
                 delta = np.asarray(result.convert("RGB"), np.float32) - b
                 hh, ww = b.shape[:2]
                 m = image_ops.brume_mask(
-                    image_ops.source_depth(image), a)
+                    image_ops.source_depth(image, fix), a)
                 delta *= cv2.resize(m, (ww, hh), interpolation=cv2.
                                     INTER_LINEAR)[..., None]
                 result = Image.fromarray(
@@ -744,23 +751,227 @@ def main(page: ft.Page):
                              width=state["preview_w"],
                              height=state["preview_h"])
 
-    def _show_depth(on):
-        if not on or state["proxy"] is None:
-            depth_display.visible = False
-            depth_display.update()
-            return
+    # Pinceau de profondeur : on peint sur la carte affichée la distance
+    # voulue (« ceci est proche / loin »). Traits dans
+    # params["depth_fix"], coordonnées 0..1 de la photo.
+    brush = {"on": False, "tool": 0, "size": 1.0, "value": 0.3,
+             "edge": True, "cur": None, "hover": None}
+    brush_ui = []  # rafraîchisseurs des blocs pinceau (Brume, Rayons…)
+    brush_canvas = cv.Canvas(shapes=[], visible=False)
+    depth_view = {"want": 0, "busy": False, "shown": False, "key": None}
 
-        def work():
-            # Même carte (et même cache) que les effets.
-            far = image_ops.source_depth(state["proxy"])
-            buf = io.BytesIO()
-            Image.fromarray((np.clip(far, 0, 1) * 255).astype(np.uint8)
-                            ).save(buf, format="JPEG", quality=90)
-            depth_display.src = ("data:image/jpeg;base64,"
-                                 + base64.b64encode(buf.getvalue()).decode())
+    def _depth_fix_now():
+        """Traits de la photo, plus celui en cours de tracé."""
+        fix = list(state["params"].get("depth_fix") or [])
+        if brush["cur"]:
+            fix.append(brush["cur"])
+        return fix
+
+    def _depth_wanted():
+        return ((depth_view["shown"] or brush["on"])
+                and state["proxy"] is not None)
+
+    def _render_depth():
+        """Carte affichée recalculée en tâche de fond ; les demandes
+        rapprochées (trait en cours) sont regroupées."""
+        depth_view["want"] += 1
+        if depth_view["busy"]:
+            return
+        depth_view["busy"] = True
+
+        async def _apply(src):
+            if src:
+                depth_display.src = src
             depth_display.visible = True
             depth_display.update()
+            # Voile « Création de la carte » posé par l'inférence : aucun
+            # rendu d'aperçu en attente pour le lever.
+            if (load_veil.opacity and state.get("rendered_req", 0)
+                    >= state.get("live_req", 0)):
+                ui_helpers.set_busy_veil(load_veil, False)
+                load_veil.update()
+
+        def work():
+            try:
+                while _depth_wanted():
+                    want, proxy = depth_view["want"], state["proxy"]
+                    fix = _depth_fix_now()
+                    key = (id(proxy), repr(fix))
+                    src = None
+                    if key != depth_view["key"]:
+                        # Même carte (et même cache) que les effets.
+                        far = image_ops.source_depth(proxy, fix)
+                        buf = io.BytesIO()
+                        Image.fromarray(
+                            (np.clip(far, 0, 1) * 255).astype(np.uint8)
+                        ).save(buf, format="JPEG", quality=90)
+                        src = ("data:image/jpeg;base64,"
+                               + base64.b64encode(buf.getvalue()).decode())
+                        depth_view["key"] = key
+                    if not _depth_wanted():
+                        break
+                    page.run_task(_apply, src)
+                    if depth_view["want"] == want:
+                        break
+            except Exception:
+                import traceback
+                traceback.print_exc()
+            finally:
+                depth_view["busy"] = False
         threading.Thread(target=work, daemon=True).start()
+
+    def _depth_overlay():
+        if _depth_wanted():
+            _render_depth()
+        elif depth_display.visible:
+            depth_display.visible = False
+            depth_display.update()
+
+    def _show_depth(on):
+        depth_view["shown"] = on
+        _depth_overlay()
+
+    # Photo changée, carte affichée : elle suit.
+    state.setdefault("tick_hooks", []).append(
+        lambda: depth_display.visible and _render_depth())
+
+    def _brush_set(on):
+        brush["on"], brush["cur"], brush["hover"] = on, None, None
+        brush_canvas.visible = on
+        preview_viewer.pan_enabled = not on
+        preview_tap.mouse_cursor = ft.MouseCursor.PRECISE if on else None
+        preview_viewer.update()
+        preview_tap.update()
+        _brush_draw()
+        _brush_sync()
+        _depth_overlay()
+        if not on:
+            # Aperçu (brume, flou, rayons) remis à jour à la sortie
+            # seulement : pas de rendu complet à chaque trait sur le Pi.
+            live_preview_tick()
+
+    def _brush_sync():
+        for refresh in brush_ui:
+            refresh()
+
+    def _brush_hex(v):
+        g = int(round(np.clip(v, 0, 1) * 255))
+        return f"#{g:02x}{g:02x}{g:02x}"
+
+    def _brush_draw():
+        w, h = image_display.width or 1, image_display.height or 1
+        rpx = brush["size"] / 100 * max(w, h)
+        shapes = []
+        cur = brush["cur"]
+        if cur:
+            pts = [(x * w, y * h) for x, y in cur["p"]]
+            path = [cv.Path.MoveTo(*pts[0])] + [
+                cv.Path.LineTo(*p) for p in pts[1:]]
+            if len(pts) == 1:
+                path.append(cv.Path.LineTo(pts[0][0] + 0.01, pts[0][1]))
+            color = RED if cur["v"] is None else ORANGE
+            shapes.append(cv.Path(path, paint=ft.Paint(
+                color=ft.Colors.with_opacity(0.3, color),
+                style=ft.PaintingStyle.STROKE, stroke_width=2 * rpx,
+                stroke_cap=ft.StrokeCap.ROUND,
+                stroke_join=ft.StrokeJoin.ROUND)))
+        if brush["hover"]:
+            x, y = brush["hover"]
+            fill = (RED if brush["tool"] == 1
+                    else _brush_hex(brush["value"]))
+            shapes += [
+                cv.Circle(x, y, rpx, paint=ft.Paint(
+                    color=fill, style=ft.PaintingStyle.STROKE,
+                    stroke_width=3)),
+                cv.Circle(x, y, rpx + 2, paint=ft.Paint(
+                    color=ORANGE, style=ft.PaintingStyle.STROKE,
+                    stroke_width=1.5))]
+        brush_canvas.shapes = shapes
+        brush_canvas.update()
+
+    def _brush_hover(e):
+        if not brush["on"]:
+            return
+        brush["hover"] = (e.local_position.x, e.local_position.y)
+        _brush_draw()
+
+    def _brush_exit(e):
+        if brush["on"] and brush["hover"]:
+            brush["hover"] = None
+            _brush_draw()
+
+    def _brush_pick(x, y):
+        """Pipette : distance de la carte (corrigée) sous le curseur."""
+        fx, fy = _to_image_frac(x, y)
+        far = image_ops.source_depth(state["proxy"], _depth_fix_now())
+        hh, ww = far.shape
+        brush["value"] = round(float(far[
+            int(np.clip(fy * hh, 0, hh - 1)),
+            int(np.clip(fx * ww, 0, ww - 1))]), 2)
+        brush["tool"] = 0
+        _brush_sync()
+
+    def _brush_down(e):
+        x, y = e.local_position.x, e.local_position.y
+        brush["hover"] = (x, y)
+        if brush["tool"] == 2:
+            brush["cur"] = None
+            _brush_pick(x, y)
+            return
+        fx, fy = _to_image_frac(x, y)
+        erase = brush["tool"] == 1
+        brush["cur"] = {"p": [[round(fx, 4), round(fy, 4)]],
+                        "r": round(brush["size"] / 100, 4),
+                        "v": None if erase else round(brush["value"], 3),
+                        "e": brush["edge"] and not erase}
+        _brush_draw()
+        _render_depth()
+
+    def _brush_move(e):
+        cur = brush["cur"]
+        x, y = e.local_position.x, e.local_position.y
+        brush["hover"] = (x, y)
+        if cur:
+            w, h = image_display.width or 1, image_display.height or 1
+            fx, fy = _to_image_frac(x, y)
+            px, py = cur["p"][-1]
+            # Un point par quart de rayon : traits légers dans les
+            # réglages.
+            if math.hypot((fx - px) * w, (fy - py) * h) \
+                    >= max(1.0, brush["size"] / 400 * max(w, h)):
+                cur["p"].append([round(fx, 4), round(fy, 4)])
+                _render_depth()
+        _brush_draw()
+
+    def _brush_up(e=None):
+        cur = brush["cur"]
+        if not cur:
+            return
+        brush["cur"] = None
+        state["params"].setdefault("depth_fix", []).append(cur)
+        _brush_draw()
+        _render_depth()
+        _brush_sync()
+
+    def _brush_undo(e=None):
+        fix = state["params"].get("depth_fix") or []
+        if fix:
+            fix.pop()
+            _render_depth()
+            _brush_sync()
+
+    def _brush_clear(e=None):
+        def _go():
+            state["params"]["depth_fix"] = []
+            _render_depth()
+            _brush_sync()
+            if not brush["on"]:
+                live_preview_tick()
+        if state["params"].get("depth_fix"):
+            ui_helpers.confirm_dialog(
+                page, "Effacer les retouches de la carte ?", _go,
+                {"white": WHITE}, confirm_label="Effacer",
+                confirm_color=RED)
 
     # Pipette (Blanc / Peau) : un tap sur l'aperçu prend la zone cliquée
     # comme référence. Coordonnées locales = espace non zoomé de l'image.
@@ -842,6 +1053,9 @@ def main(page: ft.Page):
             _sync_controls_from_params()
 
     def _on_preview_pan_down(e):
+        if brush["on"]:
+            _brush_down(e)
+            return
         if sun["on"]:
             _move_sun(e.local_position.x, e.local_position.y)
             return
@@ -852,6 +1066,9 @@ def main(page: ft.Page):
             pick["start"] = (e.local_position.x, e.local_position.y)
 
     def _on_preview_pan_update(e):
+        if brush["on"]:
+            _brush_move(e)
+            return
         if sun["on"]:
             _move_sun(e.local_position.x, e.local_position.y)
             return
@@ -868,6 +1085,9 @@ def main(page: ft.Page):
         sel_rect.update()
 
     def _on_preview_pan_end(e):
+        if brush["on"]:
+            _brush_up()
+            return
         if sun["on"]:
             _sync_controls_from_params()
             return
@@ -889,6 +1109,9 @@ def main(page: ft.Page):
 
     def _on_preview_tap(e):
         # Simple clic : petit carré (~3 % du grand côté) autour du point.
+        if brush["on"]:
+            _brush_up()  # clic sans glisser : une touche ronde
+            return
         if sun["on"]:
             _move_sun(e.local_position.x, e.local_position.y)
             _sync_controls_from_params()
@@ -907,8 +1130,11 @@ def main(page: ft.Page):
             state["proxy"], pick["mode"], (fx - r, fy - r, fx + r, fy + r)))
 
     preview_tap = ft.GestureDetector(
-        content=ft.Stack([image_display, original_display, depth_display, sel_rect,
-                          mask_canvas, sun_marker]),
+        content=ft.Stack([image_display, original_display, depth_display,
+                          sel_rect, mask_canvas, brush_canvas, sun_marker]),
+        on_hover=_brush_hover, on_exit=_brush_exit, hover_interval=30,
+        on_secondary_tap_down=lambda e: brush["on"] and _brush_pick(
+            e.local_position.x, e.local_position.y),
         on_tap_up=_on_preview_tap, on_pan_down=_on_preview_pan_down,
         on_pan_update=_on_preview_pan_update,
         on_pan_end=_on_preview_pan_end)
@@ -1006,7 +1232,7 @@ def main(page: ft.Page):
             k = min(w / proxy.width, h / proxy.height)
             w, h = proxy.width * k, proxy.height * k
         for c in (image_display, original_display, depth_display,
-                  mask_canvas):
+                  mask_canvas, brush_canvas):
             c.width, c.height = w, h
 
     def _apply_preview_size(e=None):
@@ -1206,7 +1432,11 @@ def main(page: ft.Page):
         def _go():
             for n in names:
                 if n != state["cur"]:
-                    state["overrides"][n] = copy.deepcopy(state["params"])
+                    # Chaque photo garde sa carte de profondeur retouchée.
+                    own = copy.deepcopy(
+                        _photo_params(n).get("depth_fix", []))
+                    state["overrides"][n] = dict(
+                        copy.deepcopy(state["params"]), depth_fix=own)
             _refresh_filmstrip()
             if after:
                 after()
@@ -2185,7 +2415,9 @@ def main(page: ft.Page):
             proxy = state["proxy"]
             if proxy is None or not box.visible:
                 return
-            if pk["d"] is not None and pk.get("src") is proxy:
+            fix = state["params"].get("depth_fix")
+            if pk["d"] is not None and pk.get("src") == (
+                    id(proxy), repr(fix)):
                 _draw()
                 return
             if pk["busy"]:
@@ -2201,11 +2433,11 @@ def main(page: ft.Page):
                     pk["busy"] = False
 
             def _work():
-                d = image_ops.source_depth(proxy)
+                d = image_ops.source_depth(proxy, fix)
                 h = max(1, round(width * d.shape[0] / d.shape[1]))
                 pk["d"] = cv2.resize(d.astype(np.float32), (width, h),
                                      interpolation=cv2.INTER_AREA)
-                pk["src"] = proxy
+                pk["src"] = (id(proxy), repr(fix))
                 img.height = h
                 pk["busy"] = False
                 _draw()
@@ -2239,13 +2471,83 @@ def main(page: ft.Page):
         box.data = refresh
         state.setdefault("tick_hooks", []).append(
             lambda: box.visible and dct.get("enabled", True)
-            and (_draw() if pk["d"] is not None
-                 and pk.get("src") is state["proxy"] else refresh()))
+            and refresh())
         return box
 
     grain_rows = {}
     key_rows = {}    # section → {clé: ligne de curseur}
     mode_hooks = {}  # section → rappel au changement Écran/Volume
+
+    def _brush_block(color):
+        """Pinceau de profondeur sous « Voir la profondeur » : même état
+        partagé par toutes les sections (brush)."""
+        on_sw = ft.Switch(label="Corriger la profondeur",
+                          active_color=color,
+                          on_change=lambda e: _brush_set(e.control.value))
+        tools = [ft.IconButton(ic, tooltip=tip, icon_size=CONSTANTS.ICON_SM,
+                               on_click=lambda e, i=i: (
+                                   brush.update(tool=i), _brush_sync()))
+                 for i, (ic, tip) in enumerate((
+                     (ft.Icons.BRUSH, "Pinceau"),
+                     (ft.Icons.CLEANING_SERVICES, "Gomme"),
+                     (ft.Icons.COLORIZE, "Pipette")))]
+        undo = ft.IconButton(ft.Icons.UNDO, tooltip="Annuler le trait",
+                             icon_color=WHITE, icon_size=CONSTANTS.ICON_SM,
+                             on_click=_brush_undo)
+        clear = ft.IconButton(ft.Icons.DELETE_SWEEP, tooltip="Tout effacer",
+                              icon_color=RED, icon_size=CONSTANTS.ICON_SM,
+                              on_click=_brush_clear)
+        swatch = ft.Container(width=18, height=18, border_radius=9,
+                              border=ft.Border.all(2, WHITE))
+
+        def _size(e):
+            brush["size"] = round(e.control.value, 1)
+            _brush_draw()
+
+        def _value(e):
+            brush["value"] = round(e.control.value, 2)
+            swatch.bgcolor = _brush_hex(brush["value"])
+            swatch.update()
+
+        size_sl = ft.Slider(min=0.2, max=8, value=brush["size"], expand=True,
+                            active_color=color, inactive_color=TRACK,
+                            on_change=_size)
+        value_sl = ft.Slider(min=0, max=1, value=brush["value"], expand=True,
+                             active_color=color, inactive_color=TRACK,
+                             on_change=_value)
+        edge_sw = ft.Switch(label="Suivre les contours", value=brush["edge"],
+                            active_color=color,
+                            on_change=lambda e: brush.update(
+                                edge=e.control.value))
+
+        def _lbl(t):
+            return ft.Text(t, size=CONSTANTS.TEXT_SM, color=LIGHT_GREY,
+                           width=64)
+        body = ft.Column([
+            ft.Row([*tools, ft.Container(expand=True), undo, clear],
+                   spacing=0),
+            ft.Row([_lbl("Taille"), size_sl], spacing=0),
+            ft.Row([_lbl("Distance"), swatch, value_sl], spacing=4),
+            edge_sw], spacing=2, visible=False)
+
+        def refresh():
+            on_sw.value = brush["on"]
+            body.visible = brush["on"]
+            for i, b in enumerate(tools):
+                sel = i == brush["tool"]
+                b.icon_color = DARK if sel else WHITE
+                b.bgcolor = color if sel else None
+            size_sl.value, value_sl.value = brush["size"], brush["value"]
+            swatch.bgcolor = _brush_hex(brush["value"])
+            edge_sw.value = brush["edge"]
+            n = len(state["params"].get("depth_fix") or [])
+            undo.disabled = clear.disabled = not n
+            with contextlib.suppress(RuntimeError, AssertionError):
+                col.update()
+        col = ft.Column([on_sw, body], spacing=2)
+        brush_ui.append(refresh)
+        refresh()
+        return col
 
     def _grain_section(label, color, icon, sub, field_specs, extra=(),
                        head=()):
@@ -2279,6 +2581,8 @@ def main(page: ft.Page):
                 (sw, sub, key))
             key_rows[label][key] = sw
             rows.append(sw)
+            if key == "show_depth":
+                rows.append(_brush_block(color))
         if "precise" in sub:
             # Qualité : réglages rapides en basse résolution, puis
             # passage en Qualité une fois le cadrage des nuages trouvé.
@@ -2566,7 +2870,7 @@ def main(page: ft.Page):
             ("dof", "Taille de la zone", 0, 100, 1),
             ("highlights", "Bokeh", 0, 100, 1)],
         head=[_depth_picker(ga["bokeh"], key="focus",
-                            after=_bokeh_refresh)])
+                            after=_bokeh_refresh), _brush_block(BLUE)])
     section_vignette = _grain_section(
         "Vignette", BLUE_DARK, ft.Icons.VIGNETTE, ga["vignette"], [
             ("amount", "Intensité", -100, 100, 1),
@@ -2945,6 +3249,7 @@ def main(page: ft.Page):
                 loaded = json.load(f)
             photos = loaded.pop("_photos", {})
             loaded.setdefault("masques", [])
+            loaded.pop("depth_fix", None)
             if photos and state["base"] is None:
                 state["base"] = copy.deepcopy(state["params"])
             for n, prm in photos.items():
@@ -3003,6 +3308,7 @@ def main(page: ft.Page):
         try:
             loaded = load_preset(name)
             loaded.pop("_photos", None)
+            loaded.pop("depth_fix", None)
             loaded.setdefault("masques", [])
             _update_in_place(state["params"], loaded)
         except Exception as exc:
@@ -3120,7 +3426,10 @@ def main(page: ft.Page):
         return handler
 
     def _on_reset(e):
-        _update_in_place(state["params"], default_params())
+        fresh = default_params()
+        # Retouches de la carte gardées : « Tout effacer » du pinceau.
+        fresh["depth_fix"] = state["params"].get("depth_fix", [])
+        _update_in_place(state["params"], fresh)
         _sync_controls_from_params()
         live_preview_tick()
 
@@ -3503,6 +3812,8 @@ def main(page: ft.Page):
 
     def _show_pane(key):
         was_embedded = state.get("tab") in embedded_tabs
+        if brush["on"] and key != "settings":
+            _brush_set(False)
         _stage_ia()
         if key == "ia":
             _open_ia_tab()
