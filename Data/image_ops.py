@@ -18,6 +18,7 @@ noms, `self.xxx` remplacés par des paramètres explicites.
 
 import colorsys
 import functools
+import hashlib
 import io
 import math
 import os
@@ -3870,6 +3871,11 @@ def _fog_volume(out, far, hw, amount, color, shade, distort=0.5,
     return out * T[..., None] + C
 
 
+# Tirages aléatoires des bancs (ondes, décalage, volutes), par
+# géométrie : régler intensité, densité ou couleur ne les refait pas.
+_banks_cache = {}
+
+
 def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
                curl=0.5, distort=0.5, n=7, bumps=0.5, contrast=0.5,
                cap=0.97, soft_vol=False):
@@ -3892,6 +3898,15 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
     up = (lambda a: a) if s >= 1 else (lambda a: cv2.resize(
         a, (W, H), interpolation=cv2.INTER_LINEAR))
     rng = np.random.default_rng(7 + 1000 * _SEED)
+    # Le rng avance d'un banc à l'autre : toute la séquence est gardée,
+    # sous une clé couvrant tout ce dont elle dépend.
+    gkey = (hashlib.sha1(np.ascontiguousarray(far)).digest(), far.shape,
+            n, _SEED, _SHIFT, float(curl), float(contrast), float(bumps),
+            max(H, W) <= 400)
+    geo = _banks_cache.get(gkey)
+    fresh = geo is None
+    if fresh:
+        geo = {}
     # Pavé : sx fait glisser les volutes le long des bancs, sy avance ou
     # recule les bancs dans la profondeur ; tout est recalculé sur la scène.
     dx = _SHIFT[0] * w * 0.5
@@ -3942,11 +3957,15 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
         present = np.clip(wgt * 2.5, 0, 1)[None, :]
         # Bord ondulé : grandes ondes + petites crêtes, plus fines au loin.
         k = max(3, int(6 + 10 * t))
-        wave = cv2.resize(rng.random((1, k)).astype(np.float32), (w, 1),
-                          interpolation=cv2.INTER_CUBIC)
-        rip = cv2.resize(rng.random((1, k * 4)).astype(np.float32),
-                         (w, 1), interpolation=cv2.INTER_CUBIC)
-        wave, rip = roll(wave), roll(rip)
+        if fresh:
+            wave = cv2.resize(rng.random((1, k)).astype(np.float32),
+                              (w, 1), interpolation=cv2.INTER_CUBIC)
+            rip = cv2.resize(rng.random((1, k * 4)).astype(np.float32),
+                             (w, 1), interpolation=cv2.INTER_CUBIC)
+            wave, rip = roll(wave), roll(rip)
+            jit = rng.uniform(-0.03, 0.03)
+        else:
+            wave, rip, jit, hf = geo[i]
         # Calme plat (contraste 0) : bord presque droit, sans boules.
         cv = contrast
         amp = h * 0.06 * (1.1 - t) * (0.3 + 1.4 * curl) * (0.1 + 0.9 * cv)
@@ -3958,7 +3977,7 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
         tx = roll(tx)
         edge = ycol - amp * (0.3 + wave + 0.5 * curl * rip) \
             - amp * (0.2 + 0.8 * curl) * tx \
-            + rng.uniform(-0.03, 0.03) * h
+            + jit * h
         # Dessus en boules (cumulus) : demi-cercles posés sur le bord,
         # plus petits au loin ; dessous plat.
         # Écart fond/avant adouci (x2,6 au lieu de x5,5) et plancher plus
@@ -3967,12 +3986,15 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
         # Volutes : vraies sphères puis sous-sphères (champ de hauteur
         # 2D) posées sur le bord lisse. Pas de profil par colonne : il
         # étirait chaque bosse vers le bas en rideau.
-        hf = None
-        if r0 >= 1.5 and cv > 0:
-            # Aperçu de glisser (≤ 400 px) : un seul niveau de boules.
-            hf = _puff_field(h, w, edge[0], r0, rng, bumps,
-                             1 if max(H, W) <= 400
-                             else 3 if t < 0.35 else 2)
+        if fresh:
+            hf = None
+            if r0 >= 1.5 and cv > 0:
+                # Aperçu de glisser (≤ 400 px) : un seul niveau de
+                # boules.
+                hf = _puff_field(h, w, edge[0], r0, rng, bumps,
+                                 1 if max(H, W) <= 400
+                                 else 3 if t < 0.35 else 2)
+            geo[i] = (wave, rip, jit, hf)
         dy = yy - edge
         # Au loin, bords fondus et bancs plus légers (spread).
         sf = soft * (1 + 1.5 * spread + 3 * spread * t ** 2) \
@@ -4050,6 +4072,12 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
         A = A * keep
         B = (B * (1 - k) + k) * (1 - al)
         C = C * keep[..., None] + col * al[..., None]
+    if fresh:
+        # ponytail: 3 géométries (aperçu de glisser, aperçu, export) ;
+        # ~40 Mo chacune à 960 px.
+        if len(_banks_cache) >= 3:
+            _banks_cache.pop(next(iter(_banks_cache)))
+        _banks_cache[gkey] = geo
     if s >= 1:
         return out * A[..., None] + blur * B[..., None] + C
     res = (out * up_(A)[..., None] + blur * up_(B)[..., None]
