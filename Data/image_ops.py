@@ -2933,12 +2933,14 @@ def brume_mask(d, a):
     if a.get("zone_w", 100) < 100:
         m *= np.clip(1 - (np.abs(d - a.get("zone", 0.5))
                           - a["zone_w"] / 200) / soft, 0, 1)
-    holes = float(a.get("holes", 0))
+    # Curseur 0-1 = 0-50 % de l'ancienne échelle (plus fin, retour user).
+    holes = 0.5 * float(a.get("holes", 0))
     if holes > 0:
         h, w = d.shape
         k = min(1.0, 320 / max(h, w))
         sh, sw = max(8, int(h * k)), max(8, int(w * k))
-        n = _cloud_noise(sh, sw, 22 * float(a.get("bumps", 1)),
+        # Petits patchs : vue de loin, un gros trou vide tout un pan.
+        n = _cloud_noise(sh, sw, 4 * float(a.get("bumps", 1)),
                          53 + 1000 * int(a.get("seed", 0)))
         mv = np.float32([[1, 0, a.get("sx", 0) * sw * 0.5],
                          [0, 1, a.get("sy", 0) * sh * 0.5]])
@@ -2947,11 +2949,13 @@ def brume_mask(d, a):
         # Trous : les creux du bruit vident la brume, bords fondus.
         # Bruit lissé puis fondu large réglé par Contour : trous qui
         # s'ouvrent progressivement, jamais d'un coup.
-        n = cv2.GaussianBlur(n, (0, 0), max(1.0, sw * 0.02))
+        n = cv2.GaussianBlur(n, (0, 0), max(1.0, sw * 0.006))
         n = (n - n.mean()) / max(1e-3, float(n.std()))
         lo = float(np.percentile(n, 100 * holes))
         n = np.clip((n - lo) / (0.5 + 1.5 * soft) + 0.5, 0, 1)
         n = n * n * (3 - 2 * n)
+        # Bord des trous adouci en plus selon Contour.
+        n = cv2.GaussianBlur(n, (0, 0), max(0.5, sw * 0.008 * soft))
         m *= cv2.resize(n, (w, h), interpolation=cv2.INTER_LINEAR)
     return m
 
