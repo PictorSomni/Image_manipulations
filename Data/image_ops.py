@@ -3487,7 +3487,8 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
              ground=0.0, ground_height=0.3,
              bumps=1.0, fond=1.0, contrast=1.0, distort=0.5, edge=0.1, seed=0,
              visible=0.0, grain=1.0, volume=False, sun=None,
-             sx=0.0, sy=0.0, far=None, horizon=0.0, horizon_tilt=0.0):
+             sx=0.0, sy=0.0, far=None, horizon=0.0, horizon_tilt=0.0,
+             ramp=0.5):
     """Brume / voile atmosphérique : mélange vers une couleur laiteuse,
     dense au loin selon la carte de profondeur. depth : 0 uniforme,
     1 = seulement l'arrière-plan. warmth -1 froid .. 1 chaud.
@@ -3564,7 +3565,8 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
             density=ground or 1.0,
             warmth=warmth, sun=sun, res=min(_RES, 1200.0), seed=seed,
             recul=depth, visible=visible, fade=fade,
-            horizon=horizon, tilt=horizon_tilt, shift=_SHIFT)
+            horizon=horizon, tilt=horizon_tilt, shift=_SHIFT,
+            ramp=ramp)
         if sea is not None:
             return _to_pil(sea)
     # Brume au sol : dense près de l'eau / des fonds, s'efface en montant.

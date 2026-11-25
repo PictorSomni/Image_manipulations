@@ -236,7 +236,7 @@ def _tri(v, x, y, z):
 
 def _face_volume(img, far, yh, layer, size, billow, detail, soft, amount,
                  warmth, sun, seed, fade, visible, shift=(0.0, 0.0),
-                 fov=60.0):
+                 fov=60.0, ramp=0.5):
     """Vue de face : vrai volume de cumulus en 3D, marché le long de
     chaque rayon de l'œil jusqu'à l'objet (carte de profondeur). Œil à
     1 au-dessus du sol (y = -1) ; nuages du sol jusqu'à y = -1 + T."""
@@ -265,6 +265,8 @@ def _face_volume(img, far, yh, layer, size, billow, detail, soft, amount,
     T = 1.2 + 6.0 * float(np.clip(layer, 0, 1))
     L = 2.5 + 3.5 * float(np.clip(size, 0.5, 2.0))  # cellule monde
     cov = 0.45 + 0.2 * float(np.clip(fade, 0, 1))
+    # Progression : 0 = dense dès l'œil, 1 = très lent.
+    rl = 0.05 + 5.0 * float(np.clip(ramp, 0, 1)) ** 2
     kb = float(np.clip(billow - 0.5, 0, 0.5)) * 2  # cumulus
     bil = 0.6 + 0.8 * float(np.clip(billow, 0, 0.5))
     det = float(np.clip(detail, 0, 1))
@@ -318,7 +320,7 @@ def _face_volume(img, far, yh, layer, size, billow, detail, soft, amount,
         # Nappes proches de l'objectif, basses et légères.
         d = d + 0.6 * puff * np.exp(-pz / (0.3 * L)) * (hf < 0.35)
         # Progressif en profondeur : léger près de l'œil, plein au loin.
-        d = d * (1 - np.exp(-pz / (1.5 * L)))
+        d = d * (1 - np.exp(-pz / (rl * L)))
         d = d * (hf < 1) * (hf > -0.05)
         return np.clip(d, 0, 0.8)
 
@@ -397,7 +399,7 @@ def _face_volume(img, far, yh, layer, size, billow, detail, soft, amount,
 def sea(img, far, layer=0.35, size=0.5, billow=0.5, detail=1.0,
         soft=0.1, amount=0.5, density=1.0, warmth=0.0, sun=None,
         res=960.0, seed=0, recul=0.0, visible=0.0, fov=60.0,
-        fade=1.0, horizon=0.0, tilt=0.0, shift=(0.0, 0.0)):
+        fade=1.0, horizon=0.0, tilt=0.0, shift=(0.0, 0.0), ramp=0.5):
     """Mer de nuages pleine vue d'en haut : couche posée sur le
     plan du sol jusqu'à layer (0 sol .. 1 œil), dessus en dômes, tours
     de cumulus qui en sortent par endroits. Marche de rayons par pixel
@@ -473,7 +475,7 @@ def sea(img, far, layer=0.35, size=0.5, billow=0.5, detail=1.0,
         # cumulus posé sur l'horizon, qui monte dans le ciel.
         return _face_volume(img, far, y_hz / rh, layer, size, billow,
                           detail, soft, amount, warmth, sun, seed, fade,
-                          visible, shift)
+                          visible, shift, ramp=ramp)
     if cam <= 1e-3:
         return None
     mips, r0, N, fmin, fmax = _sea_texture(int(seed))
