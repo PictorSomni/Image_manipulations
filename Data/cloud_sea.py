@@ -284,12 +284,12 @@ def _face_volume(img, far, yh, layer, size, billow, detail, soft, amount,
         hf = (py + 1.0) / T
         X, Y, Z = px * q, py * q * 1.6, pz * q
         m = _fbm(tex, X, Y, Z, base_o)
-        d = (m - (1 - cov)) * 6 * bil - hf * hf * 1.0
+        d = (m - (1 - cov)) * 4 * bil + 0.25 - hf * 0.9
         e = _fbm(tex, X + 7, Y, Z - 3, fine_o)
-        d = d - det * 0.6 * (1 - e) * np.clip(1 - d * 2, 0, 1)
+        d = d - det * 0.5 * (1 - e)
         op = _fbm(tex, X * 0.15 + 40, Y * 0.15, Z * 0.15, ((1, 1, 0),))
-        d = d * np.clip((op - 0.3) * 2.5, 0.15, 1.2)
-        d = d * np.clip(hf * 6, 0, 1) * (hf < 1)
+        d = d * np.clip((op - 0.35) * 3.0, 0.0, 1.0) ** 1.5
+        d = d * (hf < 1) * (hf > -0.05)
         return np.clip(d, 0, None)
 
     if sun is None:
@@ -302,7 +302,7 @@ def _face_volume(img, far, yh, layer, size, billow, detail, soft, amount,
     tk = np.geomspace(0.15, tmax, steps + 1).astype(np.float32)
     trans = np.ones((rh, rw), np.float32)
     light = np.zeros((rh, rw), np.float32)
-    sigma = 2.2 + 3.0 * (1 - float(np.clip(soft, 0, 1)))
+    sigma = 0.8 + 1.2 * (1 - float(np.clip(soft, 0, 1)))
     rng = np.random.default_rng(5 + int(seed))
     jit = rng.random((rh, rw)).astype(np.float32)
     for i in range(steps):
