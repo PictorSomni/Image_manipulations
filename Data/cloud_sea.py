@@ -283,14 +283,19 @@ def _face_volume(img, far, yh, layer, size, billow, detail, soft, amount,
     def dens(px, py, pz):
         hf = (py + 1.0) / T
         X, Y, Z = px * q, py * q * 1.6, pz * q
+        # Volutes : coordonnées tordues par un bruit (domain warp).
+        w1 = _fbm(tex, X * 0.5 + 91, Y * 0.5, Z * 0.5, ((1, 1, 0),))
+        w2 = _fbm(tex, X * 0.5, Y * 0.5 + 53, Z * 0.5 - 7, ((1, 1, 0),))
+        X = X + (w1 - 0.5) * 24 * bil
+        Y = Y + (w2 - 0.5) * 16 * bil
         m = _fbm(tex, X, Y, Z, base_o)
         d = (m - (1 - cov)) * 4 * bil + 0.35 - hf * 0.8
         e = _fbm(tex, X + 7, Y, Z - 3, fine_o)
         d = d - det * 0.5 * (1 - e)
         op = _fbm(tex, X * 0.15 + 40, Y * 0.15, Z * 0.15, ((1, 1, 0),))
-        d = d * np.clip(0.35 + (op - 0.4) * 1.6, 0.15, 0.9)
+        d = d * np.clip(0.3 + (op - 0.4) * 1.6, 0.1, 0.8)
         d = d * (hf < 1) * (hf > -0.05)
-        return np.clip(d, 0, 0.45)
+        return np.clip(d, 0, 0.8)
 
     if sun is None:
         sx_, sy_ = -0.25, -0.45
@@ -302,6 +307,7 @@ def _face_volume(img, far, yh, layer, size, billow, detail, soft, amount,
     tk = np.geomspace(0.15, tmax, steps + 1).astype(np.float32)
     trans = np.ones((rh, rw), np.float32)
     light = np.zeros((rh, rw), np.float32)
+    tw = np.zeros((rh, rw), np.float32)
     sigma = 1.3 + 1.6 * (1 - float(np.clip(soft, 0, 1)))
     rng = np.random.default_rng(5 + int(seed))
     jit = rng.random((rh, rw)).astype(np.float32)
@@ -323,13 +329,17 @@ def _face_volume(img, far, yh, layer, size, billow, detail, soft, amount,
             pz + ld[2] * 1.2 * L)
         hf = np.clip((py + 1.0) / T, 0, 1)
         lum = np.exp(-1.6 * sh) * 0.75 + 0.25 + 0.2 * hf
+        # Arêtes : bords fins éclairés (rim), plus forts face au soleil.
+        lum = lum + 0.45 * np.exp(-d * 9) * np.exp(-0.8 * sh)
         a = 1 - np.exp(-sigma * d * dt / L)
         light += trans * a * lum
+        tw += trans * a * t
         trans *= 1 - a
     trans = cv2.GaussianBlur(trans, (0, 0), 1.2)  # lisse le grain
     light = cv2.GaussianBlur(light, (0, 0), 1.2)
     A = 1 - trans
     lum = light / np.maximum(A, 1e-4)
+    tw = tw / np.maximum(A, 1e-4)  # profondeur moyenne de la brume
     # Couleurs de la scène.
     sm = cv2.resize(img, (rw, rh), interpolation=cv2.INTER_AREA)
     la = sm.mean(axis=2)
@@ -348,6 +358,28 @@ def _face_volume(img, far, yh, layer, size, billow, detail, soft, amount,
     gain = min(1.0, 1.2 * max(amount, 0.0)) * (
         1 - 0.7 * float(np.clip(visible, 0, 1)))
     A = A * gain
+    # Volutes à mi-résolution : bruit 3D pris au point de brume visible
+    # (même monde, donc même parallaxe), crêtes éclairées.
+    h2, w2 = rh, rw
+    tz = cv2.GaussianBlur(tw, (0, 0), 4)
+    yy2, xx2 = np.mgrid[0:h2, 0:w2].astype(np.float32)
+    f2 = foc * w2 / rw
+    X = (cx + (xx2 - w2 / 2) / f2 * tz) * q * 0.5
+    Y = (cy + (yh * h2 - yy2) / f2 * tz) * q * 0.5 * 1.6
+    Z = tz * q * 0.5
+    wa = _fbm(tex, X * 0.4 + 91, Y * 0.4, Z * 0.4, ((1, 1, 0),))
+    wb = _fbm(tex, X * 0.4, Y * 0.4 + 53, Z * 0.4, ((1, 1, 0),))
+    X, Y = X + (wa - 0.5) * 18, Y + (wb - 0.5) * 12
+    v = _fbm(tex, X, Y, Z, ((1, 0.6, 3), (2, 0.4, 13)))
+    v = (v - v.mean()) / (v.std() + 1e-6)
+    rid = np.clip(1 - np.abs(v) * 0.8, 0, 1) ** 2  # crêtes de volutes
+    car = np.clip(1 + 0.4 * v, 0.35, 1.5)
+    car = cv2.GaussianBlur(car, (0, 0), 1.0)
+    rid = cv2.GaussianBlur(rid, (0, 0), 1.0)
+    k_ = float(np.clip(billow, 0, 1))
+    A = np.clip(A * (1 - k_ + k_ * car), 0, 1)
+    col = col + (lit - col) * (0.6 * k_ * rid * np.clip(A * 2, 0, 1)
+                               )[..., None]
     acc = (col * A[..., None]).astype(np.float32)
     accf = cv2.resize(acc, (W, H), interpolation=cv2.INTER_CUBIC)
     af = cv2.resize(A.astype(np.float32), (W, H),
