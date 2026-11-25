@@ -265,7 +265,8 @@ def _face_volume(img, far, yh, layer, size, billow, detail, soft, amount,
     T = 1.2 + 6.0 * float(np.clip(layer, 0, 1))
     L = 2.5 + 3.5 * float(np.clip(size, 0.5, 2.0))  # cellule monde
     cov = 0.45 + 0.2 * float(np.clip(fade, 0, 1))
-    bil = 0.6 + 0.8 * float(np.clip(billow, 0, 1))
+    kb = float(np.clip(billow - 0.5, 0, 0.5)) * 2  # cumulus
+    bil = 0.6 + 0.8 * float(np.clip(billow, 0, 0.5))
     det = float(np.clip(detail, 0, 1))
     nv = _noise3(int(seed))
     n = nv.shape[0]
@@ -295,11 +296,15 @@ def _face_volume(img, far, yh, layer, size, billow, detail, soft, amount,
         op = _fbm(tex, X * 0.15 + 40, Y * 0.15, Z * 0.15, ((1, 1, 0),))
         d = d * np.clip(0.3 + (op - 0.4) * 1.6, 0.1, 0.8)
         # Cumulus : bourrelets ronds qui moulent la masse.
-        b = _fbm(tex, X * 0.8 + 3, Y * 0.8, Z * 0.8,
+        fq = 0.8 * (1 - 0.7 * kb)  # cumulus = grosses masses
+        b = _fbm(tex, X * fq + 3, Y * fq * 1.4, Z * fq,
                  ((1, 0.65, 0), (2, 0.35, 9)))
-        puff = np.clip((b - 0.42) * 4, 0, 1)
+        # Volutes : 0 = brume, 1 = cumulus à bords francs.
+        puff = np.clip((b - 0.42) * (4 + 10 * kb), 0, 1)
         puff = puff * puff * (3 - 2 * puff)
         d = d * (1 - 0.9 * bil + 2.2 * bil * puff)
+        cum = puff * np.clip(0.6 - hf, 0, 0.6) * 1.2
+        d = d * (1 - kb) + kb * cum
         # Nappes proches de l'objectif, basses et légères.
         d = d + 0.6 * puff * np.exp(-pz / (0.3 * L)) * (hf < 0.35)
         d = d * (hf < 1) * (hf > -0.05)
@@ -316,7 +321,7 @@ def _face_volume(img, far, yh, layer, size, billow, detail, soft, amount,
     trans = np.ones((rh, rw), np.float32)
     light = np.zeros((rh, rw), np.float32)
     tw = np.zeros((rh, rw), np.float32)
-    sigma = 0.7 + 0.9 * (1 - float(np.clip(soft, 0, 1)))
+    sigma = 1.6 + 2.0 * (1 - float(np.clip(soft, 0, 1)))
     rng = np.random.default_rng(5 + int(seed))
     jit = rng.random((rh, rw)).astype(np.float32)
     for i in range(steps):
