@@ -386,6 +386,9 @@ def _face_volume(img, far, yh, layer, size, billow, detail, soft, amount,
     fz = np.clip(np.log1p(tw) / np.log1p(40.0), 0, 1)[..., None]
     haze = 0.5 * (sky + lit)
     col = col * (1 - 0.7 * fz) + haze * 0.7 * fz
+    if kb > 0:
+        col, A = _puffs(col, A, tw, ts, lit, cool, haze, ld, kb, size,
+                        seed)
     gain = min(1.0, 1.2 * max(amount, 0.0)) * (
         1 - 0.7 * float(np.clip(visible, 0, 1)))
     A = A * gain
@@ -395,6 +398,68 @@ def _face_volume(img, far, yh, layer, size, billow, detail, soft, amount,
                     interpolation=cv2.INTER_CUBIC)[..., None]
     af = np.clip(af, 0, 1)
     return np.clip(img * (1 - af) + accf, 0, None)
+
+
+def _puffs(col, A, tw, ts, lit, cool, haze, ld, kb, size, seed):
+    """Bosses de cumulus rondes posées sur la crête du banc de brume,
+    éclairées côté soleil ; cachées derrière les objets plus proches."""
+    rh, rw = A.shape
+    top = np.argmax(A > 0.3, axis=0).astype(np.float32)
+    has = (A > 0.3).any(axis=0)
+    if has.sum() < rw * 0.1:
+        return col, A
+    top[~has] = np.median(top[has])
+    top = cv2.GaussianBlur(top[None], (0, 0), rw * 0.02)[0]
+    rng = np.random.default_rng(31 + int(seed))
+    yy, xx = np.mgrid[0:rh, 0:rw].astype(np.float32)
+    cov = np.zeros((rh, rw), np.float32)
+    shade = np.zeros((rh, rw), np.float32)
+    dep = np.zeros((rh, rw), np.float32)
+    mix = np.zeros((rh, rw), np.float32)
+    base = rw * 0.03 * float(size)
+    nz0 = cv2.GaussianBlur(rng.random((rh, rw)).astype(np.float32),
+                           (0, 0), max(1.0, base * 0.15))
+    nz0 = (nz0 - nz0.mean()) / (nz0.std() + 1e-4)
+    x = -base
+    # ponytail: boucle par boule (~40), vectoriser si trop lent
+    while x < rw + base:
+        for tier in range(2):
+            r = base * rng.uniform(0.6, 1.4) * (0.6 if tier else 1)
+            cx = x + rng.uniform(-0.4, 0.4) * r
+            ci = int(np.clip(cx, 0, rw - 1))
+            cy = top[ci] + r * (1.0 - 0.7 * tier)
+            ry = int(np.clip(top[ci] + 2, 0, rh - 1))
+            z = float(tw[ry, ci]) if A[ry, ci] > 0.1 else 20.0
+            if tier and rng.random() > 0.5 * kb + 0.2:
+                continue
+            ux, uy = (xx - cx) / r, (yy - cy) / r
+            q = (ux * ux + uy * uy) * (1 + 0.18 * nz0)
+            # Seulement devant le lointain : jamais sur un bâtiment.
+            far_ok = np.clip((ts - max(30.0, z * 1.2)) / 15.0, 0, 1)
+            c = np.clip((1 - q) / 0.35, 0, 1) * far_ok
+            c = c * np.clip((cy + 0.2 * r - yy) / (1.0 * r), 0, 1)
+            nz = np.sqrt(np.clip(1 - q, 0, 1))
+            sh = np.clip(ux * ld[0] - uy * ld[1] + nz * ld[2], 0, 1)
+            low = np.clip((yy - cy) / r + 0.6, 0, 1)
+            new = c > cov
+            mix = np.where(new, low, mix)
+            cov = np.where(new, c, cov)
+            shade = np.where(new, sh, shade)
+            dep = np.where(new, z, dep)
+        x += base * rng.uniform(0.6, 1.1)
+    shade = cv2.GaussianBlur(shade, (0, 0), 1.0)
+    t3 = (0.5 + 0.65 * shade)[..., None]
+    bc = cool + (lit - cool) * np.clip(t3, 0, 1.1)
+    fz = np.clip(np.log1p(dep) / np.log1p(40.0), 0, 1)[..., None]
+    bc = bc * (1 - 0.6 * fz) + haze * 0.6 * fz
+    # Bas des bosses : couleur et transparence de la brume, pour faire un tout.
+    m3 = cv2.GaussianBlur(mix, (0, 0), 2.0)[..., None]
+    bc = bc * (1 - m3) + col * m3
+    c = (kb * cov)[..., None] * (1 - 0.6 * m3)
+    a3 = A[..., None]
+    na = a3 + c * (1 - a3)
+    col = (col * a3 * (1 - c) + bc * c) / np.maximum(na, 1e-4)
+    return col, na[..., 0]
 
 
 def sea(img, far, layer=0.35, size=0.5, billow=0.5, detail=1.0,
