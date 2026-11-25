@@ -404,8 +404,8 @@ def _puffs(col, A, tw, ts, lit, cool, haze, ld, kb, size, seed):
     """Bosses de cumulus rondes posées sur la crête du banc de brume,
     éclairées côté soleil ; cachées derrière les objets plus proches."""
     rh, rw = A.shape
-    top = np.argmax(A > 0.3, axis=0).astype(np.float32)
-    has = (A > 0.3).any(axis=0)
+    top = np.argmax(A > 0.45, axis=0).astype(np.float32)
+    has = (A > 0.45).any(axis=0)
     if has.sum() < rw * 0.1:
         return col, A
     top[~has] = np.median(top[has])
@@ -436,8 +436,10 @@ def _puffs(col, A, tw, ts, lit, cool, haze, ld, kb, size, seed):
             q = (ux * ux + uy * uy) * (1 + 0.18 * nz0)
             # Seulement devant le lointain : jamais sur un bâtiment.
             far_ok = np.clip((ts - max(30.0, z * 1.2)) / 15.0, 0, 1)
+            # Bas prolongé jusque dans la brume : pas de trou entre les deux.
+            q = np.where(yy > cy, ux * ux * (1 + 0.18 * nz0), q)
             c = np.clip((1 - q) / 0.35, 0, 1) * far_ok
-            c = c * np.clip((cy + 0.2 * r - yy) / (1.0 * r), 0, 1)
+            c = c * np.clip((cy + 1.5 * r - yy) / (1.0 * r), 0, 1)
             nz = np.sqrt(np.clip(1 - q, 0, 1))
             sh = np.clip(ux * ld[0] - uy * ld[1] + nz * ld[2], 0, 1)
             low = np.clip((yy - cy) / r + 0.6, 0, 1)
@@ -455,7 +457,7 @@ def _puffs(col, A, tw, ts, lit, cool, haze, ld, kb, size, seed):
     # Bas des bosses : couleur et transparence de la brume, pour faire un tout.
     m3 = cv2.GaussianBlur(mix, (0, 0), 2.0)[..., None]
     bc = bc * (1 - m3) + col * m3
-    c = (kb * cov)[..., None] * (1 - 0.6 * m3)
+    c = (kb * cov)[..., None] * (1 - 0.15 * m3)
     a3 = A[..., None]
     na = a3 + c * (1 - a3)
     col = (col * a3 * (1 - c) + bc * c) / np.maximum(na, 1e-4)
