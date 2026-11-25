@@ -283,18 +283,24 @@ def _face_bank(img, far, yh, layer, size, billow, detail, soft, amount,
 
     # Profondeurs des couches proches : quantiles de la scène (hors ciel).
     gr = farl[~skym]
-    qs = (np.quantile(gr, [0.85, 0.6, 0.3]) if gr.size > 100
-          else np.array([0.8, 0.6, 0.4]))
-    # (profondeur, recul sous l'horizon 0..1) du fond vers l'avant.
-    layers = [(None, 0.0)] + [(float(q), g) for q, g in
-                              zip(qs, (0.35, 0.7, 1.1))]
+    # Beaucoup de tranches minces du fond vers l'avant : l'empilement
+    # et l'occlusion tranche par tranche font le volume.
+    # ponytail: 14 tranches ≈ 14 remaps ; plus = plus lent.
+    nl = 14
+    gs_ = np.linspace(0.08, 1.15, nl) ** 1.3
+    qs = (np.quantile(gr, np.linspace(0.97, 0.15, nl)) if gr.size > 100
+          else np.linspace(0.95, 0.3, nl))
+    layers = [(None, 0.0)] + [(float(q), float(g)) for q, g in
+                              zip(qs, gs_)]
     acc = np.zeros((rh, rw, 3), np.float32)
     A = np.zeros((rh, rw), np.float32)
     for f, g in layers:
         m = 1 + 2.5 * g  # plus proche : plus gros
         yb = y0 + (rh - y0) * g
         kp = 0.2 + 1.6 * (1 - (1.0 if f is None else f))
-        a, lum, rel = bank(yb, Hb0 * m, P0 * m, kp, f is not None)
+        # Tranches : nappe basse, épaisse de ~0,4 banc à leur distance.
+        hk = Hb0 * m * (1.0 if f is None else 0.4)
+        a, lum, rel = bank(yb, hk, P0 * m, kp, f is not None)
         t = np.clip(lum, 0, 1)[..., None]
         col = cool + (lit - cool) * t
         # Base dans la brume ; les couches proches en ont moins.
@@ -308,8 +314,8 @@ def _face_bank(img, far, yh, layer, size, billow, detail, soft, amount,
             # Devant tout ce qui est plus loin que la couche.
             vis = cv2.GaussianBlur(_smooth((farl - f + 0.06) / 0.15),
                                    (0, 0), 0.006 * rw)
-            # Dedans : un peu translucide, mais bords nets (volume).
-            a = a * (0.95 - 0.15 * min(g, 1))
+            # Tranche mince : translucide, l'épaisseur vient de la pile.
+            a = a * 0.28
         a = (a * vis).astype(np.float32)
         acc = acc * (1 - a[..., None]) + col * a[..., None]
         A = A * (1 - a) + a
