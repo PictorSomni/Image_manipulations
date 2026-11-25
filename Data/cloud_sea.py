@@ -188,6 +188,101 @@ def _by_lod(mips, u, v, lod, interp=cv2.INTER_LINEAR):
     return out
 
 
+def _smooth(x):
+    x = np.clip(x, 0, 1)
+    return x * x * (3 - 2 * x)
+
+
+def _face_bank(img, far, yh, layer, size, billow, detail, soft, amount,
+               warmth, sun, seed, fade, visible):
+    """Banc de cumulus vu de face, dessiné à l'écran : silhouette en
+    dômes (même texture que la mer) posée sur l'horizon yh (0..1),
+    tours plus hautes par endroits ; le relief des dômes, vu de face,
+    donne le modelé. Seulement sur le ciel : tout le reste est devant."""
+    H, W = far.shape
+    s = min(1.0, 720.0 / max(H, W))
+    rh, rw = max(16, int(H * s)), max(16, int(W * s))
+    mips, r0, N, fmin, fmax = _sea_texture(int(seed))
+    yy, xx = np.mgrid[0:rh, 0:rw].astype(np.float32)
+    # Rayon d'un dôme en px ; Taille 0,5 .. 2.
+    P = rh * (0.03 + 0.04 * float(np.clip(size, 0.5, 2.0)))
+    rng = np.random.default_rng(77 + int(seed))
+    ou, ov = rng.uniform(0, N, 2)
+    lv = max(0.0, math.log2(r0 / P)) + 1.5 * (
+        1 - float(np.clip(detail, 0, 1)))
+    j = min(int(lv), len(mips) - 1)
+    def oct_(sc, o):
+        uu = ((xx * r0 / (P * sc) + ou + o) % N) / 2 ** j
+        vv = ((yy * r0 / (P * sc) + ov + o) % N) / 2 ** j
+        return cv2.remap(mips[j], uu.astype(np.float32),
+                         vv.astype(np.float32), cv2.INTER_CUBIC,
+                         borderMode=cv2.BORDER_WRAP)
+
+    # Grosses masses + bouffées 3x plus petites sur la silhouette.
+    h = 0.75 * oct_(1.0, 0) + 0.25 * oct_(1 / 3, N / 3)
+    # ~0 au creux, ~0,3 en moyenne, >1 sur les tours.
+    h = ((h - fmin) / (fmax - fmin) - 0.15) / 0.5
+    # Hauteur du banc : Hauteur 0 .. 1 ; Bosses = tours plus marquées.
+    Hb = rh * (0.05 + 0.3 * float(np.clip(layer, 0, 1)))
+    rel = (yh * rh - yy) / Hb
+    bil = 0.8 + 1.2 * float(np.clip(billow, 0, 1))
+    # Base continue sur tout l'horizon, dômes et tours au-dessus.
+    field = 0.45 + h * bil - rel
+    ew = 0.05 + 0.25 * float(np.clip(soft, 0, 1))
+    a = _smooth(field / ew)
+    # Modelé : le relief des dômes vu de face, éclairé du soleil.
+    hs = cv2.GaussianBlur(h, (0, 0), 0.25 * P)
+    k = 2.0 * P
+    gx = cv2.Sobel(hs, cv2.CV_32F, 1, 0, ksize=3) / 8 * k
+    gy = cv2.Sobel(hs, cv2.CV_32F, 0, 1, ksize=3) / 8 * k
+    nn = np.sqrt(gx * gx + gy * gy + 1)
+    if sun is None:
+        sx, sy = -0.25, -0.45
+    else:
+        sx, sy = sun[0] / 100.0 - 0.5, sun[1] / 100.0 - 0.5
+    ld = np.array([sx * 1.5, 0.4 + max(0.0, -sy), 0.6])
+    ld /= np.linalg.norm(ld)
+    # Normale écran : x à droite, y vers le haut, z vers l'œil.
+    dif = np.clip((-gx * ld[0] + gy * ld[1] + ld[2]) / nn, 0, 1)
+    # Dans la masse : plus sombre en profondeur et vers la base.
+    inner = _smooth(field / 0.8)
+    lum = (0.7 + 0.45 * dif) * (1 - 0.15 * inner) * (
+        0.8 + 0.2 * _smooth(rel * 2))
+    # Couleurs de la scène : blanc des tons hauts du ciel, ombre teintée.
+    sm = cv2.resize(img, (rw, rh), interpolation=cv2.INTER_AREA)
+    skym = sky_mask(cv2.resize(far.astype(np.float32), (rw, rh),
+                               interpolation=cv2.INTER_AREA))
+    la = sm.mean(axis=2)
+    pool = skym if skym.sum() > 0.02 * skym.size else np.ones_like(skym)
+    lo = np.percentile(la[pool], 99.0)
+    white = sm[pool & (la >= lo)].reshape(-1, 3).mean(0)
+    white = white / max(1e-3, float(white.max())) * max(
+        0.85, float(white.max()))
+    sun_c = np.array([1.0, 1.0 - 0.02 * warmth, 1.0 - 0.08 * warmth])
+    lit = np.clip(white * sun_c, 0, 1)
+    sky = sm[pool].reshape(-1, 3).mean(0)
+    tint = np.clip(sky / max(1e-3, float(sky.max())), 0.6, 1)
+    cool = lit * 0.78 * tint ** 0.6
+    t = np.clip(lum, 0, 1)[..., None]
+    col = cool + (lit - cool) * t
+    # Base dans la brume de l'horizon.
+    ri = int(np.clip(yh * rh, 2, rh - 3))
+    hz = sm[ri - 2: ri + 3].reshape(-1, 3).mean(0)
+    fog = (0.6 * np.exp(-np.maximum(rel, 0) / 0.25))[..., None]
+    col = col * (1 - fog) + hz * fog
+    fl = 1.0 - float(np.clip(fade, 0, 1))
+    a = a ** (1 + 2 * fl) * min(1.0, 1.2 * max(amount, 0.0))
+    a *= 1 - 0.7 * float(np.clip(visible, 0, 1))
+    af = cv2.resize(a.astype(np.float32), (W, H),
+                    interpolation=cv2.INTER_LINEAR)
+    colf = cv2.resize(col.astype(np.float32), (W, H),
+                      interpolation=cv2.INTER_LINEAR)
+    # Derrière tout ce qui n'est pas du ciel (bords à pleine résolution).
+    skf = cv2.GaussianBlur(sky_mask(far).astype(np.float32), (0, 0), 1.0)
+    af = (af * skf)[..., None]
+    return img + (colf - img) * af
+
+
 def sea(img, far, layer=0.35, size=0.5, billow=0.5, detail=1.0,
         soft=0.1, amount=0.5, density=1.0, warmth=0.0, sun=None,
         res=960.0, seed=0, recul=0.0, visible=0.0, fov=60.0,
@@ -242,6 +337,14 @@ def sea(img, far, layer=0.35, size=0.5, billow=0.5, detail=1.0,
                 if keep.sum() < 20:
                     break
             coef = np.array([c02[0], c1, c02[1]])
+    # Vue de face, terrain plat : l'horizon est la ligne de ciel la plus
+    # basse, pas bien au-dessus (sinon la mer est vue « d'en haut »).
+    if top.sum() > 0.2 * rw:
+        yb = float(np.percentile(np.argmax(~skym[:, top], axis=0), 90))
+        if 0.5 * rh < yb < rh and rh / 2 - coef[1] * foc < yb - 0.1 * rh:
+            c1 = (rh / 2 - yb) / foc
+            yr = yv - c1 * A[:, 1]
+            coef = np.array([0.0, c1, float(np.percentile(yr, 3))])
     if horizon > 0:
         # Horizon imposé : pente et recul du plan fixés, seule la
         # hauteur de l'œil reste à ajuster (enveloppe basse).
@@ -253,6 +356,13 @@ def sea(img, far, layer=0.35, size=0.5, billow=0.5, detail=1.0,
             c2 = -max(1e-2, float(np.percentile(np.abs(yr), 90)))
         coef = np.array([c0, c1, c2])
     cam = float(-coef[2])  # hauteur de l'œil au-dessus du sol
+    y_hz = rh / 2 - coef[1] * foc
+    if y_hz > 0.6 * rh:
+        # Vue de face (horizon bas) : pas de mer vue d'en haut, banc de
+        # cumulus posé sur l'horizon, qui monte dans le ciel.
+        return _face_bank(img, far, y_hz / rh, layer, size, billow,
+                          detail, soft, amount, warmth, sun, seed, fade,
+                          visible)
     if cam <= 1e-3:
         return None
     mips, r0, N, fmin, fmax = _sea_texture(int(seed))
@@ -314,7 +424,12 @@ def sea(img, far, layer=0.35, size=0.5, billow=0.5, detail=1.0,
     gs = np.minimum(g[r_a:], -1e-6)
     xs, zs = xn[r_a:], zsc[r_a:]
     mh = rh - r_a
-    steps = 64
+    # Assez de tranches pour de grosses volutes, décalées par pixel :
+    # plus de strates visibles.
+    steps = 128
+    jit = np.random.default_rng(5 + int(seed)).random(
+        (mh, rw)).astype(np.float32) - 0.5
+    dy = (ymax + hv - ymin) / (steps - 1)
     thick = np.zeros((mh, rw), np.float32)
     # Opacité de Beer-Lambert sur l'épaisseur pondérée par la densité.
     sig = 2.1 * max(amount, 0.0) * max(density, 0.0) / gap
@@ -335,16 +450,27 @@ def sea(img, far, layer=0.35, size=0.5, billow=0.5, detail=1.0,
     lgs = (-np.log2(-gs)).astype(np.float32)
     zw = np.zeros((mh, rw), np.float32)
     cw = np.zeros((mh, rw), np.float32)
-    for y in np.linspace(ymax + hv, ymin, steps):
+    # Pas de fond de mer : les creux et le bas de la couche
+    # s'effacent en douceur, seules les volutes entières restent.
+    span = amp * (fmax - fmin)
+
+    def crest(Sv):
+        t = np.clip(((Sv - th - amp * fmin) / span - 0.05) / 0.3, 0, 1)
+        return t * t * (3 - 2 * t)
+
+    for y0 in np.linspace(ymax + hv, ymin, steps):
+        y = y0 + jit * dy
         z = np.minimum((y - cam) / gs, zmax)
         # Détail à la taille du pixel ou du pas, sans log par pixel.
-        fp = max((cam - y) / foc, 0.2 * (ymax - ymin) / (steps - 1))
+        fp = max((cam - y0) / foc, 0.2 * (ymax - ymin) / (steps - 1))
         S = surface(xs * z, z, lgs + math.log2(fp * N / tw))
         d = S - y
         if zp is not None:
             seg = np.maximum(z - zp, 1e-6)
             vis = np.clip((np.minimum(z, zs) - zp) / seg, 0, 1)
-            c = (rho(0.5 * (d + dp)) * vis * seg).astype(np.float32)
+            bf = np.clip((y - ymin) / (0.25 * span), 0, 1)
+            c = (rho(0.5 * (d + dp)) * crest(S) * bf * bf * vis
+                 * seg).astype(np.float32)
             thick += c
             zw += c * z
             cw += c
@@ -370,16 +496,13 @@ def sea(img, far, layer=0.35, size=0.5, billow=0.5, detail=1.0,
     zhit = np.where(hit, np.minimum(0.5 * (zlo + zhi), zs), zhit)
     # Sous la dernière tranche tout est nuage : la couche est pleine.
     rest = np.clip(zs - zp, 0, None)
-    c = rest * rho(np.maximum(dp, 0) - 0.5 * gs * rest)
+    c = np.zeros_like(rest)  # pas de fond
     thick += c
     ex = np.exp(-sig * c)
     lv += trans * (1 - ex) * 0.3
     front += np.where(rest > 0, np.minimum(c, np.maximum(
         0, zhit + lf - zp) * c / np.maximum(rest, 1e-6)), 0)
     trans *= ex
-    new = ~hit & (rest > 0)
-    zhit = np.where(new, zp, zhit)
-    hit |= new
     # Rayons qui frôlent les dômes : vapeur seule, à sa distance moyenne.
     vap = ~hit & (cw > 1e-6)
     zhit = np.where(vap, zw / np.maximum(cw, 1e-6), zhit)
