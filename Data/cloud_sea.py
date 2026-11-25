@@ -292,7 +292,7 @@ def _face_volume(img, far, yh, layer, size, billow, detail, soft, amount,
         m = _fbm(tex, X, Y, Z, base_o)
         d = (m - (1 - cov)) * 4 * bil + 0.35 - hf * 0.8
         e = _fbm(tex, X + 7, Y, Z - 3, fine_o)
-        d = d - det * 0.5 * (1 - e)
+        d = d - det * 0.5 * (1 - 0.6 * kb) * (1 - e)
         op = _fbm(tex, X * 0.15 + 40, Y * 0.15, Z * 0.15, ((1, 1, 0),))
         d = d * np.clip(0.3 + (op - 0.4) * 1.6, 0.1, 0.8)
         # Cumulus : bourrelets ronds qui moulent la masse.
@@ -307,7 +307,7 @@ def _face_volume(img, far, yh, layer, size, billow, detail, soft, amount,
         if kb > 0:
             sph = 0
             for o in (0.0, 0.5):
-                gx, gy, gz = X * 0.12 + o, Y * 0.12 / 1.4 + o, Z * 0.12 + o
+                gx, gy, gz = X * 0.06 + o, Y * 0.06 / 1.4 + o, Z * 0.06 + o
                 ix, iy, iz = np.floor(gx), np.floor(gy), np.floor(gz)
                 hsh = np.sin(ix * 12.99 + iy * 78.23 + iz * 37.71) * 43758.5
                 r = 0.25 + 0.3 * (hsh - np.floor(hsh))
@@ -317,6 +317,8 @@ def _face_volume(img, far, yh, layer, size, billow, detail, soft, amount,
             d = d * (1 - kb + kb * (0.25 + 1.5 * sph))
         # Nappes proches de l'objectif, basses et légères.
         d = d + 0.6 * puff * np.exp(-pz / (0.3 * L)) * (hf < 0.35)
+        # Progressif en profondeur : léger près de l'œil, plein au loin.
+        d = d * (1 - np.exp(-pz / (1.5 * L)))
         d = d * (hf < 1) * (hf > -0.05)
         return np.clip(d, 0, 0.8)
 
