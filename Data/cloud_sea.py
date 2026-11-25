@@ -288,9 +288,9 @@ def _face_volume(img, far, yh, layer, size, billow, detail, soft, amount,
         e = _fbm(tex, X + 7, Y, Z - 3, fine_o)
         d = d - det * 0.5 * (1 - e)
         op = _fbm(tex, X * 0.15 + 40, Y * 0.15, Z * 0.15, ((1, 1, 0),))
-        d = d * np.clip((op - 0.35) * 3.0, 0.0, 1.0) ** 1.5
+        d = d * np.clip(0.35 + (op - 0.4) * 1.6, 0.15, 0.9)
         d = d * (hf < 1) * (hf > -0.05)
-        return np.clip(d, 0, None)
+        return np.clip(d, 0, 0.45)
 
     if sun is None:
         sx_, sy_ = -0.25, -0.45
