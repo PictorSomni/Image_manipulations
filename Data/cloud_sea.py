@@ -195,63 +195,65 @@ def _smooth(x):
 
 def _face_bank(img, far, yh, layer, size, billow, detail, soft, amount,
                warmth, sun, seed, fade, visible):
-    """Banc de cumulus vu de face, dessiné à l'écran : silhouette en
-    dômes (même texture que la mer) posée sur l'horizon yh (0..1),
-    tours plus hautes par endroits ; le relief des dômes, vu de face,
-    donne le modelé. Seulement sur le ciel : tout le reste est devant."""
+    """Cumulus vus de face, dessinés à l'écran en couches de
+    profondeur : le banc du fond posé sur l'horizon, puis des couches
+    de plus en plus proches, plus basses et plus grosses, devant ce
+    qui est plus loin qu'elles (on se balade dedans). Silhouette en
+    dômes (texture de la mer), modelé par le relief des dômes."""
     H, W = far.shape
     s = min(1.0, 720.0 / max(H, W))
     rh, rw = max(16, int(H * s)), max(16, int(W * s))
     mips, r0, N, fmin, fmax = _sea_texture(int(seed))
     yy, xx = np.mgrid[0:rh, 0:rw].astype(np.float32)
-    # Rayon d'un dôme en px ; Taille 0,5 .. 2.
-    P = rh * (0.03 + 0.04 * float(np.clip(size, 0.5, 2.0)))
+    P0 = rh * (0.03 + 0.04 * float(np.clip(size, 0.5, 2.0)))
     rng = np.random.default_rng(77 + int(seed))
-    ou, ov = rng.uniform(0, N, 2)
-    lv = max(0.0, math.log2(r0 / P)) + 1.5 * (
-        1 - float(np.clip(detail, 0, 1)))
-    j = min(int(lv), len(mips) - 1)
-    def oct_(sc, o):
-        uu = ((xx * r0 / (P * sc) + ou + o) % N) / 2 ** j
-        vv = ((yy * r0 / (P * sc) + ov + o) % N) / 2 ** j
-        return cv2.remap(mips[j], uu.astype(np.float32),
-                         vv.astype(np.float32), cv2.INTER_CUBIC,
-                         borderMode=cv2.BORDER_WRAP)
-
-    # Grosses masses + bouffées 3x plus petites sur la silhouette.
-    h = 0.75 * oct_(1.0, 0) + 0.25 * oct_(1 / 3, N / 3)
-    # ~0 au creux, ~0,3 en moyenne, >1 sur les tours.
-    h = ((h - fmin) / (fmax - fmin) - 0.15) / 0.5
-    # Hauteur du banc : Hauteur 0 .. 1 ; Bosses = tours plus marquées.
-    Hb = rh * (0.05 + 0.3 * float(np.clip(layer, 0, 1)))
-    rel = (yh * rh - yy) / Hb
     bil = 0.8 + 1.2 * float(np.clip(billow, 0, 1))
-    # Base continue sur tout l'horizon, dômes et tours au-dessus.
-    field = 0.45 + h * bil - rel
     ew = 0.05 + 0.25 * float(np.clip(soft, 0, 1))
-    a = _smooth(field / ew)
-    # Modelé : le relief des dômes vu de face, éclairé du soleil.
-    hs = cv2.GaussianBlur(h, (0, 0), 0.25 * P)
-    k = 2.0 * P
-    gx = cv2.Sobel(hs, cv2.CV_32F, 1, 0, ksize=3) / 8 * k
-    gy = cv2.Sobel(hs, cv2.CV_32F, 0, 1, ksize=3) / 8 * k
-    nn = np.sqrt(gx * gx + gy * gy + 1)
+    Hb0 = rh * (0.05 + 0.3 * float(np.clip(layer, 0, 1)))
+    y0 = yh * rh
     if sun is None:
         sx, sy = -0.25, -0.45
     else:
         sx, sy = sun[0] / 100.0 - 0.5, sun[1] / 100.0 - 0.5
     ld = np.array([sx * 1.5, 0.4 + max(0.0, -sy), 0.6])
     ld /= np.linalg.norm(ld)
-    # Normale écran : x à droite, y vers le haut, z vers l'œil.
-    dif = np.clip((-gx * ld[0] + gy * ld[1] + ld[2]) / nn, 0, 1)
-    # Dans la masse : plus sombre en profondeur et vers la base.
-    inner = _smooth(field / 0.8)
-    lum = (0.7 + 0.45 * dif) * (1 - 0.15 * inner) * (
-        0.8 + 0.2 * _smooth(rel * 2))
+
+    def bank(yb, Hb, P):
+        """Alpha et luminance d'un banc posé sur la ligne yb."""
+        ou, ov = rng.uniform(0, N, 2)
+        lv = max(0.0, math.log2(r0 / P)) + 1.5 * (
+            1 - float(np.clip(detail, 0, 1)))
+        j = min(int(lv), len(mips) - 1)
+
+        def oct_(sc, o):
+            uu = ((xx * r0 / (P * sc) + ou + o) % N) / 2 ** j
+            vv = ((yy * r0 / (P * sc) + ov + o) % N) / 2 ** j
+            return cv2.remap(mips[j], uu.astype(np.float32),
+                             vv.astype(np.float32), cv2.INTER_CUBIC,
+                             borderMode=cv2.BORDER_WRAP)
+
+        # Grosses masses + bouffées 3x plus petites sur la silhouette.
+        h = 0.75 * oct_(1.0, 0) + 0.25 * oct_(1 / 3, N / 3)
+        h = ((h - fmin) / (fmax - fmin) - 0.15) / 0.5
+        rel = (yb - yy) / Hb
+        field = 0.45 + h * bil - rel
+        a = _smooth(field / ew)
+        hs = cv2.GaussianBlur(h, (0, 0), 0.25 * P)
+        k = 2.0 * P
+        gx = cv2.Sobel(hs, cv2.CV_32F, 1, 0, ksize=3) / 8 * k
+        gy = cv2.Sobel(hs, cv2.CV_32F, 0, 1, ksize=3) / 8 * k
+        nn = np.sqrt(gx * gx + gy * gy + 1)
+        dif = np.clip((-gx * ld[0] + gy * ld[1] + ld[2]) / nn, 0, 1)
+        inner = _smooth(field / 0.8)
+        lum = (0.7 + 0.45 * dif) * (1 - 0.15 * inner) * (
+            0.8 + 0.2 * _smooth(rel * 2))
+        return a, lum, rel
+
     # Couleurs de la scène : blanc des tons hauts du ciel, ombre teintée.
     sm = cv2.resize(img, (rw, rh), interpolation=cv2.INTER_AREA)
-    skym = sky_mask(cv2.resize(far.astype(np.float32), (rw, rh),
-                               interpolation=cv2.INTER_AREA))
+    farl = cv2.resize(far.astype(np.float32), (rw, rh),
+                      interpolation=cv2.INTER_AREA)
+    skym = sky_mask(farl)
     la = sm.mean(axis=2)
     pool = skym if skym.sum() > 0.02 * skym.size else np.ones_like(skym)
     lo = np.percentile(la[pool], 99.0)
@@ -263,23 +265,47 @@ def _face_bank(img, far, yh, layer, size, billow, detail, soft, amount,
     sky = sm[pool].reshape(-1, 3).mean(0)
     tint = np.clip(sky / max(1e-3, float(sky.max())), 0.6, 1)
     cool = lit * 0.78 * tint ** 0.6
-    t = np.clip(lum, 0, 1)[..., None]
-    col = cool + (lit - cool) * t
-    # Base dans la brume de l'horizon.
-    ri = int(np.clip(yh * rh, 2, rh - 3))
+    ri = int(np.clip(y0, 2, rh - 3))
     hz = sm[ri - 2: ri + 3].reshape(-1, 3).mean(0)
-    fog = (0.6 * np.exp(-np.maximum(rel, 0) / 0.25))[..., None]
-    col = col * (1 - fog) + hz * fog
     fl = 1.0 - float(np.clip(fade, 0, 1))
-    a = a ** (1 + 2 * fl) * min(1.0, 1.2 * max(amount, 0.0))
-    a *= 1 - 0.7 * float(np.clip(visible, 0, 1))
-    af = cv2.resize(a.astype(np.float32), (W, H),
-                    interpolation=cv2.INTER_LINEAR)
-    colf = cv2.resize(col.astype(np.float32), (W, H),
+    gain = min(1.0, 1.2 * max(amount, 0.0)) * (
+        1 - 0.7 * float(np.clip(visible, 0, 1)))
+
+    # Profondeurs des couches proches : quantiles de la scène (hors ciel).
+    gr = farl[~skym]
+    qs = (np.quantile(gr, [0.85, 0.6, 0.3]) if gr.size > 100
+          else np.array([0.8, 0.6, 0.4]))
+    # (profondeur, recul sous l'horizon 0..1) du fond vers l'avant.
+    layers = [(None, 0.0)] + [(float(q), g) for q, g in
+                              zip(qs, (0.35, 0.7, 1.1))]
+    acc = np.zeros((rh, rw, 3), np.float32)
+    A = np.zeros((rh, rw), np.float32)
+    for f, g in layers:
+        m = 1 + 2.5 * g  # plus proche : plus gros
+        yb = y0 + (rh - y0) * g
+        a, lum, rel = bank(yb, Hb0 * m, P0 * m)
+        t = np.clip(lum, 0, 1)[..., None]
+        col = cool + (lit - cool) * t
+        # Base dans la brume ; les couches proches en ont moins.
+        fog = ((0.6 - 0.4 * min(g, 1)) * np.exp(
+            -np.maximum(rel, 0) / 0.25))[..., None]
+        col = col * (1 - fog) + hz * fog
+        a = a ** (1 + 2 * fl) * gain
+        if f is None:
+            vis = skym.astype(np.float32)
+        else:
+            # Devant tout ce qui est plus loin que la couche.
+            vis = _smooth((farl - f) / 0.04)
+            # Dedans : la couche la plus proche reste translucide, floue.
+            a = a * (0.85 - 0.3 * min(g, 1))
+            if g > 1:
+                a = cv2.GaussianBlur(a, (0, 0), 0.01 * rw)
+        a = (a * vis).astype(np.float32)
+        acc = acc * (1 - a[..., None]) + col * a[..., None]
+        A = A * (1 - a) + a
+    colf = cv2.resize(acc / np.maximum(A, 1e-4)[..., None], (W, H),
                       interpolation=cv2.INTER_LINEAR)
-    # Derrière tout ce qui n'est pas du ciel (bords à pleine résolution).
-    skf = cv2.GaussianBlur(sky_mask(far).astype(np.float32), (0, 0), 1.0)
-    af = (af * skf)[..., None]
+    af = cv2.resize(A, (W, H), interpolation=cv2.INTER_LINEAR)[..., None]
     return img + (colf - img) * af
 
 
