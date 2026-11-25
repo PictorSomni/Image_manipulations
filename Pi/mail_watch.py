@@ -199,9 +199,18 @@ def _save_files(msg, mid):
     pas. Les petites images de signature sont ignorées."""
     fid = hashlib.md5(mid.encode()).hexdigest()
     folder, n = os.path.join(FILES, fid), 0
-    for part in msg.iter_attachments():
+    # Images collées dans le texte (inline) comprises.
+    parts = list(msg.iter_attachments()) + [
+        p for p in msg.walk() if p.get_content_maintype() == "image"]
+    seen = set()
+    for part in parts:
+        if id(part) in seen:
+            continue
+        seen.add(id(part))
         data = part.get_payload(decode=True) or b""
         name = os.path.basename(part.get_filename() or "")
+        if not name and part.get_content_maintype() == "image":
+            name = "image" + str(n + 1)
         if not name or name.startswith(".") or len(name) > 150 or (
                 part.get_content_maintype() == "image"
                 and len(data) < 15000) or (
@@ -216,7 +225,22 @@ def _save_files(msg, mid):
     return fid if n else ""
 
 
-def _new_mails():
+def _backfill(imap, pending):
+    """Mails ajoutés au briefing sans passer par la veille : on leur
+    rattache leurs pièces jointes."""
+    for m in pending:
+        if "files_id" in m or not m.get("message_id"):
+            continue
+        typ, ids = imap.search(None, "HEADER", "Message-ID",
+                               '"' + m["message_id"] + '"')
+        m["files_id"] = ""
+        if typ == "OK" and ids[0]:
+            raw = imap.fetch(ids[0].split()[-1], "(BODY.PEEK[])")[1][0][1]
+            m["files_id"] = _save_files(email.message_from_bytes(
+                raw, policy=email.policy.default), m["message_id"])
+
+
+def _new_mails(pending=()):
     state = _state()
     with imaplib.IMAP4_SSL(mail_reply.HOST) as imap:
         imap.login(mail_reply.ADDRESS, mail_reply._password())
@@ -224,6 +248,7 @@ def _new_mails():
         validity = imap.response("UIDVALIDITY")[1][0].decode()
         last = state.get("last", 0) if state.get("validity") == validity \
             else None
+        _backfill(imap, pending)
         uids = [int(u) for u in imap.uid("search", None, "ALL")[1][0].split()]
         if last is None:  # premier passage : on part de maintenant
             _save_state({"validity": validity,
@@ -335,7 +360,7 @@ def run():
 def _run():
     pending = mail_reply._read()
     known = {m["message_id"] for m in pending}
-    for msg in _new_mails():
+    for msg in _new_mails(pending):
         name, addr = email.utils.parseaddr(msg["From"] or "")
         sales = any(k in addr.lower() for k in ALWAYS)
         if not sales and (msg["List-Unsubscribe"] or msg[
@@ -374,6 +399,10 @@ def _run():
     # a pu marquer un mail répondu ; l'ancienne copie l'effaçait.
     current = mail_reply._read()
     seen = {m["message_id"] for m in current}
+    fids = {m["message_id"]: m["files_id"] for m in pending
+            if "files_id" in m}
+    for m in current:
+        m.setdefault("files_id", fids.get(m["message_id"], ""))
     current += [m for m in pending if m["message_id"] not in seen]
     with open(mail_reply.MAILS + ".tmp", "w", encoding="utf-8") as f:
         json.dump(current, f, ensure_ascii=False, indent=1)
