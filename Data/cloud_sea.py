@@ -194,7 +194,7 @@ def _smooth(x):
 
 
 def _face_bank(img, far, yh, layer, size, billow, detail, soft, amount,
-               warmth, sun, seed, fade, visible):
+               warmth, sun, seed, fade, visible, shift=(0.0, 0.0)):
     """Cumulus vus de face, dessinés à l'écran en couches de
     profondeur : le banc du fond posé sur l'horizon, puis des couches
     de plus en plus proches, plus basses et plus grosses, devant ce
@@ -218,9 +218,12 @@ def _face_bank(img, far, yh, layer, size, billow, detail, soft, amount,
     ld = np.array([sx * 1.5, 0.4 + max(0.0, -sy), 0.6])
     ld /= np.linalg.norm(ld)
 
-    def bank(yb, Hb, P):
-        """Alpha et luminance d'un banc posé sur la ligne yb."""
+    def bank(yb, Hb, P, kp, near):
+        """Alpha et luminance d'un banc posé sur la ligne yb ; kp =
+        part du Déplacement (parallaxe) ; near : bouffées détachées."""
         ou, ov = rng.uniform(0, N, 2)
+        ou -= kp * shift[0] * rw * 0.5 * r0 / P
+        ov -= kp * shift[1] * rh * 0.5 * r0 / P
         lv = max(0.0, math.log2(r0 / P)) + 1.5 * (
             1 - float(np.clip(detail, 0, 1)))
         j = min(int(lv), len(mips) - 1)
@@ -236,7 +239,12 @@ def _face_bank(img, far, yh, layer, size, billow, detail, soft, amount,
         h = 0.75 * oct_(1.0, 0) + 0.25 * oct_(1 / 3, N / 3)
         h = ((h - fmin) / (fmax - fmin) - 0.15) / 0.5
         rel = (yb - yy) / Hb
-        field = 0.45 + h * bil - rel
+        if near:
+            # Couche où l'on se tient : bouffées séparées par des trouées,
+            # autour de la hauteur de la couche, pas un drap continu.
+            field = h * bil * 1.4 - 0.5 - 0.6 * np.abs(rel - 0.6)
+        else:
+            field = 0.45 + h * bil - rel
         a = _smooth(field / ew)
         hs = cv2.GaussianBlur(h, (0, 0), 0.25 * P)
         k = 2.0 * P
@@ -265,8 +273,10 @@ def _face_bank(img, far, yh, layer, size, billow, detail, soft, amount,
     sky = sm[pool].reshape(-1, 3).mean(0)
     tint = np.clip(sky / max(1e-3, float(sky.max())), 0.6, 1)
     cool = lit * 0.78 * tint ** 0.6
-    ri = int(np.clip(y0, 2, rh - 3))
-    hz = sm[ri - 2: ri + 3].reshape(-1, 3).mean(0)
+    # Brume de base : ciel bas (pas le sol ni les murs sur l'horizon).
+    lowsky = pool & (yy > np.percentile(yy[pool], 80))
+    hz = (sm[lowsky].reshape(-1, 3).mean(0) if lowsky.any() else sky)
+    hz = np.maximum(hz, 0.5 * (hz + lit))
     fl = 1.0 - float(np.clip(fade, 0, 1))
     gain = min(1.0, 1.2 * max(amount, 0.0)) * (
         1 - 0.7 * float(np.clip(visible, 0, 1)))
@@ -283,7 +293,8 @@ def _face_bank(img, far, yh, layer, size, billow, detail, soft, amount,
     for f, g in layers:
         m = 1 + 2.5 * g  # plus proche : plus gros
         yb = y0 + (rh - y0) * g
-        a, lum, rel = bank(yb, Hb0 * m, P0 * m)
+        kp = 0.2 + 1.6 * (1 - (1.0 if f is None else f))
+        a, lum, rel = bank(yb, Hb0 * m, P0 * m, kp, f is not None)
         t = np.clip(lum, 0, 1)[..., None]
         col = cool + (lit - cool) * t
         # Base dans la brume ; les couches proches en ont moins.
@@ -295,24 +306,23 @@ def _face_bank(img, far, yh, layer, size, billow, detail, soft, amount,
             vis = skym.astype(np.float32)
         else:
             # Devant tout ce qui est plus loin que la couche.
-            vis = _smooth((farl - f) / 0.04)
-            # Dedans : la couche la plus proche reste translucide, floue.
-            a = a * (0.85 - 0.3 * min(g, 1))
-            if g > 1:
-                a = cv2.GaussianBlur(a, (0, 0), 0.01 * rw)
+            vis = cv2.GaussianBlur(_smooth((farl - f + 0.06) / 0.15),
+                                   (0, 0), 0.006 * rw)
+            # Dedans : un peu translucide, mais bords nets (volume).
+            a = a * (0.95 - 0.15 * min(g, 1))
         a = (a * vis).astype(np.float32)
         acc = acc * (1 - a[..., None]) + col * a[..., None]
         A = A * (1 - a) + a
-    colf = cv2.resize(acc / np.maximum(A, 1e-4)[..., None], (W, H),
-                      interpolation=cv2.INTER_LINEAR)
+    # Prémultiplié : pas de division par un alpha presque nul (taches).
+    accf = cv2.resize(acc, (W, H), interpolation=cv2.INTER_LINEAR)
     af = cv2.resize(A, (W, H), interpolation=cv2.INTER_LINEAR)[..., None]
-    return img + (colf - img) * af
+    return img * (1 - af) + accf
 
 
 def sea(img, far, layer=0.35, size=0.5, billow=0.5, detail=1.0,
         soft=0.1, amount=0.5, density=1.0, warmth=0.0, sun=None,
         res=960.0, seed=0, recul=0.0, visible=0.0, fov=60.0,
-        fade=1.0, horizon=0.0, tilt=0.0):
+        fade=1.0, horizon=0.0, tilt=0.0, shift=(0.0, 0.0)):
     """Mer de nuages pleine vue d'en haut : couche posée sur le
     plan du sol jusqu'à layer (0 sol .. 1 œil), dessus en dômes, tours
     de cumulus qui en sortent par endroits. Marche de rayons par pixel
@@ -388,7 +398,7 @@ def sea(img, far, layer=0.35, size=0.5, billow=0.5, detail=1.0,
         # cumulus posé sur l'horizon, qui monte dans le ciel.
         return _face_bank(img, far, y_hz / rh, layer, size, billow,
                           detail, soft, amount, warmth, sun, seed, fade,
-                          visible)
+                          visible, shift)
     if cam <= 1e-3:
         return None
     mips, r0, N, fmin, fmax = _sea_texture(int(seed))

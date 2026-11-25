@@ -3564,7 +3564,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
             density=ground or 1.0,
             warmth=warmth, sun=sun, res=min(_RES, 1200.0), seed=seed,
             recul=depth, visible=visible, fade=fade,
-            horizon=horizon, tilt=horizon_tilt)
+            horizon=horizon, tilt=horizon_tilt, shift=_SHIFT)
         if sea is not None:
             return _to_pil(sea)
     # Brume au sol : dense près de l'eau / des fonds, s'efface en montant.
