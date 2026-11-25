@@ -266,7 +266,8 @@ def _face_volume(img, far, yh, layer, size, billow, detail, soft, amount,
     L = 2.5 + 3.5 * float(np.clip(size, 0.5, 2.0))  # cellule monde
     cov = 0.45 + 0.2 * float(np.clip(fade, 0, 1))
     # Progression : 0 = dense dès l'œil, 1 = très lent.
-    rl = 0.05 + 5.0 * float(np.clip(ramp, 0, 1)) ** 2
+    # ancien max (5) vers 0,3 ; défaut 0,5 un peu au-delà.
+    rl = 2.0 + 18.0 * float(np.clip(ramp, 0, 1)) ** 2
     kb = float(np.clip(billow - 0.5, 0, 0.5)) * 2  # cumulus
     bil = 0.6 + 0.8 * float(np.clip(billow, 0, 0.5))
     det = float(np.clip(detail, 0, 1))
