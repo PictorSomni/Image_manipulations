@@ -264,7 +264,7 @@ def _face_volume(img, far, yh, layer, size, billow, detail, soft, amount,
     # bosses (Bosses), détail (Grain).
     T = 1.2 + 6.0 * float(np.clip(layer, 0, 1))
     L = 2.5 + 3.5 * float(np.clip(size, 0.5, 2.0))  # cellule monde
-    cov = 0.30 + 0.2 * float(np.clip(fade, 0, 1))
+    cov = 0.45 + 0.2 * float(np.clip(fade, 0, 1))
     bil = 0.6 + 0.8 * float(np.clip(billow, 0, 1))
     det = float(np.clip(detail, 0, 1))
     nv = _noise3(int(seed))
@@ -272,15 +272,23 @@ def _face_volume(img, far, yh, layer, size, billow, detail, soft, amount,
     cx = float(shift[0]) * 3.0
     cy = 0.0  # ponytail: caméra à hauteur fixe, x seul
 
+    from cloud_volume import _noise, _fbm
+    tex = _noise(int(seed))[0]
+    q = 64.0 / L  # voxels par unité monde (1 cellule = L)
+    # Forme : 3 octaves ; Grain : octaves fines qui rongent les bords ;
+    # opacité : bruit large indépendant (trouées, densité variable).
+    base_o = ((0.25, 0.6, 0.0), (0.5, 0.28, 11.0), (1.0, 0.12, 23.0))
+    fine_o = ((2.0, 0.5, 5.0), (4.0, 0.3, 17.0), (8.0, 0.2, 29.0))
+
     def dens(px, py, pz):
         hf = (py + 1.0) / T
-        # Masses : bruit large (cellules), fondues en hauteur : bases
-        # plates, sommets arrondis.
-        m = _tri(nv, px / L * n / 4, py / L * n / 4 * 0.6, pz / L * n / 4)
-        e = _tri(nv, px / L * n * 0.9 + 17, py / L * n * 0.9,
-                 pz / L * n * 0.9 + 5)
-        d = (m - (1 - cov)) * 7 * bil - hf * hf * 1.2 \
-            + det * 0.35 * (e - 0.5)
+        X, Y, Z = px * q, py * q * 1.6, pz * q
+        m = _fbm(tex, X, Y, Z, base_o)
+        d = (m - (1 - cov)) * 6 * bil - hf * hf * 1.0
+        e = _fbm(tex, X + 7, Y, Z - 3, fine_o)
+        d = d - det * 0.6 * (1 - e) * np.clip(1 - d * 2, 0, 1)
+        op = _fbm(tex, X * 0.15 + 40, Y * 0.15, Z * 0.15, ((1, 1, 0),))
+        d = d * np.clip((op - 0.3) * 2.5, 0.15, 1.2)
         d = d * np.clip(hf * 6, 0, 1) * (hf < 1)
         return np.clip(d, 0, None)
 
