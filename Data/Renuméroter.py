@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Renumérote les pages exportées par Affinity avec des zéros de tête.
+Renumérote une série de fichiers (pages Affinity, piste1.wav…) avec des zéros de tête.
 
 Affinity exporte les pages d'un document multi-pages avec le minimum de
 chiffres nécessaire (nom_1.jpg, nom_2.jpg, ..., nom_10.jpg) — le tri
@@ -34,7 +34,7 @@ import CONSTANTS
 # Capture tout ce qui précède le DERNIER "_<chiffres>" du nom (sans
 # extension) — c'est toujours ce numéro final qu'Affinity ajoute pour
 # la page, quel que soit le contenu du préfixe.
-PAGE_SUFFIX_RE = re.compile(r'^(.*)_(\d+)$')
+PAGE_SUFFIX_RE = re.compile(r'^(.*?)(_?)(\d+)$')  # _ facultatif : piste1.wav
 MIN_DIGITS = 3  # nom_001.jpg au minimum, même pour une courte série (retour user)
 
 #############################################################
@@ -42,7 +42,7 @@ MIN_DIGITS = 3  # nom_001.jpg au minimum, même pour une courte série (retour u
 #############################################################
 
 async def main(page: ft.Page) -> None:
-    page.title = "Renommer pages Affinity"
+    page.title = "Renuméroter"
     page.theme_mode = ft.ThemeMode.DARK
     page.bgcolor = CONSTANTS.COLOR_DARK
     page.window.width = 560
@@ -98,7 +98,7 @@ async def main(page: ft.Page) -> None:
 
         files = sorted(
             entry for entry in source_folder.iterdir()
-            if entry.is_file() and entry.suffix.lower() in CONSTANTS.IMAGE_EXTS
+            if entry.is_file() and not entry.name.startswith(".")
         )
 
         # (préfixe, extension) -> [(numéro, nb_chiffres_actuel, chemin), ...]
@@ -107,7 +107,8 @@ async def main(page: ft.Page) -> None:
             match = PAGE_SUFFIX_RE.match(file_path.stem)
             if not match:
                 continue
-            prefix, digits = match.group(1), match.group(2)
+            prefix = match.group(1) + match.group(2)
+            digits = match.group(3)
             key = (prefix, file_path.suffix)
             groups.setdefault(key, []).append(
                 (int(digits), len(digits), file_path))
@@ -126,7 +127,7 @@ async def main(page: ft.Page) -> None:
                 max(existing_width for _, existing_width, _ in pages),
             )
             for number, _existing_width, file_path in pages:
-                new_name = f"{prefix}_{number:0{width}d}{file_path.suffix}"
+                new_name = f"{prefix}{number:0{width}d}{file_path.suffix}"
                 if new_name == file_path.name:
                     continue
                 new_path = file_path.parent / new_name
@@ -163,7 +164,7 @@ async def main(page: ft.Page) -> None:
                 ft.Row([
                     ft.Icon(ft.Icons.FORMAT_LIST_NUMBERED, color=BLUE, size=24),
                     ft.Text(
-                        "Renommer pages Affinity",
+                        "Renuméroter",
                         size=16, color=WHITE, weight=ft.FontWeight.W_600,
                     ),
                     ft.Container(expand=True),

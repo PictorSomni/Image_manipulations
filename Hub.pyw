@@ -8843,8 +8843,8 @@ def main(page: ft.Page):
         ("Renommage", [
             ("Renommer séquence", ft.Icons.SORT_BY_ALPHA, BLUE,
              _launch_renommer_sequence),
-            ("Renommer pages Affinity", ft.Icons.FORMAT_LIST_NUMBERED, BLUE,
-             lambda e: _launch_tool("Renommer pages Affinity.py")),
+            ("Renuméroter", ft.Icons.FORMAT_LIST_NUMBERED, BLUE,
+             lambda e: _launch_tool("Renuméroter.py")),
             ("Nettoyer noms Topaz", ft.Icons.DRIVE_FILE_RENAME_OUTLINE,
              BLUE, lambda e: _launch_tool("Nettoyer noms Topaz.py")),
             ("Retirer _OK", ft.Icons.LABEL_OFF_OUTLINED, BLUE,

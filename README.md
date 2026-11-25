@@ -52,7 +52,7 @@ Clic droit ou bouton **Actions** : toutes les opérations regroupées par étape
 | Catégorie | Outils |
 |---|---|
 | Fichier | Ouvrir dans un nouvel onglet, renommer, copier, couper, coller, dupliquer, zipper, ajouter à l'IA, rotations, imprimer, nombre d'impressions, supprimer |
-| Préparation | Conversion JPG / PNG, PDF ou Word vers IDML, Renommer séquence, Renommer pages Affinity, Séparer RAW et JPG, Transfert vers TEMP, Rassembler sous-dossiers vers TEMP |
+| Préparation | Conversion JPG / PNG, PDF ou Word vers IDML, Renommer séquence, Renuméroter, Séparer RAW et JPG, Transfert vers TEMP, Rassembler sous-dossiers vers TEMP |
 | Sélection | Déplacer la sélection ou les RAW vers SELECTION, copie selon score IA, Fichiers identiques, Comparaison |
 | Kiosque | Interface de commande et d'impression pour bornes |
 | Recadrage | Recadrage manuel, Recadrage automatique, 2 en 1 |
