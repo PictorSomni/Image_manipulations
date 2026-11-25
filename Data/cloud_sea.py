@@ -296,15 +296,25 @@ def _face_volume(img, far, yh, layer, size, billow, detail, soft, amount,
         op = _fbm(tex, X * 0.15 + 40, Y * 0.15, Z * 0.15, ((1, 1, 0),))
         d = d * np.clip(0.3 + (op - 0.4) * 1.6, 0.1, 0.8)
         # Cumulus : bourrelets ronds qui moulent la masse.
-        fq = 0.8 * (1 - 0.7 * kb)  # cumulus = grosses masses
+        fq = 0.8 * (1 - 0.3 * kb)  # cumulus : bourrelets un peu plus gros
         b = _fbm(tex, X * fq + 3, Y * fq * 1.4, Z * fq,
                  ((1, 0.65, 0), (2, 0.35, 9)))
         # Volutes : 0 = brume, 1 = cumulus à bords francs.
         puff = np.clip((b - 0.42) * (4 + 10 * kb), 0, 1)
         puff = puff * puff * (3 - 2 * puff)
         d = d * (1 - 0.9 * bil + 2.2 * bil * puff)
-        cum = puff * np.clip(0.6 - hf, 0, 0.6) * 1.2
-        d = d * (1 - kb) + kb * cum
+        # Cumulus : vraies boules 3D (2 grilles décalées, rayon aléatoire).
+        if kb > 0:
+            sph = 0
+            for o in (0.0, 0.5):
+                gx, gy, gz = X * 0.12 + o, Y * 0.12 / 1.4 + o, Z * 0.12 + o
+                ix, iy, iz = np.floor(gx), np.floor(gy), np.floor(gz)
+                hsh = np.sin(ix * 12.99 + iy * 78.23 + iz * 37.71) * 43758.5
+                r = 0.25 + 0.3 * (hsh - np.floor(hsh))
+                dd = np.sqrt((gx - ix - 0.5) ** 2 + (gy - iy - 0.5) ** 2
+                             + (gz - iz - 0.5) ** 2)
+                sph = np.maximum(sph, np.clip((r - dd) / 0.08, 0, 1))
+            d = d * (1 - kb + kb * (0.25 + 1.5 * sph))
         # Nappes proches de l'objectif, basses et légères.
         d = d + 0.6 * puff * np.exp(-pz / (0.3 * L)) * (hf < 0.35)
         d = d * (hf < 1) * (hf > -0.05)
@@ -343,7 +353,7 @@ def _face_volume(img, far, yh, layer, size, billow, detail, soft, amount,
         hf = np.clip((py + 1.0) / T, 0, 1)
         lum = np.exp(-2.5 * sh) * 0.85 + 0.15 + 0.2 * hf
         # Arêtes : bords fins éclairés (rim), plus forts face au soleil.
-        lum = lum + 0.45 * np.exp(-d * 9) * np.exp(-0.8 * sh)
+        lum = lum + (0.45 + 0.6 * kb) * np.exp(-d * 9) * np.exp(-0.8 * sh)
         a = 1 - np.exp(-sigma * d * dt / L)
         light += trans * a * lum
         tw += trans * a * t
