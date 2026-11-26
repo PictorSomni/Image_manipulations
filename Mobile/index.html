@@ -66,7 +66,7 @@ input, textarea, select { font: inherit; width: 100%; color: var(--text);
   background: var(--dark); border: 1px solid #555b68;
   border-radius: var(--r); padding: 10px 12px; }
 textarea { resize: vertical; }
-input[type=date] { -webkit-appearance: none; appearance: none;
+input[type=date], input[type=time] { -webkit-appearance: none; appearance: none;
   min-width: 0; min-height: 44px; box-sizing: border-box; }
 .muted { color: var(--grey); font-size: 13px; }
 .status { color: var(--grey); font-size: 12px; min-height: 1em; }
@@ -1407,6 +1407,8 @@ function viewHome() {
     const rows = S.tasks.filter(r => (r.Etat || "À faire") === etat);
     out.push(glass(`${etat} · ${rows.length}`, "Tâches ›", () => {
       S.open = etat; tab("tasks"); },
+      etat === "À faire" ? h("div", {class: "slot", onclick: () => newTask()},
+        ic("add"), h("div", {class: "tx"}, "Nouvelle tâche")) : null,
       ...rows.slice(0, 6).map(r => h("div", {class: "slot",
         onclick: () => taskDetails(r)},
         h("i", {class: "bar2", style: {background: color}}),
