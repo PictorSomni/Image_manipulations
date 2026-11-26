@@ -669,6 +669,7 @@ def main(page: ft.Page):
             gen_btn.disabled = False
             ui_helpers.set_busy_veil(veil, False)
             page.update()
+            await page.window.close()
 
         def _one(f):
             sheet = fc.make_sheet(st["model"], st["objects"],
