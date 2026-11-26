@@ -874,6 +874,9 @@ function newEvent(ev) {
     f.tel, f.mail, extraBox, f.notes,
     h("div", {class: "row"}, h("button", {onclick: ok}, ic("check"),
       ev ? " Enregistrer" : " Créer"), ev ? callBtn(row) : null,
+      ev ? h("button", {onclick: () => { closeSheet(); newTask({
+        demande: f.nom.value, telephone: f.tel.value, email: f.mail.value,
+        notes: f.notes.value}); }}, ic("add_task")) : null,
       ev ? h("button", {class: "btn out red", onclick: del}, ic("delete"),
         " Supprimer") : null)]);
 }
