@@ -874,6 +874,8 @@ class Handler(BaseHTTPRequestHandler):
                                "files": _with_files()})
         if path == "/api/notes":
             return self._json({"text": _notes(q["id"])})
+        if path == "/api/blocnotes":  # Bloc-notes du Hub, synchronisé
+            return self._json(hub_sync.get("blocnotes") or {"text": ""})
         if path == "/api/lists":
             extra = hub_sync.get("listes") or []
             names = ["liste", "prix"] + [f"liste-{r['nom']}" for r in extra]
@@ -945,6 +947,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": mail_reply.call(data)})
         if path == "/api/task":
             _set_props(data["id"], data["props"])
+            return self._json({"ok": True})
+        if path == "/api/setblocnotes":
+            hub_sync.put("blocnotes", {"text": data["text"]})
             return self._json({"ok": True})
         if path == "/api/setnotes":
             _tasks("notion-update-page", {

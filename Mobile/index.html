@@ -1429,6 +1429,23 @@ function viewHome() {
         style: {marginTop: "6px"}}, `+ ${rows.length - 6} autres`) :
         null));
   }
+  // Bloc-notes du Hub, synchronisé via le Pi : copier/coller entre
+  // appareils. Textarea gardée entre deux rendus (frappe pas perdue).
+  if (!S.pad) {
+    S.pad = h("textarea", {rows: 4, style: {width: "100%",
+      boxSizing: "border-box"}});
+    S.pad.oninput = () => { clearTimeout(S.padT);
+      S.padT = setTimeout(() => api("/api/setblocnotes",
+        {text: S.pad.value}).catch(e => S.status = e.message), 800); };
+    const pull = () => document.activeElement !== S.pad &&
+      api("/api/blocnotes").then(r => S.pad.value = r.text || "")
+        .catch(() => {});
+    pull();
+    document.addEventListener("visibilitychange",
+      () => !document.hidden && pull());
+  }
+  out.push(glass("Bloc-notes", "Copier", () =>
+    navigator.clipboard.writeText(S.pad.value), S.pad));
   // Anecdotes du jour tirées des actus
   if (S.digest && S.digest.text) out.push(glass("Le saviez-tu ?",
     "Actus ›", () => tab("news"),

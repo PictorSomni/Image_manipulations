@@ -7,6 +7,8 @@ noms de main (ui) et renvoie les noms utilisés ailleurs dans Hub."""
 
 from ai_tools import _backup_file
 import CONSTANTS
+import hub_sync
+import threading
 import asyncio
 import flet as ft
 import flet_code_editor as fce
@@ -139,6 +141,43 @@ def build(ui):
         notes_field.disabled = note_target["truncated"]
         notes_dirty["value"] = False
 
+    def _notes_pull():
+        # Bloc-notes de base synchronisé via le Pi (hub-sync « blocnotes »),
+        # partagé avec la web app : copier/coller entre appareils.
+        if not hub_sync.available():
+            return
+
+        def _go():
+            try:
+                text = (hub_sync.get("blocnotes", timeout=4) or {})["text"]
+            except Exception:
+                return
+            if (note_target["path"] != _notes_file or notes_dirty["value"]
+                    or text == (notes_field.value or "")):
+                return
+            if not text.strip():  # Pi vide : ne pas effacer la note locale
+                _try_put(notes_field.value or "")
+                return
+            notes_field.value = text
+            try:
+                with open(_notes_file, "w", encoding="utf-8") as f:
+                    f.write(text)
+                page.update()
+            except Exception:
+                pass
+        threading.Thread(target=_go, daemon=True).start()
+
+    def _notes_push(text):
+        if hub_sync.available():
+            threading.Thread(target=lambda: _try_put(text),
+                             daemon=True).start()
+
+    def _try_put(text):
+        try:
+            hub_sync.put("blocnotes", {"text": text})
+        except Exception:
+            pass
+
     def _notes_save(event=None):
         path = note_target["path"]
         if note_target.get("truncated"):
@@ -154,6 +193,8 @@ def build(ui):
         except Exception:
             return
         notes_dirty["value"] = False
+        if path == _notes_file:
+            _notes_push(notes_field.value or "")
         # Redémarrage seulement sur clic explicite (event fourni), pas lors
         # de l'autosave (débounce silencieux) — cf. Dashboard.pyw:1560-1573.
         if path == _constants_path and event is not None:
@@ -301,6 +342,7 @@ def build(ui):
         notes_body,
     ], expand=True, spacing=0)
     _notes_load()
+    _notes_pull()
 
     # Bandeau en bas (comme terminal_panel), pas surface plein écran
     # (retour user) : reste replié à CONSTANTS.HUB_TERMINAL_HEIGHT par
@@ -333,6 +375,7 @@ def build(ui):
         Liste/IA reste affiché à côté) — remplace les anciens passages par
         _select_surface("notes")."""
         notes_panel.visible = True
+        _notes_pull()
         _sync_notes_btn()
         page.update()
         _run_task(_focus_active_surface)
@@ -341,6 +384,8 @@ def build(ui):
         notes_panel.visible = not notes_panel.visible
         if not notes_panel.visible:
             _notes_save()   # comme l'ancien changement d'onglet
+        else:
+            _notes_pull()
         _sync_notes_btn()
         page.update()
         _run_task(_focus_active_surface)
