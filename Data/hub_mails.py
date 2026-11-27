@@ -351,7 +351,11 @@ def build(ui):
 
         def _listed(names):
             if isinstance(names, Exception):
+                status.value = f"Pièces jointes indisponibles : {names}"
                 names = []
+            elif not names:
+                status.value = "Pièces jointes pas encore récupérées"
+            actions.visible = bool(names)
             files.controls = [ft.TextButton(
                 n, icon=ft.Icons.ATTACH_FILE, data=n,
                 on_click=lambda e, n=n: _open(n)) for n in names]
@@ -370,13 +374,14 @@ def build(ui):
             names = [c.data for c in files.controls]
             _bg(lambda: _download(folder, names), _saved)
 
-        return ft.Column([previews, files, ft.Row([
+        actions = ft.Row([
             ft.TextButton("Enregistrer dans le dossier en cours",
                           icon=ft.Icons.DOWNLOAD, on_click=_save_here),
             ft.TextButton("Enregistrer sous…",
                           icon=ft.Icons.DRIVE_FOLDER_UPLOAD_OUTLINED,
                           on_click=_save),
-            open_btn], spacing=6, wrap=True), status],
+            open_btn], spacing=6, wrap=True, visible=False)
+        return ft.Column([previews, files, actions, status],
             spacing=4, tight=True)
 
     # ── Réponse à un mail (fenêtre commune : mail_compose) ───────────────
