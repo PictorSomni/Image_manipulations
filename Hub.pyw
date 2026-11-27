@@ -6415,7 +6415,7 @@ def main(page: ft.Page):
     def _liste_mode_options():
         liste_mode_dd.options = [
             ft.dropdown.Option("todo", "À faire"),
-            ft.dropdown.Option("prix", "Tarifs"),
+            ft.dropdown.Option("prix", "Impression"),
             *[ft.dropdown.Option(r["nom"], r["titre"])
               for r in _listes["rows"]]]
 

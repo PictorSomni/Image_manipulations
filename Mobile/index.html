@@ -908,7 +908,7 @@ function viewAgenda() {
 async function loadLists() {
   try {
     const d = await api("/api/lists");
-    S.listes = [["liste", "À faire"], ["prix", "Tarifs"],
+    S.listes = [["liste", "À faire"], ["prix", "Impression"],
       ...(d.listes || []).map(r => ["liste-" + r.nom, r.titre])];
     S.lists = Object.fromEntries(S.listes.map(([n]) => [n, d[n] || []]));
     S.base = structuredClone(S.lists);
@@ -936,7 +936,7 @@ function viewLists() {
   const name = S.listKind;
   const pick = h("select", {style: {width: "100%"}, onchange: e => {
     S.listKind = e.target.value; render(); }},
-    ...(S.listes || [["liste", "À faire"], ["prix", "Tarifs"]]).map(
+    ...(S.listes || [["liste", "À faire"], ["prix", "Impression"]]).map(
       ([v, t]) => h("option", {value: v, selected: v === name}, t)));
   const out = [pick];
   if (!S.lists) return [...out, h("div", {class: "bar"})];
