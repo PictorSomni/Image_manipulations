@@ -184,4 +184,28 @@ def build(ui):
         dlg.open = True
         refresh()
 
+    def upload(paths):
+        """Glisser-déposer de tuiles sur le bouton « Dépôt »."""
+        files = [p for p in paths if os.path.isfile(p)]
+        if not files:
+            return
+
+        def work():
+            for p in files:
+                with open(p, "rb") as f:
+                    hub_sync.file_req("PUT", DEPOT_ID,
+                                      os.path.basename(p), f.read())
+            return len(files)
+
+        def done(out):
+            ok = not isinstance(out, Exception)
+            ui._log_to_terminal(
+                f"[OK] {out} fichier(s) envoyé(s) au dépôt" if ok
+                else f"[ERREUR] Dépôt : {out}",
+                ui.GREEN if ok else ui.RED)
+            if ok and dlg.open:
+                refresh()
+        _bg(work, done)
+
+    open_depot.upload = upload
     return open_depot

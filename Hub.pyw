@@ -10388,7 +10388,7 @@ def main(page: ft.Page):
             terminal_toggle_btn,
             notes_toggle_btn,
             _files_drop(mails_toggle_btn, lambda ps: _mail_selected(ps)),
-            depot_btn,
+            _files_drop(depot_btn, _open_depot.upload),
             ft.Container(
                 content=ft.Row([
                     tariff_wrap,
