@@ -1447,6 +1447,10 @@ function viewHome() {
     document.addEventListener("visibilitychange",
       () => !document.hidden && pull());
   }
+  // Dépôt : fichiers à récupérer dans Hub (bouton « Dépôt »).
+  // DEPOT_ID = md5("depot"), comme Data/hub_depot.py.
+  S.depot = S.depot || filesBox({url: "/6f13b876f224fb5d11c729c36a871540"});
+  out.push(glass("Dépôt", null, null, S.depot));
   out.push(glass("Bloc-notes", "Copier", () =>
     navigator.clipboard.writeText(S.pad.value), S.pad));
   // Anecdotes du jour tirées des actus

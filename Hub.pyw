@@ -72,6 +72,7 @@ import hub_ia_gallery
 import hub_actus
 import hub_kanban
 import hub_mails
+import hub_depot
 import hub_agenda
 from ai_tools import (
     _backup_file, _folder_create_file, _md_dark, _copy_scored_photos,
@@ -10367,6 +10368,17 @@ def main(page: ft.Page):
 
     _mails["sync_btn"] = _sync_mails_btn
 
+    # → Data/hub_depot.py (fichiers envoyés depuis la web app)
+    _open_depot = hub_depot.build(
+        SimpleNamespace(**{**globals(), **locals()}))
+    depot_btn = ft.TextButton(
+        content=ft.Row([ft.Icon(ft.Icons.MOVE_TO_INBOX_OUTLINED,
+                                size=CONSTANTS.ICON_SM, color=ORANGE),
+                        ft.Text("Dépôt", size=CONSTANTS.TEXT_SM,
+                                color=WHITE)], spacing=6, tight=True),
+        height=CONSTANTS.HUB_STATUSBAR_TAP_HEIGHT, on_click=_open_depot,
+        tooltip="Dépôt")
+
     # Barre plus haute (56 au lieu de 40) + cibles tactiles agrandies pour
     # Terminal/Actions/curseur de taille — accès écran tactile (retour user).
     statusbar = ft.Container(
@@ -10376,6 +10388,7 @@ def main(page: ft.Page):
             terminal_toggle_btn,
             notes_toggle_btn,
             _files_drop(mails_toggle_btn, lambda ps: _mail_selected(ps)),
+            depot_btn,
             ft.Container(
                 content=ft.Row([
                     tariff_wrap,
