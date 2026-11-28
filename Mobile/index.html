@@ -1044,9 +1044,10 @@ function listEdit(name, row) {
   const cat = h("select", {style: {width: "150px", flex: "none"}},
     ...[...cats, NEW_CAT].map(c => h("option", {value: c,
       selected: c === cur}, c)));
+  // Liste sans catégories (Annuaire…) : pas de catégorie demandée.
   const newCat = h("input", {placeholder: "Nouvelle catégorie",
-    style: {display: cats.length ? "none" : ""}});
-  if (!cats.length) cat.value = NEW_CAT;
+    style: {display: "none"}});
+  if (!cats.length) cat.style.display = "none";
   cat.onchange = () => newCat.style.display =
     cat.value === NEW_CAT ? "" : "none";
   const fields = Object.fromEntries(cols.map(c => [c, h("textarea",
@@ -1056,10 +1057,12 @@ function listEdit(name, row) {
   first.style.flex = "1"; first.style.width = "auto";
   const err = h("div", {style: {color: C.red}});
   const ok = () => {
-    const category = cat.value === NEW_CAT ? newCat.value.trim() : cat.value;
-    if (!category) { err.textContent = "Catégorie obligatoire"; return; }
+    const category = !cats.length ? "" :
+      cat.value === NEW_CAT ? newCat.value.trim() : cat.value;
+    if (cats.length && !category) {
+      err.textContent = "Catégorie obligatoire"; return; }
     const target = row || {};
-    target["catégorie"] = category;
+    if (category) target["catégorie"] = category;
     for (const [c, f] of Object.entries(fields)) target[c] = f.value;
     if (!row) { if (name === "liste") target.fait = "False";
       rows.push(target); }
